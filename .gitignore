@@ -1,0 +1,22 @@
+# Godot 4 / engine artifacts
+.godot/
+.import/
+*.import
+*.uid
+export.cfg
+export_presets.cfg
+*.translation
+
+# Python
+__pycache__/
+*.pyc
+
+# Build / capture artifacts
+artifacts/screenshots/*.png
+artifacts/screenshots/*.jpg
+artifacts/*.log
+.studio/*.log
+
+# OS
+.DS_Store
+Thumbs.db

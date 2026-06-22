@@ -1,0 +1,115 @@
+; Engine configuration file for Voidborne Command
+; Godot 4.4.1 - 3D space simulator vertical slice
+
+config_version=5
+
+[application]
+
+config/name="Voidborne Command"
+config/description="Original 3D space-sim vertical slice: fly, fight, board, capture, command a fleet."
+run/main_scene="res://scenes/main.tscn"
+config/features=PackedStringArray("4.4", "Forward Plus")
+config/icon="res://icon.svg"
+boot_splash/show_image=false
+
+[autoload]
+
+Game="*res://scripts/game_state.gd"
+Capture="*res://scripts/capture.gd"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
+[rendering]
+
+renderer/rendering_method="forward_plus"
+environment/defaults/default_clear_color=Color(0.01, 0.01, 0.03, 1)
+anti_aliasing/quality/msaa_3d=1
+environment/glow/enabled=true
+
+[physics]
+
+common/enable_pause_aware_picking=true
+
+[input]
+
+thrust_up={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":87,"unicode":119}]
+}
+thrust_down={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":83,"unicode":115}]
+}
+boost={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":4194325}]
+}
+brake={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":88,"unicode":120}]
+}
+yaw_left={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":65,"unicode":97}]
+}
+yaw_right={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":68,"unicode":100}]
+}
+pitch_up={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":4194320}]
+}
+pitch_down={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":4194322}]
+}
+roll_left={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":81,"unicode":113}]
+}
+roll_right={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":69,"unicode":101}]
+}
+fire={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":32,"unicode":32},{"type":"mouse_button","button_index":1}]
+}
+next_target={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":4194306}]
+}
+board_ship={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":66,"unicode":98}]
+}
+recruit_crew={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":82,"unicode":114}]
+}
+recruit_marine={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":77,"unicode":109}]
+}
+buy_ship={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":89,"unicode":121}]
+}
+follow_toggle={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":70,"unicode":102}]
+}
+toggle_deck={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":67,"unicode":99}]
+}
+interact={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":4194309}]
+}
