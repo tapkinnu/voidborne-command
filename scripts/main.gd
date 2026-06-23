@@ -54,6 +54,13 @@ const SERVICE_SHIELD_RATE: float = 0.35
 const SERVICE_ENERGY_RATE: float = 0.15
 const DISABLE_FRAC: float = 0.22   # hull fraction at/below which a ship is "disabled"
 
+# Combat economy. Capturing hostile assets pays better than destroying them so the
+# requested disable/board/capture loop feeds the shipyard and fleet-growth economy.
+const CAPTURE_BOUNTY_RATE: float = 0.18
+const DESTROY_SALVAGE_RATE: float = 0.08
+const MIN_CAPTURE_BOUNTY: int = 100
+const MIN_DESTROY_SALVAGE: int = 40
+
 # Capture/demo: when launched for screenshots, the player auto-fights so frames are lively.
 var auto_demo: bool = false
 
@@ -617,13 +624,27 @@ func _destroy_ship(s: Node3D) -> void:
 	_spawn_explosion(s.global_position, s.radius())
 	if audio:
 		audio.play("explosion")
-	_msg("%s destroyed." % s.ship_name)
+	if s.faction == "hostile":
+		var reward: int = _destroy_salvage_reward(s)
+		Game.credits += reward
+		_msg("%s destroyed — salvage +%d cr." % [s.ship_name, reward])
+	else:
+		_msg("%s destroyed." % s.ship_name)
 	if s == target:
 		target = null
 	if boarding_target == s:
 		_cancel_boarding()
 	ships.erase(s)
 	s.queue_free()
+
+func _ship_credit_value(s: Node3D) -> int:
+	return int(Game.class_stat(s.ship_class, "value"))
+
+func _capture_credit_reward(s: Node3D) -> int:
+	return max(MIN_CAPTURE_BOUNTY, int(ceil(float(_ship_credit_value(s)) * CAPTURE_BOUNTY_RATE)))
+
+func _destroy_salvage_reward(s: Node3D) -> int:
+	return max(MIN_DESTROY_SALVAGE, int(ceil(float(_ship_credit_value(s)) * DESTROY_SALVAGE_RATE)))
 
 func _spawn_explosion(pos: Vector3, base_radius: float) -> void:
 	var node: MeshInstance3D = MeshInstance3D.new()
@@ -849,11 +870,16 @@ func _cancel_boarding() -> void:
 	boarding_progress = 0.0
 
 func _complete_capture(s: Node3D) -> void:
+	var was_hostile: bool = s.faction == "hostile"
+	var reward: int = _capture_credit_reward(s) if was_hostile else 0
 	s.set_faction("player")
 	s.disabled = false
 	s.hull = max(s.hull, s.max_hull * 0.4)
 	Game.marine_pool = max(0, Game.marine_pool - 2)
 	Game.captured_count += 1
+	if reward > 0:
+		Game.credits += reward
+		_msg("Boarding prize secured: +%d cr capture bounty." % reward)
 	# Try to man it from the crew pool; otherwise it is captured-but-unmanned.
 	if Game.crew_pool >= s.crew_needed:
 		Game.crew_pool -= s.crew_needed

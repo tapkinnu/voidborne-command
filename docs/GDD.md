@@ -48,7 +48,10 @@ Boost multiplies target speed and drains energy; brake sharply reduces it. Per-c
 A disabled, non-allied target within range can be boarded (`B`). A boarding bar fills at
 a rate scaled by your marine count. On completion the asset `set_faction("player")`,
 consumes marines, and is added to your fleet — **manned** if you have spare crew for its
-`crew_needed`, otherwise captured-but-unmanned. Stations capture the same way: the seeded
+`crew_needed`, otherwise captured-but-unmanned. Hostile captures pay a boarding bounty
+(`18%` of the ship-class value, minimum 100 cr), while destroying a hostile instead pays
+smaller salvage (`8%`, minimum 40 cr). This keeps boarding economically superior and feeds
+the buy/crew/fleet-growth loop. Stations capture the same way: the seeded
 scenario keeps neutral **Halcyon** as the recruit/shipyard hub and adds hostile **Kryos
 Relay** as a boardable station-capture objective.
 

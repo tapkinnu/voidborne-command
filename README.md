@@ -76,7 +76,8 @@ formation (fighter wing, corvette, frigate, capital, and a hostile relay station
 cycles combat hostiles first so the neutral shipyard hub does not steal target lock.
 Whittle a hostile ship or the hostile **Kryos Relay** station to the **disable** threshold
 (~22%), close within boarding range, and press `B` — marines breach and a boarding bar
-fills. On completion the asset **switches to your faction**; if you have spare crew it is
+fills. On completion the asset **switches to your faction** and hostile captures pay a better
+credit bounty than simple destruction salvage; if you have spare crew it is
 manned and joins your **fleet formation**, otherwise it sits captured-but-unmanned until
 you recruit crew. Docking at a friendly station (the neutral hub or a captured one) also
 unlocks a `H` **repair/refit** service that restores hull, shields, and energy across your
