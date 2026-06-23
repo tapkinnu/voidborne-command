@@ -53,7 +53,7 @@ Screenshots are written to `artifacts/screenshots/` (plus a `contact_sheet.jpg`)
 | `M` | Recruit marine (180 cr) |
 | `G` | Cycle the station shipyard offer (fighter / corvette / frigate / capital) |
 | `Y` | Buy the selected shipyard class (auto-mans if crew available) |
-| `F` | Man any unmanned owned ships / hold formation |
+| `F` | Man any unmanned owned ships; if none need crew, toggle fleet order **follow ↔ hold position** |
 | `C` | Toggle the **crew deck** interior view |
 
 ### Crew deck (interior mode)
@@ -75,7 +75,9 @@ you have spare crew it is manned and joins your **fleet formation**, otherwise i
 captured-but-unmanned until you recruit crew. At the station you recruit crew/marines,
 cycle a shipyard offer across fighter/corvette/frigate/capital classes, buy the selected
 ship, and step into the **crew deck** to walk among your procedurally-built humanoid crew
-and order them to follow you.
+and order them to follow you. Once ships are manned, `F` becomes a direct fleet command:
+toggle escorts between following the flagship and holding their current tactical positions
+while covering nearby hostiles.
 
 ## Ship classes
 

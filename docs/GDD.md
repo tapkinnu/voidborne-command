@@ -13,7 +13,7 @@ simplified, fully code-built form.
 1. **Fly your ship** — 6-DoF-ish arcade flight with throttle/boost/brake and yaw/pitch/roll.
 2. **Crew & marines** — recruit, see them as humanoids, order them to follow.
 3. **Disable → board → capture** — non-lethal takedown of ships and stations.
-4. **Buy & command** — purchase ships, man them, fly in formation.
+4. **Buy & command** — purchase ships, man them, and issue follow/hold fleet orders.
 5. **Distinct classes** — fighter / corvette / frigate / capital / station.
 6. **Live battle** — hostile wing + larger ships + station, with weapons FX and a readable HUD.
 
@@ -60,9 +60,11 @@ to follow (`F`); followers trail the captain in a loose formation.
 ### 4.5 Economy & fleet
 At the station: recruit crew (120) / marines (180), cycle the shipyard offer with `G`,
 and buy the selected class with `Y` (fighter 800, corvette 2200, frigate 5200,
-capital 16000). Purchased and captured ships need `crew_needed` crew to be **manned**;
-manned owned ships fly a ring formation behind the player and break off to engage nearby
-hostiles.
+capital 16000). Purchased and captured ships need `crew_needed` crew to be **manned**.
+Once no unmanned owned ships need crew, `F` toggles the active fleet order between
+**follow** (ring formation behind the player, with nearest-enemy engagement) and
+**hold** (escorts brake at their current tactical points while still covering nearby
+hostiles).
 
 ### 4.6 Ship classes
 See the table in `README.md` and the authoritative `SHIP_CLASSES` dictionary in

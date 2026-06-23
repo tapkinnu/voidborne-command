@@ -28,6 +28,8 @@ var audio: Node
 var throttle: float = 0.4
 var target: Node3D = null
 var deck_mode: bool = false
+var fleet_order: String = "follow"        # follow | hold
+var fleet_hold_positions: Dictionary = {}  # instance_id -> Vector3
 
 # Boarding state.
 var boarding_active: bool = false
@@ -317,9 +319,29 @@ func _run_ai(delta: float) -> void:
 			s.velocity = s.velocity.move_toward(Vector3.ZERO, s.accel * delta)
 			continue
 		if s.faction == "player":
-			_ai_follow_player(s, delta)
+			if s.ai_state == "hold" or fleet_order == "hold":
+				_ai_hold_position(s, delta)
+			else:
+				_ai_follow_player(s, delta)
 		else:
 			_ai_combat(s, delta)
+
+func _ai_hold_position(s: Node3D, delta: float) -> void:
+	# Fleet command mode: hold the current tactical point while still firing at
+	# close hostiles. This makes [F] a real command order, not only a crew-assignment key.
+	var id: int = s.get_instance_id()
+	if not fleet_hold_positions.has(id):
+		fleet_hold_positions[id] = s.global_position
+	var goal: Vector3 = fleet_hold_positions[id]
+	var enemy: Node3D = _nearest(s, "hostile")
+	if enemy != null and s.global_position.distance_to(enemy.global_position) < s.weapon_range:
+		_face_and_fire(s, enemy, delta)
+		s.target = enemy
+	if s.global_position.distance_to(goal) > 7.0:
+		_steer_toward(s, goal, delta, 0.45)
+	else:
+		s.throttle = 0.0
+		s.velocity = s.velocity.move_toward(Vector3.ZERO, s.accel * delta)
 
 func _ai_follow_player(s: Node3D, delta: float) -> void:
 	# Fleet formation: ring offset behind the player; engage nearby hostiles.
@@ -864,7 +886,8 @@ func _buy_ship(near_station: bool) -> void:
 	if audio: audio.play("ui_buy")
 
 func _toggle_fleet_follow() -> void:
-	# Re-man any unmanned owned ships if crew is now available.
+	# First use available crew to man any owned ships; if none need crew, [F] toggles
+	# a tactical fleet order between follow formation and hold position.
 	var changed: int = 0
 	for s in ships:
 		if not is_instance_valid(s) or s.faction != "player" or s.is_player:
@@ -873,13 +896,29 @@ func _toggle_fleet_follow() -> void:
 			Game.crew_pool -= s.crew_needed
 			s.crew_assigned = s.crew_needed
 			s.manned = true
-			s.ai_state = "follow"
+			s.ai_state = fleet_order
 			changed += 1
 	if changed > 0:
-		_msg("Assigned crew to %d ship(s) — now manned and following." % changed)
+		_msg("Assigned crew to %d ship(s) — now manned and %s." % [changed, fleet_order])
 		if audio: audio.play("ui_recruit")
+		return
+
+	if fleet_order == "follow":
+		fleet_order = "hold"
+		fleet_hold_positions.clear()
+		for fs in ships:
+			if is_instance_valid(fs) and fs.faction == "player" and not fs.is_player and fs.manned:
+				fs.ai_state = "hold"
+				fleet_hold_positions[fs.get_instance_id()] = fs.global_position
+		_msg("Fleet order: HOLD POSITION and cover the flagship.")
 	else:
-		_msg("Fleet holding formation.")
+		fleet_order = "follow"
+		fleet_hold_positions.clear()
+		for fs2 in ships:
+			if is_instance_valid(fs2) and fs2.faction == "player" and not fs2.is_player and fs2.manned:
+				fs2.ai_state = "follow"
+		_msg("Fleet order: FOLLOW formation on the flagship.")
+	if audio: audio.play("ui_recruit")
 
 func _set_deck_mode(on: bool) -> void:
 	deck_mode = on
@@ -921,6 +960,7 @@ func _update_hud() -> void:
 	d["crew_pool"] = Game.crew_pool
 	d["marine_pool"] = Game.marine_pool
 	d["fleet_count"] = _count_fleet()
+	d["fleet_order"] = fleet_order
 	d["captured"] = Game.captured_count
 	d["shipyard_class"] = _shipyard_class()
 	d["shipyard_cost"] = _shipyard_cost()
@@ -979,10 +1019,10 @@ func _count_fleet() -> int:
 
 func _context_prompt() -> String:
 	if is_instance_valid(station) and _pdist(station) < 70.0:
-		return "STATION: [G] %s %dcr  [Y] buy  [R] crew  [M] marine  [C] deck  [F] man" % [_shipyard_class().to_upper(), _shipyard_cost()]
+		return "STATION: [G] %s %dcr  [Y] buy  [R] crew  [M] marine  [C] deck  [F] man/order" % [_shipyard_class().to_upper(), _shipyard_cost()]
 	if is_instance_valid(target) and target.disabled and target.faction != "player":
 		return "[B] board %s with marines" % target.ship_name
-	return "[Tab] cycle target   [C] crew deck"
+	return "[Tab] target   [F] fleet %s   [C] crew deck" % ("HOLD" if fleet_order == "follow" else "FOLLOW")
 
 func _build_radar() -> Array:
 	var blips: Array = []

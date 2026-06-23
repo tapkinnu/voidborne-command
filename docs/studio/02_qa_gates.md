@@ -40,7 +40,8 @@ Run the build interactively and confirm:
 - [ ] `Tab` cycles targets; firing damages shields then hull.
 - [ ] A hostile reaching ≤22% hull reads **DISABLED**; `B` within range fills a boarding
       bar; on completion the target re-tints to player and (crew permitting) joins the fleet.
-- [ ] Near the station, `R`/`M`/`Y` adjust credits/pools/fleet; `F` mans unmanned ships.
+- [ ] Near the station, `R`/`M`/`Y` adjust credits/pools/fleet; `F` mans unmanned ships,
+      then toggles manned fleet order between follow and hold.
 - [ ] `C` enters the deck; walking up to a crew member and pressing `F` toggles follow.
 
 ## Regression watch-list

@@ -15,7 +15,7 @@
 - [x] Captured ships/stations switch faction and become player-owned.
 - [x] Buy ships at the station.
 - [x] Assign crew so purchased/captured ships are **manned**.
-- [x] Manned ships follow in fleet formation.
+- [x] Manned ships follow in fleet formation and can be ordered to hold position.
 - [x] Distinct classes: fighter, corvette, frigate, capital (+ station) with distinct
       stats, silhouette scale, greebles/turrets, and behavior.
 - [x] Live battle: hostile wing, a larger hostile ship, a station, beams/projectiles/explosions.
@@ -44,7 +44,7 @@
 - [ ] Named crew with roles, skills, morale; station assignments affect ship stats.
 - [ ] Boarding as a resolved squad action (attacker vs defender marines, casualties).
 - [ ] Deck navigation across multiple rooms / multiple owned ships.
-- [ ] Order menu (escort, attack-my-target, hold, dock) for fleet ships.
+- [ ] Order menu (escort, attack-my-target, dock) for fleet ships beyond the current follow/hold toggle.
 
 ### Economy & world
 - [ ] Persistent save/load of credits, roster, and fleet.
@@ -63,7 +63,8 @@
 - Crew/marines are abstract pools surfaced as humanoids on the deck, not persistent
   individuals with stats.
 - Boarding resolves on a timer scaled by marine count, not a modeled firefight.
-- Fleet AI is a ring-formation + nearest-enemy engage heuristic, not orderable yet.
+- Fleet AI is a ring-formation / hold-position toggle with nearest-enemy engagement;
+  richer orders such as attack-my-target, escort roles, and docking are not built yet.
 - The auto-demo (capture mode) targets the nearest object, which may be the neutral
   station; interactive play gives full target control via `Tab`.
 - Single hand-seeded scenario; no persistence between runs.
