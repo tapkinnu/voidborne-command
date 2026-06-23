@@ -87,6 +87,31 @@ when any work is done. If credits can't cover the bill, the dock applies proport
 nothing and reports "all systems nominal". Hostile stations and open space refuse service
 (`ui_deny`). The economy panel surfaces an `[H] Repair/refit` cost hint while docked.
 
+### 4.5b Persistence (quick save / quick load)
+`V` writes a save and `L` loads one in both space and crew-deck mode (a load returns the
+player to the bridge). The save is a **versioned JSON** document at a deterministic path,
+`user://voidborne_save.json` — exposed via the `save_path` script variable so tests redirect
+it to a scratch file. The schema carries `game_id` (`voidborne_command`), an integer
+`version` (currently `1`), an `economy` block (credits, crew/marine pools, captured/purchased
+tallies), `shipyard_index`, the standing `fleet_order` and focus-fire target name, the
+current target name, and a `ships` array. Each ship entry stores its unique `ship_name`,
+`ship_class`, `faction`, `is_player`, `manned`, `crew_assigned`, hull/shield/energy (current
+and max), `disabled`/`destroyed` flags, `ai_state`, and `pos`/`rot` float arrays. Destroyed
+ships are omitted, so a rebuild never resurrects a cleared hostile.
+
+Loading first **validates** the payload and rejects — without touching live state — anything
+that is corrupt/non-object, carries the wrong `game_id`, is missing a required section/field,
+has a malformed position/rotation array or unknown ship class, lacks a player flagship, or
+declares a `version` greater than the current one. A valid load tears down the live battle,
+clears transient state (boarding, projectiles, beams, explosions, fleet hold points), rebuilds
+every saved ship, re-wires the `player` and `station` references (preferring the neutral hub,
+then an owned, then any non-hostile station so service/shipyard prompts keep working), reverts
+an attack order to **follow** if its focus target is gone, and re-acquires a hostile target
+when the saved lock is missing. Captured stations/ships stay player-owned, purchased ships
+persist, and unmanned prizes stay unmanned. A producer-side Python verifier,
+`tools/verify_save_load.py`, mirrors this schema policy independently (wired into
+`tools/validate_build.sh`) so drift is caught even without running the engine.
+
 ### 4.6 Ship classes
 See the table in `README.md` and the authoritative `SHIP_CLASSES` dictionary in
 `scripts/game_state.gd`. Each class has distinct stats, silhouette scale, and a unique
@@ -110,6 +135,8 @@ events. No audio files ship. `tools/check_audio_wiring.py` statically verifies e
 declared trigger has a gameplay call site.
 
 ## 7. Out of scope for the slice (production backlog)
-Persistent save/economy, station docking interiors, multi-system map, crew skills/morale,
-mouse-flight, controller support, real art/audio pipeline, networked or scripted
-campaign. Tracked in `docs/studio/definition_of_done.md`.
+Station docking interiors, multi-system map, crew skills/morale, mouse-flight, controller
+support, real art/audio pipeline, networked or scripted campaign. Tracked in
+`docs/studio/definition_of_done.md`. (Single-system **quick save/load** of credits, roster,
+and fleet is now shipped — see §4.5b; multi-slot/named saves and multi-system persistence
+remain backlog.)

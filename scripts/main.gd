@@ -64,6 +64,13 @@ const MIN_DESTROY_SALVAGE: int = 40
 # Capture/demo: when launched for screenshots, the player auto-fights so frames are lively.
 var auto_demo: bool = false
 
+# --- Persistent save/load ---------------------------------------------------
+# Versioned quick save/load of the current single-system battle. save_path is a
+# script variable so tests can redirect it to a scratch file.
+const SAVE_GAME_ID: String = "voidborne_command"
+const SAVE_VERSION: int = 1
+var save_path: String = "user://voidborne_save.json"
+
 var messages: Array = []           # rolling message log (strings)
 var objective: String = "Disable & board Ironclaw, then capture hostile Kryos Relay station."
 var _elapsed: float = 0.0
@@ -240,6 +247,7 @@ func _build_deck() -> void:
 # ---------------------------------------------------------------------------
 func _process(delta: float) -> void:
 	_elapsed += delta
+	_handle_save_load()
 	if deck_mode:
 		_process_deck(delta)
 	else:
@@ -1163,6 +1171,323 @@ func _set_deck_mode(on: bool) -> void:
 		_msg("Returned to the bridge.")
 
 # ---------------------------------------------------------------------------
+# PERSISTENT SAVE / LOAD
+# ---------------------------------------------------------------------------
+func _handle_save_load() -> void:
+	# Works in both space and crew-deck mode; loading from the deck returns to the bridge.
+	if Input.is_action_just_pressed("quick_save"):
+		_quick_save()
+	if Input.is_action_just_pressed("quick_load"):
+		_quick_load()
+
+func _quick_save() -> bool:
+	var data: Dictionary = _build_save_dict()
+	var f: FileAccess = FileAccess.open(save_path, FileAccess.WRITE)
+	if f == null:
+		_msg("Save failed: cannot open %s" % save_path)
+		if audio: audio.play("ui_deny")
+		return false
+	f.store_string(JSON.stringify(data, "\t"))
+	f.close()
+	_msg("Game SAVED (v%d) — %d cr, fleet %d." % [SAVE_VERSION, Game.credits, _count_fleet()])
+	if audio: audio.play("ui_buy")
+	return true
+
+func _build_save_dict() -> Dictionary:
+	var ship_list: Array = []
+	for s in ships:
+		if not is_instance_valid(s) or s.destroyed:
+			continue   # destroyed ships are omitted; they must not resurrect on load
+		ship_list.append(_ship_to_dict(s))
+	var atk_name: String = ""
+	if is_instance_valid(fleet_attack_target):
+		atk_name = String(fleet_attack_target.ship_name)
+	var tgt_name: String = ""
+	if is_instance_valid(target) and not target.destroyed:
+		tgt_name = String(target.ship_name)
+	return {
+		"game_id": SAVE_GAME_ID,
+		"version": SAVE_VERSION,
+		"economy": {
+			"credits": Game.credits,
+			"crew_pool": Game.crew_pool,
+			"marine_pool": Game.marine_pool,
+			"captured_count": Game.captured_count,
+			"purchased_count": Game.purchased_count,
+		},
+		"shipyard_index": shipyard_index,
+		"fleet_order": fleet_order,
+		"fleet_attack_target": atk_name,
+		"target": tgt_name,
+		"ships": ship_list,
+	}
+
+func _ship_to_dict(s: Node3D) -> Dictionary:
+	return {
+		"ship_name": s.ship_name,
+		"ship_class": s.ship_class,
+		"faction": s.faction,
+		"is_player": s.is_player,
+		"manned": s.manned,
+		"crew_assigned": s.crew_assigned,
+		"hull": s.hull,
+		"max_hull": s.max_hull,
+		"shield": s.shield,
+		"max_shield": s.max_shield,
+		"energy": s.energy,
+		"max_energy": s.max_energy,
+		"disabled": s.disabled,
+		"destroyed": s.destroyed,
+		"ai_state": s.ai_state,
+		"pos": [s.global_position.x, s.global_position.y, s.global_position.z],
+		"rot": [s.rotation.x, s.rotation.y, s.rotation.z],
+	}
+
+func _quick_load() -> bool:
+	if not FileAccess.file_exists(save_path):
+		_msg("No save found — press [V] to save first.")
+		if audio: audio.play("ui_deny")
+		return false
+	var f: FileAccess = FileAccess.open(save_path, FileAccess.READ)
+	if f == null:
+		_msg("Load failed: cannot open save file.")
+		if audio: audio.play("ui_deny")
+		return false
+	var text: String = f.get_as_text()
+	f.close()
+	var parsed: Variant = JSON.parse_string(text)
+	var reason: String = _validate_save(parsed)
+	if reason != "":
+		# Rejected saves never clobber the live battle state.
+		_msg("Save rejected: %s" % reason)
+		if audio: audio.play("ui_deny")
+		return false
+	_apply_save(parsed)
+	_msg("Game LOADED (v%d) — %d cr, fleet %d." % [int((parsed as Dictionary)["version"]), Game.credits, _count_fleet()])
+	if audio: audio.play("ui_buy")
+	return true
+
+func _validate_vec3(v: Variant) -> String:
+	if typeof(v) != TYPE_ARRAY:
+		return "not an array"
+	var arr: Array = v
+	if arr.size() != 3:
+		return "needs 3 elements"
+	for n in arr:
+		if typeof(n) != TYPE_FLOAT and typeof(n) != TYPE_INT:
+			return "non-numeric"
+	return ""
+
+func _validate_save(parsed: Variant) -> String:
+	# Returns "" when the payload is acceptable, otherwise a human-readable reason.
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return "corrupt or non-object save"
+	var d: Dictionary = parsed
+	if String(d.get("game_id", "")) != SAVE_GAME_ID:
+		return "not a Voidborne save"
+	if not d.has("version"):
+		return "missing version"
+	var ver_val: Variant = d["version"]
+	if typeof(ver_val) != TYPE_FLOAT and typeof(ver_val) != TYPE_INT:
+		return "invalid version"
+	var ver_float: float = float(ver_val)
+	var ver: int = int(ver_float)
+	if abs(ver_float - float(ver)) > 0.001:
+		return "invalid version"
+	if ver < 1:
+		return "invalid version"
+	if ver > SAVE_VERSION:
+		return "future version (v%d > v%d) — update the game" % [ver, SAVE_VERSION]
+	if typeof(d.get("economy")) != TYPE_DICTIONARY:
+		return "missing economy section"
+	var econ: Dictionary = d["economy"]
+	for key in ["credits", "crew_pool", "marine_pool", "captured_count", "purchased_count"]:
+		if not econ.has(key):
+			return "missing economy.%s" % key
+	if typeof(d.get("ships")) != TYPE_ARRAY:
+		return "missing ships section"
+	var ships_arr: Array = d["ships"]
+	var player_count: int = 0
+	for entry in ships_arr:
+		if typeof(entry) != TYPE_DICTIONARY:
+			return "invalid ship entry"
+		var sd: Dictionary = entry
+		for key in ["ship_name", "ship_class", "faction"]:
+			if not sd.has(key):
+				return "ship missing %s" % key
+		if not Game.SHIP_CLASSES.has(String(sd["ship_class"])):
+			return "unknown ship_class '%s'" % String(sd["ship_class"])
+		var perr: String = _validate_vec3(sd.get("pos"))
+		if perr != "":
+			return "ship %s pos %s" % [String(sd.get("ship_name", "?")), perr]
+		var rerr: String = _validate_vec3(sd.get("rot"))
+		if rerr != "":
+			return "ship %s rot %s" % [String(sd.get("ship_name", "?")), rerr]
+		if bool(sd.get("is_player", false)):
+			player_count += 1
+	if player_count == 0:
+		return "no player flagship in save"
+	return ""
+
+func _apply_save(parsed: Dictionary) -> void:
+	# Clear transient combat/UI state, tear down the live battle, then rebuild from the save.
+	_cancel_boarding()
+	_clear_transient_nodes()
+	if deck_mode:
+		_set_deck_mode(false)
+	fleet_hold_positions.clear()
+	fleet_attack_target = null
+	target = null
+
+	for s in ships:
+		if is_instance_valid(s):
+			s.queue_free()
+	ships.clear()
+	player = null
+	station = null
+
+	var econ: Dictionary = parsed["economy"]
+	Game.credits = int(econ["credits"])
+	Game.crew_pool = int(econ["crew_pool"])
+	Game.marine_pool = int(econ["marine_pool"])
+	Game.captured_count = int(econ["captured_count"])
+	Game.purchased_count = int(econ["purchased_count"])
+	shipyard_index = int(parsed.get("shipyard_index", 0))
+
+	var used_names: Dictionary = {}
+	for entry in parsed["ships"]:
+		_ship_from_dict(entry, used_names)
+
+	station = _pick_station_ref()
+
+	# Fleet order: an attack order with a missing/invalid focus target falls back to follow.
+	fleet_order = String(parsed.get("fleet_order", "follow"))
+	var atk_name: String = String(parsed.get("fleet_attack_target", ""))
+	fleet_attack_target = _find_ship_by_name(atk_name) if atk_name != "" else null
+	if fleet_order == "attack" and not (is_instance_valid(fleet_attack_target) and not fleet_attack_target.destroyed and fleet_attack_target.faction != "player"):
+		fleet_order = "follow"
+		fleet_attack_target = null
+		for s in ships:
+			if is_instance_valid(s) and s.faction == "player" and not s.is_player and s.manned:
+				s.ai_state = "follow"
+
+	# Target: keep the saved lock if still valid/hostile, else pick a remaining hostile.
+	var tname: String = String(parsed.get("target", ""))
+	var saved_target: Node3D = _find_ship_by_name(tname) if tname != "" else null
+	if is_instance_valid(saved_target) and not saved_target.destroyed and saved_target.faction != "player":
+		target = saved_target
+	else:
+		target = _nearest_hostile()
+
+	if is_instance_valid(player):
+		_update_camera(0.001, true)
+		space_camera.current = true
+		throttle = clamp(player.throttle, 0.0, 1.0)
+
+func _ship_from_dict(entry: Variant, used_names: Dictionary) -> Node3D:
+	var sd: Dictionary = entry
+	var p_class: String = String(sd["ship_class"])
+	var p_faction: String = String(sd["faction"])
+	var nm: String = String(sd["ship_name"])
+	# Guarantee a stable unique name even if a save somehow carries duplicates.
+	if used_names.has(nm):
+		var k: int = 2
+		while used_names.has("%s#%d" % [nm, k]):
+			k += 1
+		nm = "%s#%d" % [nm, k]
+	used_names[nm] = true
+
+	var s: Node3D = ShipScript.new()
+	s.name = "Ship_%s_%s" % [p_faction, nm]
+	add_child(s)
+	s.setup(p_class, p_faction, nm)
+	s.ship_name = nm
+	s.is_player = bool(sd.get("is_player", false))
+	s.manned = bool(sd.get("manned", true))
+	s.crew_assigned = int(sd.get("crew_assigned", 0))
+	s.max_hull = float(sd.get("max_hull", s.max_hull))
+	s.hull = float(sd.get("hull", s.hull))
+	s.max_shield = float(sd.get("max_shield", s.max_shield))
+	s.shield = float(sd.get("shield", s.shield))
+	s.max_energy = float(sd.get("max_energy", s.max_energy))
+	s.energy = float(sd.get("energy", s.energy))
+	s.disabled = bool(sd.get("disabled", false))
+	s.destroyed = bool(sd.get("destroyed", false))
+	s.ai_state = String(sd.get("ai_state", "engage"))
+	var pos: Array = sd["pos"]
+	s.position = Vector3(float(pos[0]), float(pos[1]), float(pos[2]))
+	var rot: Array = sd["rot"]
+	s.rotation = Vector3(float(rot[0]), float(rot[1]), float(rot[2]))
+	ships.append(s)
+	if s.is_player:
+		player = s
+	return s
+
+func _clear_transient_nodes() -> void:
+	for p in projectiles:
+		var pd: Dictionary = p
+		if is_instance_valid(pd.get("node")):
+			pd["node"].queue_free()
+	projectiles.clear()
+	for b in beams:
+		var bd: Dictionary = b
+		if is_instance_valid(bd.get("node")):
+			bd["node"].queue_free()
+	beams.clear()
+	for e in explosions:
+		var ed: Dictionary = e
+		if is_instance_valid(ed.get("node")):
+			ed["node"].queue_free()
+	explosions.clear()
+
+func _find_ship_by_name(nm: String) -> Node3D:
+	if nm == "":
+		return null
+	for s in ships:
+		if is_instance_valid(s) and String(s.ship_name) == nm:
+			return s
+	return null
+
+func _nearest_hostile() -> Node3D:
+	# Nearest live hostile (including disabled, which the player may still want to board).
+	var best: Node3D = null
+	var bd: float = 1e9
+	for s in ships:
+		if not is_instance_valid(s) or s.destroyed or s.faction != "hostile":
+			continue
+		var d: float = _pdist(s)
+		if d < bd:
+			bd = d
+			best = s
+	return best
+
+func _pick_station_ref() -> Node3D:
+	# Prefer the neutral recruit/shipyard hub; fall back to an owned, then any non-hostile,
+	# then any station so service/shipyard prompts still resolve after a load.
+	var neutral_st: Node3D = null
+	var owned_st: Node3D = null
+	var nonhostile_st: Node3D = null
+	var any_st: Node3D = null
+	for s in ships:
+		if not is_instance_valid(s) or s.ship_class != "station":
+			continue
+		if any_st == null:
+			any_st = s
+		if s.faction == "neutral" and neutral_st == null:
+			neutral_st = s
+		elif s.faction == "player" and owned_st == null:
+			owned_st = s
+		if s.faction != "hostile" and nonhostile_st == null:
+			nonhostile_st = s
+	if neutral_st != null:
+		return neutral_st
+	if owned_st != null:
+		return owned_st
+	if nonhostile_st != null:
+		return nonhostile_st
+	return any_st
+
+# ---------------------------------------------------------------------------
 # CAMERA
 # ---------------------------------------------------------------------------
 func _update_camera(delta: float, instant: bool) -> void:
@@ -1258,16 +1583,16 @@ func _count_fleet() -> int:
 
 func _context_prompt() -> String:
 	if is_instance_valid(station) and _pdist(station) < 70.0:
-		return "STATION: [G] %s %dcr  [Y] buy  [R] crew  [M] marine  [H] repair  [C] deck  [F] man/order" % [_shipyard_class().to_upper(), _shipyard_cost()]
+		return "STATION: [G] %s %dcr  [Y] buy  [R] crew  [M] marine  [H] repair  [C] deck  [V]save [L]load" % [_shipyard_class().to_upper(), _shipyard_cost()]
 	var svc: Node3D = _service_station()
 	if svc != null:
-		return "DOCKED %s: [H] repair/refit fleet  [Tab] target  [F] fleet order" % svc.ship_name
+		return "DOCKED %s: [H] repair/refit  [Tab] target  [F] order  [V]save [L]load" % svc.ship_name
 	if is_instance_valid(target) and target.disabled and target.faction != "player":
-		return "[B] board %s with marines" % target.ship_name
+		return "[B] board %s with marines   [V]save [L]load" % target.ship_name
 	var order_label: String = fleet_order.to_upper()
 	if fleet_order == "attack" and is_instance_valid(fleet_attack_target):
 		order_label = "ATTACK %s" % fleet_attack_target.ship_name
-	return "[Tab] target  [T] fleet attack  [F] %s  [C] deck  (order: %s)" % [("HOLD" if fleet_order == "follow" else "FOLLOW"), order_label]
+	return "[Tab] target  [T] attack  [F] %s  [C] deck  [V]save [L]load  (order: %s)" % [("HOLD" if fleet_order == "follow" else "FOLLOW"), order_label]
 
 func _build_radar() -> Array:
 	var blips: Array = []

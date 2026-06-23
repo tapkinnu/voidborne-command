@@ -46,6 +46,7 @@ Screenshots are written to `artifacts/screenshots/` (plus a `contact_sheet.jpg`)
 | `Tab` | Cycle hostile targets first (neutral assets only after hostiles are cleared) |
 | `T` | Order your manned fleet to **attack / focus-fire** the current target |
 | `B` | Board a **disabled** target with marines |
+| `V` / `L` | **Quick save / quick load** the current battle (versioned `user://voidborne_save.json`) |
 
 ### Command & economy (fly near the STATION)
 | Key | Action |
@@ -66,6 +67,7 @@ Repair/refit works at the neutral **Halcyon** hub *and* at any station you have 
 | `A` / `D` / `W` / `S` | Walk the captain |
 | `F` | Order the nearest crew/marine to follow / stop |
 | `C` | Return to the bridge |
+| `V` / `L` | Quick save / quick load (a load returns you to the bridge) |
 
 ---
 
@@ -92,6 +94,16 @@ hostiles. Press `T` to issue an explicit **attack order** — every manned escor
 formation to focus-fire your current target until it is destroyed, captured, or otherwise
 neutralized, at which point the fleet automatically falls back to follow. The fleet/economy
 panel and radar ping show the standing order (`FOLLOW`, `HOLD`, or `ATTACK <target>`).
+
+At any point press `V` to **quick-save** and `L` to **quick-load**. The save is a versioned
+JSON document (`user://voidborne_save.json`) carrying your economy (credits, crew/marine
+pools, captured/purchased tallies), the shipyard offer, the standing fleet order, and every
+live ship and station — class, faction, ownership, manned/crew state, hull/shield/energy,
+disabled flag, and position/rotation. Loading rebuilds the whole battle: your flagship and
+fleet return, captured stations and ships stay yours, purchased ships persist, unmanned
+prizes stay unmanned, and destroyed or already-cleared hostiles do **not** come back. A save
+is rejected (without touching your current game) if it is corrupt, is not a Voidborne save,
+is missing required sections, or was written by a newer game version.
 
 ## Ship classes
 

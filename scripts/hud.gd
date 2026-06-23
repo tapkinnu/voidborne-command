@@ -191,4 +191,4 @@ func _draw_prompt(vp: Vector2) -> void:
 func _draw_deck_overlay(vp: Vector2) -> void:
 	draw_rect(Rect2(Vector2(vp.x - 250, vp.y - 70), Vector2(242, 60)), C_BG, true)
 	_txt(Vector2(vp.x - 240, vp.y - 48), "CREW DECK", C_LINE, 14)
-	_txt(Vector2(vp.x - 240, vp.y - 30), "WASD move  F order follow  C exit", C_DIM, 12)
+	_txt(Vector2(vp.x - 240, vp.y - 30), "WASD move  F follow  C exit  V save  L load", C_DIM, 12)

@@ -125,3 +125,11 @@ station_service={
 "deadzone": 0.5,
 "events": [{"type":"key","keycode":72,"unicode":104}]
 }
+quick_save={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":86,"unicode":118}]
+}
+quick_load={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":76,"unicode":108}]
+}

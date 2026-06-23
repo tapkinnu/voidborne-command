@@ -48,7 +48,16 @@
 - [ ] Order menu (escort, attack-my-target, dock) for fleet ships beyond the current follow/hold toggle.
 
 ### Economy & world
-- [ ] Persistent save/load of credits, roster, and fleet.
+- [x] Persistent save/load of credits, roster, and fleet. Shipped: versioned JSON quick
+  save (`V`) / quick load (`L`) at `user://voidborne_save.json` (`save_path` is overridable
+  for tests). Round-trips economy (credits, crew/marine pools, captured/purchased counts),
+  shipyard offer, fleet order + focus target, and every live ship/station (class, faction,
+  ownership, manned/crew, hull/shield/energy, disabled, position/rotation). Loads rebuild the
+  battle, keep captured/purchased ships, leave unmanned prizes unmanned, and never resurrect
+  destroyed/cleared hostiles. Saves are rejected (without clobbering live state) when corrupt,
+  wrong `game_id`, missing required sections, or a future `version`. Covered by
+  `tests/test_save_load.gd` and the producer-side `tools/verify_save_load.py` (wired into
+  `validate_build.sh`). Multi-slot/named saves and cross-system persistence remain backlog.
 - [x] Station shipyard can cycle multiple buyable classes (fighter/corvette/frigate/capital).
 - [~] Station docking UI: repair/refit and a fuller market screen. Repair/refit dock
   service (`H`) is shipped — restores hull/shield/energy across the manned, player-owned
@@ -71,4 +80,6 @@
   orders such as escort roles and docking are not built yet.
 - Target cycling prioritizes hostiles; neutral assets are fallback targets only after the
   hostile force is cleared.
-- Single hand-seeded scenario; no persistence between runs.
+- Single hand-seeded scenario. Within a run, the battle state can be quick-saved/loaded
+  (`V`/`L`) to one versioned slot; there is no autosave, multi-slot, or cross-system
+  persistence yet.

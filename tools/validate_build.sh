@@ -31,6 +31,22 @@ run_godot() {
 echo "-- Step 1: import --------------------------------------------" | tee -a "$LOG"
 run_godot 120 --headless --rendering-driver "$DRIVER" --path . --import | tee -a "$LOG" >/dev/null
 
+echo "-- Step 1b: save/load schema verifier ------------------------" | tee -a "$LOG"
+SAVE_VERIFY_LOG="$(mktemp)"
+if ! python3 "$ROOT/tools/verify_save_load.py" > "$SAVE_VERIFY_LOG" 2>&1; then
+	cat "$SAVE_VERIFY_LOG" | tee -a "$LOG"
+	rm -f "$SAVE_VERIFY_LOG"
+	echo "FAIL: verify_save_load.py reported a schema policy regression" | tee -a "$LOG"
+	exit 1
+fi
+cat "$SAVE_VERIFY_LOG" | tee -a "$LOG"
+if ! grep -F "VOIDBORNE_SAVE_LOAD_VERIFY: PASS" "$SAVE_VERIFY_LOG" >/dev/null 2>&1; then
+	rm -f "$SAVE_VERIFY_LOG"
+	echo "FAIL: save/load verifier PASS marker missing" | tee -a "$LOG"
+	exit 1
+fi
+rm -f "$SAVE_VERIFY_LOG"
+
 echo "-- Step 2: GDScript tests -------------------------------------" | tee -a "$LOG"
 shopt -s nullglob
 for TEST in tests/test_*.gd; do
