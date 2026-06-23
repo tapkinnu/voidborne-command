@@ -133,3 +133,7 @@ quick_load={
 "deadzone": 0.5,
 "events": [{"type":"key","keycode":76,"unicode":108}]
 }
+cycle_subsystem={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":90,"unicode":122}]
+}

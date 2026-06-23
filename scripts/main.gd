@@ -27,6 +27,7 @@ var audio: Node
 # --- Player flight/combat state ---------------------------------------------
 var throttle: float = 0.4
 var target: Node3D = null
+var subsystem_focus: String = ""          # "" | "engines" | "weapons" | "shields"
 var deck_mode: bool = false
 var fleet_order: String = "follow"        # follow | hold | attack
 var fleet_hold_positions: Dictionary = {}  # instance_id -> Vector3
@@ -52,6 +53,7 @@ const SERVICE_MIN_CHARGE: int = 40
 const SERVICE_HULL_RATE: float = 0.6
 const SERVICE_SHIELD_RATE: float = 0.35
 const SERVICE_ENERGY_RATE: float = 0.15
+const SERVICE_SUBSYS_RATE: float = 20.0   # per full subsystem (0..1) restored during refit
 const DISABLE_FRAC: float = 0.22   # hull fraction at/below which a ship is "disabled"
 
 # Combat economy. Capturing hostile assets pays better than destroying them so the
@@ -301,17 +303,17 @@ func _player_control(delta: float) -> void:
 			yaw += clamp(-lp.x * 0.15, -1.0, 1.0)
 			pitch += clamp(lp.y * 0.15, -1.0, 1.0)
 		yaw += sin(_elapsed * 0.7) * 0.2
-	var rate: float = player.turn_rate
+	var rate: float = player.eff_turn_rate()
 	player.rotate_object_local(Vector3.UP, yaw * rate * delta)
 	player.rotate_object_local(Vector3.RIGHT, pitch * rate * delta)
 	player.rotate_object_local(Vector3.FORWARD, roll * rate * 1.4 * delta)
 
-	# Forward thrust along ship -Z.
+	# Forward thrust along ship -Z. Damaged/offline engines cut speed and accel.
 	var fwd: Vector3 = -player.global_transform.basis.z
-	var target_speed: float = player.max_speed * throttle * (1.7 if boosting else 1.0)
+	var target_speed: float = player.eff_max_speed() * throttle * (1.7 if boosting else 1.0)
 	if braking:
 		target_speed *= 0.15
-	player.velocity = player.velocity.move_toward(fwd * target_speed, player.accel * (2.2 if braking else 1.0) * delta)
+	player.velocity = player.velocity.move_toward(fwd * target_speed, player.eff_accel() * (2.2 if braking else 1.0) * delta)
 
 	# Energy: boost drains, otherwise regen.
 	if boosting:
@@ -320,9 +322,9 @@ func _player_control(delta: float) -> void:
 			audio.play("thruster", rng.randf_range(0.9, 1.1))
 	else:
 		player.energy = min(player.max_energy, player.energy + 14.0 * delta)
-	# Shield regen.
+	# Shield regen, scaled by the shield subsystem (offline = none, damaged = 30%).
 	if not player.disabled:
-		player.shield = min(player.max_shield, player.shield + 6.0 * delta)
+		player.shield = min(player.max_shield, player.shield + 6.0 * delta * player.shield_regen_mult())
 
 	# Firing.
 	var want_fire: bool = Input.is_action_pressed("fire") or auto_demo
@@ -334,6 +336,10 @@ func _player_control(delta: float) -> void:
 		_cycle_target()
 	if auto_demo and target == null:
 		_cycle_target()
+
+	# Subsystem focus cycling: none -> engines -> weapons -> shields -> none.
+	if Input.is_action_just_pressed("cycle_subsystem"):
+		_cycle_subsystem_focus()
 
 	# Board.
 	if Input.is_action_just_pressed("board_ship") or (auto_demo and _elapsed > 3.0):
@@ -451,10 +457,10 @@ func _steer_toward(s: Node3D, goal: Vector3, delta: float, throttle_mul: float) 
 		s.velocity = s.velocity.move_toward(Vector3.ZERO, s.accel * delta)
 		return
 	var desired: Basis = Basis.looking_at(to.normalized(), Vector3.UP)
-	s.global_transform.basis = s.global_transform.basis.slerp(desired, clamp(s.turn_rate * delta, 0.0, 1.0)).orthonormalized()
+	s.global_transform.basis = s.global_transform.basis.slerp(desired, clamp(s.eff_turn_rate() * delta, 0.0, 1.0)).orthonormalized()
 	var fwd: Vector3 = -s.global_transform.basis.z
 	s.throttle = throttle_mul
-	s.velocity = s.velocity.move_toward(fwd * s.max_speed * throttle_mul, s.accel * delta)
+	s.velocity = s.velocity.move_toward(fwd * s.eff_max_speed() * throttle_mul, s.eff_accel() * delta)
 
 func _face_and_fire(s: Node3D, foe: Node3D, delta: float) -> void:
 	var to: Vector3 = (foe.global_position - s.global_position)
@@ -476,19 +482,24 @@ func _integrate_motion(delta: float) -> void:
 # ---------------------------------------------------------------------------
 # WEAPONS
 # ---------------------------------------------------------------------------
-func _try_fire(s: Node3D, delta: float, forced_target: Node3D = null) -> void:
+func _try_fire(s: Node3D, delta: float, forced_target: Node3D = null) -> bool:
+	# Weapons subsystem OFFLINE: cannot fire, and the cooldown never advances.
+	if not s.can_fire():
+		return false
 	s.weapon_cd -= delta
 	if s.weapon_cd > 0.0:
-		return
+		return false
 	if s.energy < 2.0:
-		return
-	s.weapon_cd = s.fire_rate
+		return false
+	# DAMAGED weapons fire at half rate (doubled cooldown).
+	s.weapon_cd = s.fire_rate * s.weapon_cd_mult()
 	s.energy = max(0.0, s.energy - 2.0)
 	var aim_target: Node3D = forced_target if forced_target != null else (target if s.is_player else s.target)
 	if s.weapon_type == "beam":
 		_fire_beam(s, aim_target)
 	else:
 		_fire_projectile(s, aim_target)
+	return true
 
 func _muzzle_world(s: Node3D, local: Vector3) -> Vector3:
 	var scale: float = s.radius() / 3.0
@@ -522,12 +533,15 @@ func _fire_projectile(s: Node3D, aim_target: Node3D) -> void:
 		node.look_at(origin + aim_dir, Vector3.UP)
 		node.rotate_object_local(Vector3.RIGHT, PI / 2.0)
 		var speed: float = 90.0
+		# Only player shots carry a subsystem focus; AI fire is always generic hull damage.
+		var shot_sub: String = subsystem_focus if s.is_player else ""
 		projectiles.append({
 			"node": node,
 			"vel": aim_dir * speed + s.velocity,
 			"dmg": s.weapon_dmg,
 			"ttl": s.weapon_range / speed + 0.4,
 			"faction": s.faction,
+			"subsystem": shot_sub,
 		})
 	if audio:
 		audio.play("laser", rng.randf_range(0.9, 1.1))
@@ -581,7 +595,7 @@ func _update_projectiles(delta: float) -> void:
 			if pd["faction"] == "player" and s.faction == "neutral":
 				continue   # don't shoot the neutral station accidentally
 			if node.global_position.distance_to(s.global_position) < s.radius():
-				_apply_damage_from_faction(pd["faction"], s, float(pd["dmg"]))
+				_deal_damage(s, float(pd["dmg"]), String(pd.get("subsystem", "")))
 				hit = true
 				break
 		if hit or float(pd["ttl"]) <= 0.0:
@@ -610,14 +624,27 @@ func _apply_damage_from_faction(attacker_faction: String, victim: Node3D, dmg: f
 	_handle_damage_events(victim, ev)
 
 func _apply_damage(attacker: Node3D, victim: Node3D, dmg: float) -> void:
+	# Used by hitscan beams and tests. Player attacks route into the focused subsystem
+	# (the same focus carried by player projectiles); all AI damage stays generic.
 	if not is_instance_valid(victim):
 		return
-	var ev: Dictionary = victim.take_damage(dmg)
+	var sub: String = subsystem_focus if (is_instance_valid(attacker) and attacker.is_player) else ""
+	var ev: Dictionary = victim.take_damage(dmg, sub)
+	_handle_damage_events(victim, ev)
+
+func _deal_damage(victim: Node3D, dmg: float, subsystem: String = "") -> void:
+	# Used by projectile impacts: the subsystem focus is baked into the projectile at
+	# fire time so the shot routes correctly even if the player re-focuses mid-flight.
+	if not is_instance_valid(victim):
+		return
+	var ev: Dictionary = victim.take_damage(dmg, subsystem)
 	_handle_damage_events(victim, ev)
 
 func _handle_damage_events(victim: Node3D, ev: Dictionary) -> void:
 	if audio:
-		if bool(ev.get("shield_hit", false)):
+		if bool(ev.get("subsystem_hit", false)):
+			audio.play("subsystem_hit", rng.randf_range(0.95, 1.1))
+		elif bool(ev.get("shield_hit", false)):
 			audio.play("shield", 1.0)
 		else:
 			audio.play("hit", rng.randf_range(0.9, 1.2))
@@ -714,6 +741,21 @@ func _cycle_target() -> void:
 	var idx: int = candidates.find(target)
 	target = candidates[(idx + 1) % candidates.size()]
 	_msg("Target: %s (%s)" % [target.ship_name, target.faction])
+
+func _cycle_subsystem_focus() -> void:
+	# Player-only tactical aim: route fire into one subsystem of the current target.
+	match subsystem_focus:
+		"engines":
+			subsystem_focus = "weapons"
+		"weapons":
+			subsystem_focus = "shields"
+		"shields":
+			subsystem_focus = ""
+		_:
+			subsystem_focus = "engines"
+	var label: String = subsystem_focus if subsystem_focus != "" else "none"
+	_msg("Subsystem focus: %s" % label)
+	if audio: audio.play("ui_recruit")
 
 func _stage_capture_demo() -> void:
 	# Capture-only staging keeps screenshots focused on active combat instead of
@@ -1028,6 +1070,8 @@ func _service_raw_cost(targets: Array) -> float:
 		raw += max(0.0, s.max_hull - s.hull) * SERVICE_HULL_RATE
 		raw += max(0.0, s.max_shield - s.shield) * SERVICE_SHIELD_RATE
 		raw += max(0.0, s.max_energy - s.energy) * SERVICE_ENERGY_RATE
+		var sub_deficit: float = (1.0 - s.sub_engine) + (1.0 - s.sub_weapon) + (1.0 - s.sub_shield)
+		raw += sub_deficit * SERVICE_SUBSYS_RATE
 	return raw
 
 func _service_estimate() -> Dictionary:
@@ -1083,6 +1127,7 @@ func _station_service() -> void:
 		s.hull = min(s.max_hull, s.hull + (s.max_hull - s.hull) * fraction)
 		s.shield = min(s.max_shield, s.shield + (s.max_shield - s.shield) * fraction)
 		s.energy = min(s.max_energy, s.energy + (s.max_energy - s.energy) * fraction)
+		s.restore_subsystems(fraction)   # refit also rebuilds engine/weapon/shield subsystems
 		if s.disabled and s.hull > s.max_hull * DISABLE_FRAC:
 			s.disabled = false
 		serviced += 1
@@ -1239,6 +1284,9 @@ func _ship_to_dict(s: Node3D) -> Dictionary:
 		"disabled": s.disabled,
 		"destroyed": s.destroyed,
 		"ai_state": s.ai_state,
+		"sub_engine": s.sub_engine,
+		"sub_weapon": s.sub_weapon,
+		"sub_shield": s.sub_shield,
 		"pos": [s.global_position.x, s.global_position.y, s.global_position.z],
 		"rot": [s.rotation.x, s.rotation.y, s.rotation.z],
 	}
@@ -1323,6 +1371,15 @@ func _validate_save(parsed: Variant) -> String:
 		var rerr: String = _validate_vec3(sd.get("rot"))
 		if rerr != "":
 			return "ship %s rot %s" % [String(sd.get("ship_name", "?")), rerr]
+		# Subsystem health is optional (backward compatible). If present, must be a 0..1 float.
+		for sub_key in ["sub_engine", "sub_weapon", "sub_shield"]:
+			if sd.has(sub_key):
+				var sub_val: Variant = sd[sub_key]
+				if typeof(sub_val) != TYPE_FLOAT and typeof(sub_val) != TYPE_INT:
+					return "ship %s %s non-numeric" % [String(sd.get("ship_name", "?")), sub_key]
+				var sub_f: float = float(sub_val)
+				if sub_f < 0.0 or sub_f > 1.0:
+					return "ship %s %s out of range" % [String(sd.get("ship_name", "?")), sub_key]
 		if bool(sd.get("is_player", false)):
 			player_count += 1
 	if player_count == 0:
@@ -1414,6 +1471,10 @@ func _ship_from_dict(entry: Variant, used_names: Dictionary) -> Node3D:
 	s.disabled = bool(sd.get("disabled", false))
 	s.destroyed = bool(sd.get("destroyed", false))
 	s.ai_state = String(sd.get("ai_state", "engage"))
+	# Subsystem health: defaults to 1.0 so v1 saves (no subsystem fields) load intact.
+	s.sub_engine = clamp(float(sd.get("sub_engine", 1.0)), 0.0, 1.0)
+	s.sub_weapon = clamp(float(sd.get("sub_weapon", 1.0)), 0.0, 1.0)
+	s.sub_shield = clamp(float(sd.get("sub_shield", 1.0)), 0.0, 1.0)
 	var pos: Array = sd["pos"]
 	s.position = Vector3(float(pos[0]), float(pos[1]), float(pos[2]))
 	var rot: Array = sd["rot"]
@@ -1557,6 +1618,10 @@ func _update_hud() -> void:
 			"shield_frac": target.shield / max(1.0, target.max_shield),
 			"dist": _pdist(target),
 			"disabled": target.disabled,
+			"sub_engine": target.sub_engine,
+			"sub_weapon": target.sub_weapon,
+			"sub_shield": target.sub_shield,
+			"sub_focus": subsystem_focus,
 		}
 	# Boarding block.
 	if boarding_active and is_instance_valid(boarding_target):
@@ -1587,12 +1652,13 @@ func _context_prompt() -> String:
 	var svc: Node3D = _service_station()
 	if svc != null:
 		return "DOCKED %s: [H] repair/refit  [Tab] target  [F] order  [V]save [L]load" % svc.ship_name
+	var sub_label: String = subsystem_focus if subsystem_focus != "" else "none"
 	if is_instance_valid(target) and target.disabled and target.faction != "player":
-		return "[B] board %s with marines   [V]save [L]load" % target.ship_name
+		return "[B] board %s with marines   [Z] sub: %s   [V]save [L]load" % [target.ship_name, sub_label]
 	var order_label: String = fleet_order.to_upper()
 	if fleet_order == "attack" and is_instance_valid(fleet_attack_target):
 		order_label = "ATTACK %s" % fleet_attack_target.ship_name
-	return "[Tab] target  [T] attack  [F] %s  [C] deck  [V]save [L]load  (order: %s)" % [("HOLD" if fleet_order == "follow" else "FOLLOW"), order_label]
+	return "[Tab] target  [T] attack  [Z] sub:%s  [F] %s  [C] deck  [V]save [L]load  (order: %s)" % [sub_label, ("HOLD" if fleet_order == "follow" else "FOLLOW"), order_label]
 
 func _build_radar() -> Array:
 	var blips: Array = []

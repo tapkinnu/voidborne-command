@@ -77,6 +77,15 @@ def validate(data):
         rerr = _validate_vec3(entry.get("rot"))
         if rerr:
             return "ship %s rot %s" % (entry.get("ship_name", "?"), rerr)
+        # Subsystem health is optional (backward compatible with v1 saves). When present
+        # each value must be a 0..1 float; absent values default to 1.0 on load.
+        for sub_key in ("sub_engine", "sub_weapon", "sub_shield"):
+            if sub_key in entry:
+                val = entry[sub_key]
+                if isinstance(val, bool) or not isinstance(val, (int, float)):
+                    return "ship %s %s non-numeric" % (entry.get("ship_name", "?"), sub_key)
+                if val < 0.0 or val > 1.0:
+                    return "ship %s %s out of range" % (entry.get("ship_name", "?"), sub_key)
         if entry.get("is_player"):
             player_count += 1
     if player_count == 0:
@@ -204,6 +213,32 @@ def _self_test():
         "rot": [0.0, 1.5, 0.0],
     })
     cases.append(("rich multi-ship payload", rich, True))
+
+    # Subsystem health round-trip: a save WITH subsystem fields in 0..1 range is accepted.
+    with_subs = _minimal_valid()
+    with_subs["ships"][0]["sub_engine"] = 0.0
+    with_subs["ships"][0]["sub_weapon"] = 0.55
+    with_subs["ships"][0]["sub_shield"] = 1.0
+    cases.append(("ship with subsystem fields", with_subs, True))
+
+    # Backward compatibility: a v1 save WITHOUT subsystem fields is still accepted.
+    without_subs = _minimal_valid()
+    for k in ("sub_engine", "sub_weapon", "sub_shield"):
+        without_subs["ships"][0].pop(k, None)
+    cases.append(("v1 save without subsystem fields", without_subs, True))
+
+    # Out-of-range subsystem health must be rejected.
+    bad_sub = _minimal_valid()
+    bad_sub["ships"][0]["sub_engine"] = 1.5
+    cases.append(("subsystem health out of range", bad_sub, False))
+
+    neg_sub = _minimal_valid()
+    neg_sub["ships"][0]["sub_shield"] = -0.2
+    cases.append(("negative subsystem health", neg_sub, False))
+
+    nonnum_sub = _minimal_valid()
+    nonnum_sub["ships"][0]["sub_weapon"] = "broken"
+    cases.append(("non-numeric subsystem health", nonnum_sub, False))
 
     # Round-trip through JSON text to mimic the on-disk path.
     failures = []

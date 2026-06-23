@@ -38,7 +38,14 @@
 ### Flight & combat feel
 - [ ] Mouse-aim flight + gamepad support; configurable bindings.
 - [ ] Turret subsystems that track independently; per-mount fire arcs.
-- [ ] Subsystem targeting (engines/weapons) feeding the disable model.
+- [x] Subsystem targeting (engines/weapons/shields) feeding the disable model. Shipped: `Z`
+  cycles subsystem focus on the current target (none → engines → weapons → shields → none).
+  Player fire routes 50% of post-shield damage into the focused subsystem; AI always does
+  generic damage. OFFLINE engines cut speed/accel to 20% and turn to 40%; OFFLINE weapons
+  prevent firing; OFFLINE shields collapse the bubble and stop regen. DAMAGED (<0.4)
+  subsystems apply partial penalties. Station `H` refit restores subsystems. Subsystem health
+  round-trips through save/load (backward-compatible optional fields). Covered by
+  `tests/test_subsystem_targeting.gd`.
 - [ ] Hit decals, muzzle flashes, shield-impact shaders, debris.
 
 ### Crew & command depth

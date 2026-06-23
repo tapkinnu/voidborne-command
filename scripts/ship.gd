@@ -31,6 +31,16 @@ var fire_rate: float = 0.2
 var weapon_range: float = 220.0
 var weapon_cd: float = 0.0
 
+# Subsystem targeting. Each subsystem is a 0..1 health fraction. They never regen on
+# their own (only station refit restores them). A subsystem at 0 is OFFLINE; below
+# SUB_DAMAGED_FRAC it is DAMAGED; otherwise OK. The player can focus-fire one subsystem
+# at a time, routing half the post-shield hull damage into it (see take_damage).
+const SUB_DAMAGED_FRAC: float = 0.4
+const SUB_HEALTH_FRAC: float = 0.5   # subsystem pool size relative to max_hull
+var sub_engine: float = 1.0
+var sub_weapon: float = 1.0
+var sub_shield: float = 1.0
+
 var crew_needed: int = 1
 var crew_assigned: int = 0
 var manned: bool = true
@@ -207,9 +217,10 @@ func _build_mesh() -> void:
 	_shield_mesh.material_override = _shield_mat
 	add_child(_shield_mesh)
 
-func take_damage(amount: float) -> Dictionary:
-	# Returns event info: {"shield_hit": bool, "disabled": bool, "destroyed": bool}
-	var result: Dictionary = {"shield_hit": false, "disabled": false, "destroyed": false}
+func take_damage(amount: float, subsystem: String = "") -> Dictionary:
+	# Returns event info. When a subsystem is targeted, 50% of the post-shield hull
+	# damage is routed into that subsystem's health and 50% to the hull as normal.
+	var result: Dictionary = {"shield_hit": false, "disabled": false, "destroyed": false, "subsystem_hit": false}
 	if destroyed:
 		return result
 	var dmg: float = amount
@@ -220,7 +231,13 @@ func take_damage(amount: float) -> Dictionary:
 		shield -= absorbed
 		dmg -= absorbed
 	if dmg > 0.0:
-		hull -= dmg
+		var hull_dmg: float = dmg
+		if subsystem != "":
+			var sub_dmg: float = dmg * 0.5
+			hull_dmg = dmg - sub_dmg
+			_damage_subsystem(subsystem, sub_dmg)
+			result["subsystem_hit"] = true
+		hull -= hull_dmg
 	# Disable threshold: 22% hull. Stations/capitals can be disabled then boarded.
 	if not disabled and hull <= max_hull * 0.22 and hull > 0.0:
 		disabled = true
@@ -231,6 +248,73 @@ func take_damage(amount: float) -> Dictionary:
 		destroyed = true
 		result["destroyed"] = true
 	return result
+
+func _damage_subsystem(subsystem: String, dmg: float) -> void:
+	# Convert raw post-shield damage into a 0..1 health loss scaled to this ship's hull.
+	var frac_loss: float = dmg / max(1.0, max_hull * SUB_HEALTH_FRAC)
+	match subsystem:
+		"engines":
+			sub_engine = max(0.0, sub_engine - frac_loss)
+		"weapons":
+			sub_weapon = max(0.0, sub_weapon - frac_loss)
+		"shields":
+			sub_shield = max(0.0, sub_shield - frac_loss)
+			if sub_shield <= 0.0:
+				shield = 0.0   # shield generator destroyed: collapse the bubble
+
+func subsystem_status(frac: float) -> String:
+	if frac <= 0.0:
+		return "OFFLINE"
+	if frac < SUB_DAMAGED_FRAC:
+		return "DAMAGED"
+	return "OK"
+
+# --- Subsystem effect multipliers ------------------------------------------
+# Engines: OFFLINE -> 20% speed/accel, 40% turn; DAMAGED -> 60% speed/accel, 70% turn.
+func _engine_speed_mult() -> float:
+	if sub_engine <= 0.0:
+		return 0.2
+	if sub_engine < SUB_DAMAGED_FRAC:
+		return 0.6
+	return 1.0
+
+func _engine_turn_mult() -> float:
+	if sub_engine <= 0.0:
+		return 0.4
+	if sub_engine < SUB_DAMAGED_FRAC:
+		return 0.7
+	return 1.0
+
+func eff_max_speed() -> float:
+	return max_speed * _engine_speed_mult()
+
+func eff_accel() -> float:
+	return accel * _engine_speed_mult()
+
+func eff_turn_rate() -> float:
+	return turn_rate * _engine_turn_mult()
+
+# Weapons: OFFLINE -> cannot fire; DAMAGED -> fire cooldown doubled (half rate).
+func can_fire() -> bool:
+	return sub_weapon > 0.0
+
+func weapon_cd_mult() -> float:
+	if sub_weapon < SUB_DAMAGED_FRAC:
+		return 2.0
+	return 1.0
+
+# Shields: OFFLINE -> no regen (and bubble collapsed); DAMAGED -> 30% regen.
+func shield_regen_mult() -> float:
+	if sub_shield <= 0.0:
+		return 0.0
+	if sub_shield < SUB_DAMAGED_FRAC:
+		return 0.3
+	return 1.0
+
+func restore_subsystems(fraction: float = 1.0) -> void:
+	sub_engine = min(1.0, sub_engine + (1.0 - sub_engine) * fraction)
+	sub_weapon = min(1.0, sub_weapon + (1.0 - sub_weapon) * fraction)
+	sub_shield = min(1.0, sub_shield + (1.0 - sub_shield) * fraction)
 
 func set_faction(p_faction: String) -> void:
 	faction = p_faction

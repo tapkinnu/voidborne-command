@@ -33,6 +33,37 @@ func _bar(pos: Vector2, w: float, h: float, frac: float, col: Color, label: Stri
 	draw_rect(Rect2(pos, Vector2(w, h)), col.darkened(0.2), false, 1.0)
 	_txt(pos + Vector2(4, h - 3), label, Color(0.9, 0.95, 1.0), 11)
 
+func _sub_status(frac: float) -> Array:
+	# Returns [label, color] for a subsystem health fraction (mirrors ship.gd thresholds).
+	if frac <= 0.0:
+		return ["OFF", Color(1.0, 0.35, 0.3)]
+	if frac < 0.4:
+		return ["DMG", Color(1.0, 0.78, 0.3)]
+	return ["OK", Color(0.45, 1.0, 0.6)]
+
+func _draw_subsystems(x: float, y: float, tgt: Dictionary) -> void:
+	# Compact ENG/WPN/SHD strip. The currently focused subsystem gets a '>' marker and
+	# a brighter tag so the player can see where their fire is being routed.
+	var focus: String = String(tgt.get("sub_focus", ""))
+	var defs: Array = [
+		["ENG", "engines", float(tgt.get("sub_engine", 1.0))],
+		["WPN", "weapons", float(tgt.get("sub_weapon", 1.0))],
+		["SHD", "shields", float(tgt.get("sub_shield", 1.0))],
+	]
+	var col_w: float = 72.0
+	for i in range(defs.size()):
+		var entry: Array = defs[i]
+		var tag: String = String(entry[0])
+		var key: String = String(entry[1])
+		var frac: float = float(entry[2])
+		var st: Array = _sub_status(frac)
+		var cx: float = x + float(i) * col_w
+		var focused: bool = key == focus
+		var tag_col: Color = Color(1.0, 0.95, 0.5) if focused else C_DIM
+		var prefix: String = ">" if focused else " "
+		_txt(Vector2(cx, y), "%s%s" % [prefix, tag], tag_col, 11)
+		_txt(Vector2(cx + 2, y + 13), String(st[0]), Color(st[1]), 11)
+
 func _draw() -> void:
 	if data.is_empty():
 		return
@@ -88,7 +119,7 @@ func _draw() -> void:
 	# Target panel (top-right)
 	var tgt: Dictionary = data.get("target", {})
 	var tx: float = vp.x - 250.0
-	draw_rect(Rect2(Vector2(tx, 8), Vector2(242, 96)), C_BG, true)
+	draw_rect(Rect2(Vector2(tx, 8), Vector2(242, 124)), C_BG, true)
 	if tgt.is_empty():
 		_txt(Vector2(tx + 12, 30), "NO TARGET  [Tab]", C_DIM, 13)
 	else:
@@ -97,10 +128,12 @@ func _draw() -> void:
 		_txt(Vector2(tx + 12, 44), "%s  %s" % [String(tgt.get("class", "")).to_upper(), String(tgt.get("faction", "")).to_upper()], C_DIM, 12)
 		_bar(Vector2(tx + 12, 52), 218, 12, float(tgt.get("hull_frac", 0.0)), Color(1.0, 0.45, 0.4), "HULL")
 		_bar(Vector2(tx + 12, 68), 218, 12, float(tgt.get("shield_frac", 0.0)), Color(0.4, 0.7, 1.0), "SHIELD")
+		# Subsystem strip: ENG / WPN / SHD, colored by status, focused one marked with '>'.
+		_draw_subsystems(tx + 12, 86, tgt)
 		var status: String = "DIST %d" % int(float(tgt.get("dist", 0.0)))
 		if bool(tgt.get("disabled", false)):
 			status += "  *DISABLED - BOARD [B]*"
-		_txt(Vector2(tx + 12, 98), status, Color(1, 0.9, 0.5), 12)
+		_txt(Vector2(tx + 12, 124), status, Color(1, 0.9, 0.5), 12)
 
 	# Radar (bottom-right circle)
 	_draw_radar(vp)

@@ -19,6 +19,7 @@ const SOUNDS: Dictionary = {
 	"shield":    {"freq0": 600.0, "freq1": 900.0, "dur": 0.16, "wave": "sine",   "vol": 0.30},
 	"explosion": {"freq0": 200.0, "freq1": 40.0,  "dur": 0.55, "wave": "noise",  "vol": 0.55},
 	"disabled":  {"freq0": 440.0, "freq1": 110.0, "dur": 0.30, "wave": "saw",    "vol": 0.40},
+	"subsystem_hit": {"freq0": 520.0, "freq1": 140.0, "dur": 0.18, "wave": "square", "vol": 0.42},
 	"board":     {"freq0": 330.0, "freq1": 660.0, "dur": 0.25, "wave": "square", "vol": 0.35},
 	"capture":   {"freq0": 440.0, "freq1": 880.0, "dur": 0.45, "wave": "sine",   "vol": 0.45},
 	"ui_recruit":{"freq0": 520.0, "freq1": 780.0, "dur": 0.12, "wave": "sine",   "vol": 0.30},

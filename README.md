@@ -47,6 +47,7 @@ Screenshots are written to `artifacts/screenshots/` (plus a `contact_sheet.jpg`)
 | `T` | Order your manned fleet to **attack / focus-fire** the current target |
 | `B` | Board a **disabled** target with marines |
 | `V` / `L` | **Quick save / quick load** the current battle (versioned `user://voidborne_save.json`) |
+| `Z` | **Cycle subsystem focus** on the current target: none → engines → weapons → shields → none |
 
 ### Command & economy (fly near the STATION)
 | Key | Action |
@@ -104,6 +105,16 @@ fleet return, captured stations and ships stay yours, purchased ships persist, u
 prizes stay unmanned, and destroyed or already-cleared hostiles do **not** come back. A save
 is rejected (without touching your current game) if it is corrupt, is not a Voidborne save,
 is missing required sections, or was written by a newer game version.
+
+While targeting a hostile, press `Z` to **cycle subsystem focus**: none → engines → weapons →
+shields → none. With a subsystem focused, half of your post-shield damage is routed into that
+subsystem's health pool (0–1) and half goes to hull as normal; AI ships always do generic
+damage. An **OFFLINE** engine subsystem cuts a ship's speed/accel to 20% and turn to 40%;
+OFFLINE weapons prevent firing entirely; OFFLINE shields collapse the bubble and stop regen.
+**Damaged** subsystems (below 40%) apply partial penalties. Subsystem health does not regen
+on its own — only the station `H` repair/refit service restores it, and it round-trips through
+save/load. The target panel shows a compact ENG/WPN/SHD status strip with the focused one
+marked.
 
 ## Ship classes
 

@@ -44,6 +44,24 @@ Boost multiplies target speed and drains energy; brake sharply reduces it. Per-c
 - **Disable threshold**: at ≤22% hull a ship becomes `disabled` (engines die, AI idles) and is boardable.
 - **Destruction**: at 0 hull a ship explodes (expanding emissive sphere + SFX).
 
+### 4.2b Subsystem targeting
+Every ship has three subsystems — **engines**, **weapons**, **shields** — each a 0..1 health
+fraction. The player can press `Z` to cycle a **subsystem focus** on the current target:
+none → engines → weapons → shields → none. With a subsystem focused, 50% of post-shield
+damage is routed into that subsystem's health and 50% to hull; AI ships always do generic
+damage. Subsystem health never regens on its own — only station `H` repair/refit restores it.
+
+| Subsystem | OFFLINE (0.0) | DAMAGED (<0.4) |
+| --- | --- | --- |
+| Engines | speed/accel 20%, turn 40% | speed/accel 60%, turn 70% |
+| Weapons | cannot fire | fire rate halved (2× cooldown) |
+| Shields | no regen, bubble collapsed | regen at 30% |
+
+A subsystem below 0.4 is DAMAGED; at 0.0 it is OFFLINE. The HUD target panel shows a compact
+ENG/WPN/SHD status strip with the focused subsystem marked by `>`. Subsystem health
+round-trips through the versioned save/load schema (optional fields, backward compatible
+with v1 saves that lack them).
+
 ### 4.3 Boarding & capture
 A disabled, non-allied target within range can be boarded (`B`). A boarding bar fills at
 a rate scaled by your marine count. On completion the asset `set_faction("player")`,
