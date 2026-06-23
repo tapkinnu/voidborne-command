@@ -48,7 +48,7 @@ var shipyard_index: int = 0
 var auto_demo: bool = false
 
 var messages: Array = []           # rolling message log (strings)
-var objective: String = "Disable & board the hostile FRIGATE, then capture the STATION."
+var objective: String = "Disable & board Ironclaw, then capture hostile Kryos Relay station."
 var _elapsed: float = 0.0
 
 func _ready() -> void:
@@ -188,8 +188,13 @@ func _build_battle() -> void:
 	var frig: Node3D = _spawn_ship("frigate", "hostile", "Ironclaw", Vector3(-20, -4, -150))
 	frig.ai_state = "engage"
 
-	# A hostile capital to show the largest silhouette class in the battle.
+	# A hostile capital to show the largest mobile silhouette class in the battle.
 	_spawn_ship("capital", "hostile", "Dread Maw", Vector3(60, 10, -200))
+
+	# Capturable hostile station/outpost. The neutral Halcyon station remains the
+	# recruit/shipyard hub; this relay proves the station capture path in live combat.
+	var relay: Node3D = _spawn_ship("station", "hostile", "Kryos Relay", Vector3(-95, -10, -185))
+	relay.ai_state = "guard"
 
 	# Third-person chase camera.
 	space_camera = Camera3D.new()
@@ -651,10 +656,18 @@ func _update_explosions(delta: float) -> void:
 # TARGETING / RADAR
 # ---------------------------------------------------------------------------
 func _cycle_target() -> void:
-	var candidates: Array = []
+	var hostile_candidates: Array = []
+	var other_candidates: Array = []
 	for s in ships:
 		if is_instance_valid(s) and not s.is_player and not s.destroyed and s.faction != "player":
-			candidates.append(s)
+			if s.faction == "hostile":
+				hostile_candidates.append(s)
+			else:
+				other_candidates.append(s)
+	# Combat targeting should cycle hostiles first so the neutral shipyard hub does not
+	# steal the first [Tab] target. Fall back to neutral/non-player assets only after the
+	# hostile force has been cleared.
+	var candidates: Array = hostile_candidates if not hostile_candidates.is_empty() else other_candidates
 	if candidates.is_empty():
 		target = null
 		return

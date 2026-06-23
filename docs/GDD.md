@@ -15,7 +15,7 @@ simplified, fully code-built form.
 3. **Disable → board → capture** — non-lethal takedown of ships and stations.
 4. **Buy & command** — purchase ships, man them, and issue follow/hold/attack fleet orders.
 5. **Distinct classes** — fighter / corvette / frigate / capital / station.
-6. **Live battle** — hostile wing + larger ships + station, with weapons FX and a readable HUD.
+6. **Live battle** — hostile wing + larger ships + neutral hub + hostile station, with weapons FX and a readable HUD.
 
 ## 3. Core loop
 ```
@@ -46,10 +46,11 @@ Boost multiplies target speed and drains energy; brake sharply reduces it. Per-c
 
 ### 4.3 Boarding & capture
 A disabled, non-allied target within range can be boarded (`B`). A boarding bar fills at
-a rate scaled by your marine count. On completion the ship `set_faction("player")`,
+a rate scaled by your marine count. On completion the asset `set_faction("player")`,
 consumes marines, and is added to your fleet — **manned** if you have spare crew for its
-`crew_needed`, otherwise captured-but-unmanned. Stations capture the same way and become
-your hub.
+`crew_needed`, otherwise captured-but-unmanned. Stations capture the same way: the seeded
+scenario keeps neutral **Halcyon** as the recruit/shipyard hub and adds hostile **Kryos
+Relay** as a boardable station-capture objective.
 
 ### 4.4 Crew, marines & the deck
 `Game.crew_pool` / `Game.marine_pool` are abstract counts spent on manning and boarding.
@@ -82,6 +83,10 @@ Immediate-mode `_draw` overlay: economy/fleet panel, top-center objective, targe
 (hull/shield/energy/throttle + class & speed), bottom-right **radar** with faction-tinted
 blips and a target ring, a center reticle, a boarding progress bar, a rolling message
 log, and context prompts.
+
+Target cycling prioritizes hostile contacts while any remain alive; neutral/non-player
+assets are fallback targets only after the hostile force is cleared, which keeps the
+station market usable without intercepting combat target lock.
 
 ## 6. Audio
 Procedural — `scripts/audio.gd` synthesizes 16-bit PCM `AudioStreamWAV` tones at runtime

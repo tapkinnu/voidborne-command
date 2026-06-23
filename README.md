@@ -43,7 +43,7 @@ Screenshots are written to `artifacts/screenshots/` (plus a `contact_sheet.jpg`)
 | `↑` / `↓` | Pitch up / down |
 | `Q` / `E` | Roll left / right |
 | `Space` / LMB | Fire weapons |
-| `Tab` | Cycle target |
+| `Tab` | Cycle hostile targets first (neutral assets only after hostiles are cleared) |
 | `T` | Order your manned fleet to **attack / focus-fire** the current target |
 | `B` | Board a **disabled** target with marines |
 
@@ -69,20 +69,21 @@ Screenshots are written to `artifacts/screenshots/` (plus a `contact_sheet.jpg`)
 ## The loop in one paragraph
 
 You start in a corvette with a small fighter wing near a neutral station and a hostile
-formation (fighter wing, corvette, frigate, and a capital). Whittle a hostile's hull to
-the **disable** threshold (~22%), close within boarding range, and press `B` — marines
-breach and a boarding bar fills. On completion the ship **switches to your faction**; if
-you have spare crew it is manned and joins your **fleet formation**, otherwise it sits
-captured-but-unmanned until you recruit crew. At the station you recruit crew/marines,
-cycle a shipyard offer across fighter/corvette/frigate/capital classes, buy the selected
-ship, and step into the **crew deck** to walk among your procedurally-built humanoid crew
-and order them to follow you. Once ships are manned, `F` becomes a direct fleet command:
-toggle escorts between following the flagship and holding their current tactical positions
-while covering nearby hostiles. Press `T` to issue an explicit **attack order** — every
-manned escort breaks formation to focus-fire your current target until it is destroyed,
-captured, or otherwise neutralized, at which point the fleet automatically falls back to
-follow. The fleet/economy panel and radar ping show the standing order (`FOLLOW`, `HOLD`,
-or `ATTACK <target>`).
+formation (fighter wing, corvette, frigate, capital, and a hostile relay station). `Tab`
+cycles combat hostiles first so the neutral shipyard hub does not steal target lock.
+Whittle a hostile ship or the hostile **Kryos Relay** station to the **disable** threshold
+(~22%), close within boarding range, and press `B` — marines breach and a boarding bar
+fills. On completion the asset **switches to your faction**; if you have spare crew it is
+manned and joins your **fleet formation**, otherwise it sits captured-but-unmanned until
+you recruit crew. At the neutral station you recruit crew/marines, cycle a shipyard offer
+across fighter/corvette/frigate/capital classes, buy the selected ship, and step into the
+**crew deck** to walk among your procedurally-built humanoid crew and order them to follow
+you. Once ships are manned, `F` becomes a direct fleet command: toggle escorts between
+following the flagship and holding their current tactical positions while covering nearby
+hostiles. Press `T` to issue an explicit **attack order** — every manned escort breaks
+formation to focus-fire your current target until it is destroyed, captured, or otherwise
+neutralized, at which point the fleet automatically falls back to follow. The fleet/economy
+panel and radar ping show the standing order (`FOLLOW`, `HOLD`, or `ATTACK <target>`).
 
 ## Ship classes
 

@@ -5,14 +5,15 @@
 ### Mechanics proven in-engine
 - [x] Player flies a ship: throttle, boost, brake, yaw, pitch, roll.
 - [x] Weapons fire (projectiles + beams); hull / shield / energy modeled.
-- [x] Target cycling with a target-lock HUD panel + radar ring.
+- [x] Hostile-first target cycling with a target-lock HUD panel + radar ring.
 - [x] Third-person chase camera; readable HUD (bars, radar, objective, messages, reticle).
 - [x] Recruit crew and marines at the station.
 - [x] Crew-deck interaction view with visible procedural humanoid crew/marines.
 - [x] Interact with individual crew/marines and order them to follow the captain.
 - [x] Hostiles can be **disabled** (not only destroyed).
 - [x] Boarding with marines shows visible progress / resolution.
-- [x] Captured ships/stations switch faction and become player-owned.
+- [x] Captured ships/stations switch faction and become player-owned; a hostile relay
+      station is present as a live station-capture objective.
 - [x] Buy ships at the station.
 - [x] Assign crew so purchased/captured ships are **manned**.
 - [x] Manned ships follow in fleet formation and can be ordered to hold position.
@@ -56,15 +57,15 @@
 ### Production pipeline
 - [ ] Real (or higher-fidelity procedural) art + an authored audio pass.
 - [ ] Automated screenshot diffing in CI; perf budget tests.
-- [ ] Unit tests for damage/boarding/economy state transitions (headless harness).
+- [ ] Broader unit tests for damage/boarding/economy state transitions (headless harness).
 - [ ] Settings menu (resolution, volume, graphics) and pause.
 
 ### Known limitations (current slice)
 - Crew/marines are abstract pools surfaced as humanoids on the deck, not persistent
   individuals with stats.
 - Boarding resolves on a timer scaled by marine count, not a modeled firefight.
-- Fleet AI is a ring-formation / hold-position toggle with nearest-enemy engagement;
-  richer orders such as attack-my-target, escort roles, and docking are not built yet.
-- The auto-demo (capture mode) targets the nearest object, which may be the neutral
-  station; interactive play gives full target control via `Tab`.
+- Fleet AI is a ring-formation / hold-position / attack-target command set; richer
+  orders such as escort roles and docking are not built yet.
+- Target cycling prioritizes hostiles; neutral assets are fallback targets only after the
+  hostile force is cleared.
 - Single hand-seeded scenario; no persistence between runs.
