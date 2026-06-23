@@ -44,6 +44,16 @@ const COST_MARINE: int = 180
 const SHIPYARD_CLASSES: Array = ["corvette", "fighter", "frigate", "capital"]
 var shipyard_index: int = 0
 
+# Station repair/refit service. Cost scales with the hull/shield/energy actually
+# restored across the manned, player-owned fleet; partial work is applied when the
+# player cannot afford a full service.
+const SERVICE_RANGE: float = 70.0
+const SERVICE_MIN_CHARGE: int = 40
+const SERVICE_HULL_RATE: float = 0.6
+const SERVICE_SHIELD_RATE: float = 0.35
+const SERVICE_ENERGY_RATE: float = 0.15
+const DISABLE_FRAC: float = 0.22   # hull fraction at/below which a ship is "disabled"
+
 # Capture/demo: when launched for screenshots, the player auto-fights so frames are lively.
 var auto_demo: bool = false
 
@@ -687,6 +697,16 @@ func _stage_capture_demo() -> void:
 	if frigate == null:
 		return
 	player.global_position = Vector3(0, 4, 28)
+	# Capture-mode should demonstrate the new systems, not randomly kill the flagship
+	# before screenshots finish. Give the player temporary demo durability only when
+	# VOIDBORNE_CAPTURE/auto_demo stages the scene.
+	player.max_shield = max(player.max_shield, 900.0)
+	player.shield = player.max_shield
+	player.max_hull = max(player.max_hull, 1200.0)
+	player.hull = player.max_hull
+	player.max_energy = max(player.max_energy, 500.0)
+	player.energy = player.max_energy
+	player.disabled = false
 	frigate.global_position = Vector3(-16, -2, -78)
 	# Give the capture-demo frigate enough temporary durability to stay on target
 	# through all space screenshots while still starting visibly under attack.
@@ -864,6 +884,8 @@ func _handle_station_actions() -> void:
 		_recruit("marine", near_station)
 	if Input.is_action_just_pressed("buy_ship"):
 		_buy_ship(near_station)
+	if Input.is_action_just_pressed("station_service"):
+		_station_service()
 	if Input.is_action_just_pressed("follow_toggle"):
 		_toggle_fleet_follow()
 	if Input.is_action_just_pressed("fleet_attack"):
@@ -931,6 +953,111 @@ func _buy_ship(near_station: bool) -> void:
 		s.manned = false
 		s.crew_assigned = 0
 		_msg("Bought %s but UNMANNED (needs %d crew)." % [buy_class, need])
+	if audio: audio.play("ui_buy")
+
+# ---------------------------------------------------------------------------
+# STATION REPAIR / REFIT SERVICE
+# ---------------------------------------------------------------------------
+func _service_station() -> Node3D:
+	# Nearest non-hostile station within docking-service range of the flagship.
+	# Both the neutral hub and any captured/player-owned station provide service.
+	if not is_instance_valid(player):
+		return null
+	var best: Node3D = null
+	var bd: float = SERVICE_RANGE
+	for s in ships:
+		if not is_instance_valid(s) or s.destroyed or s.ship_class != "station":
+			continue
+		if s.faction == "hostile":
+			continue
+		var d: float = _pdist(s)
+		if d <= bd:
+			bd = d
+			best = s
+	return best
+
+func _service_targets() -> Array:
+	# Flagship plus every manned, non-destroyed player-owned mobile ship. Unmanned
+	# captured ships and owned stations are intentionally excluded.
+	var out: Array = []
+	for s in ships:
+		if not is_instance_valid(s) or s.destroyed:
+			continue
+		if s.faction != "player" or not s.manned or s.ship_class == "station":
+			continue
+		out.append(s)
+	return out
+
+func _service_raw_cost(targets: Array) -> float:
+	var raw: float = 0.0
+	for s in targets:
+		raw += max(0.0, s.max_hull - s.hull) * SERVICE_HULL_RATE
+		raw += max(0.0, s.max_shield - s.shield) * SERVICE_SHIELD_RATE
+		raw += max(0.0, s.max_energy - s.energy) * SERVICE_ENERGY_RATE
+	return raw
+
+func _service_estimate() -> Dictionary:
+	# HUD helper: what the dock would charge right now, if a service station is in range.
+	var svc: Node3D = _service_station()
+	if svc == null:
+		return {}
+	var raw: float = _service_raw_cost(_service_targets())
+	var cost: int = 0
+	if raw >= 1.0:
+		cost = max(SERVICE_MIN_CHARGE, int(ceil(raw)))
+	return {"station": svc.ship_name, "cost": cost}
+
+func _station_service() -> void:
+	var svc: Node3D = _service_station()
+	if svc == null:
+		# Clarify the hostile-station case so the deny reads as a gameplay rule, not a bug.
+		var near_hostile: bool = false
+		for s in ships:
+			if is_instance_valid(s) and not s.destroyed and s.ship_class == "station" and s.faction == "hostile" and _pdist(s) <= SERVICE_RANGE:
+				near_hostile = true
+				break
+		if near_hostile:
+			_msg("Hostile station denies dock services — capture it first.")
+		else:
+			_msg("No friendly station in range — dock at a station for repair/refit [H].")
+		if audio: audio.play("ui_deny")
+		return
+
+	var targets: Array = _service_targets()
+	var raw_cost: float = _service_raw_cost(targets)
+	if raw_cost < 1.0:
+		_msg("%s: all fleet systems nominal — no repair/refit needed." % svc.ship_name)
+		return
+
+	var budget: int = Game.credits
+	if budget <= 0:
+		_msg("No credits for repairs at %s." % svc.ship_name)
+		if audio: audio.play("ui_deny")
+		return
+
+	var desired_charge: int = max(SERVICE_MIN_CHARGE, int(ceil(raw_cost)))
+	var fraction: float = 1.0
+	var charge: int = desired_charge
+	if budget < desired_charge:
+		# Partial service: spend the available budget and restore proportionally against
+		# the actual service bill, including the minimum dock charge for light damage.
+		fraction = clamp(float(budget) / float(desired_charge), 0.0, 1.0)
+		charge = budget
+
+	var serviced: int = 0
+	for s in targets:
+		s.hull = min(s.max_hull, s.hull + (s.max_hull - s.hull) * fraction)
+		s.shield = min(s.max_shield, s.shield + (s.max_shield - s.shield) * fraction)
+		s.energy = min(s.max_energy, s.energy + (s.max_energy - s.energy) * fraction)
+		if s.disabled and s.hull > s.max_hull * DISABLE_FRAC:
+			s.disabled = false
+		serviced += 1
+
+	Game.credits -= charge
+	if fraction >= 1.0:
+		_msg("%s serviced %d ship(s): hull/shield/energy restored. Cost %d cr." % [svc.ship_name, serviced, charge])
+	else:
+		_msg("%s partial refit (%d%%) on %d ship(s) — credits limited. Spent %d cr." % [svc.ship_name, int(round(fraction * 100.0)), serviced, charge])
 	if audio: audio.play("ui_buy")
 
 func _order_fleet_attack() -> void:
@@ -1087,6 +1214,11 @@ func _update_hud() -> void:
 	# Prompt based on context.
 	d["prompt"] = _context_prompt()
 
+	# Station repair/refit hint for the economy panel (only while docked in range).
+	var svc_est: Dictionary = _service_estimate()
+	if not svc_est.is_empty():
+		d["service"] = svc_est
+
 	# Radar.
 	d["radar"] = _build_radar()
 	hud.set_data(d)
@@ -1100,7 +1232,10 @@ func _count_fleet() -> int:
 
 func _context_prompt() -> String:
 	if is_instance_valid(station) and _pdist(station) < 70.0:
-		return "STATION: [G] %s %dcr  [Y] buy  [R] crew  [M] marine  [C] deck  [F] man/order" % [_shipyard_class().to_upper(), _shipyard_cost()]
+		return "STATION: [G] %s %dcr  [Y] buy  [R] crew  [M] marine  [H] repair  [C] deck  [F] man/order" % [_shipyard_class().to_upper(), _shipyard_cost()]
+	var svc: Node3D = _service_station()
+	if svc != null:
+		return "DOCKED %s: [H] repair/refit fleet  [Tab] target  [F] fleet order" % svc.ship_name
 	if is_instance_valid(target) and target.disabled and target.faction != "player":
 		return "[B] board %s with marines" % target.ship_name
 	var order_label: String = fleet_order.to_upper()

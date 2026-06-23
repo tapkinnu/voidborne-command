@@ -54,8 +54,11 @@ Screenshots are written to `artifacts/screenshots/` (plus a `contact_sheet.jpg`)
 | `M` | Recruit marine (180 cr) |
 | `G` | Cycle the station shipyard offer (fighter / corvette / frigate / capital) |
 | `Y` | Buy the selected shipyard class (auto-mans if crew available) |
+| `H` | **Repair / refit**: restore hull, shields, and energy across your flagship and manned fleet (cost scales with damage; partial work if short on credits) |
 | `F` | Man any unmanned owned ships; if none need crew, toggle fleet order **follow ↔ hold position** |
 | `C` | Toggle the **crew deck** interior view |
+
+Repair/refit works at the neutral **Halcyon** hub *and* at any station you have captured. Hostile stations refuse service until taken.
 
 ### Crew deck (interior mode)
 | Key | Action |
@@ -75,7 +78,11 @@ Whittle a hostile ship or the hostile **Kryos Relay** station to the **disable**
 (~22%), close within boarding range, and press `B` — marines breach and a boarding bar
 fills. On completion the asset **switches to your faction**; if you have spare crew it is
 manned and joins your **fleet formation**, otherwise it sits captured-but-unmanned until
-you recruit crew. At the neutral station you recruit crew/marines, cycle a shipyard offer
+you recruit crew. Docking at a friendly station (the neutral hub or a captured one) also
+unlocks a `H` **repair/refit** service that restores hull, shields, and energy across your
+flagship and every manned fleet ship, charging credits in proportion to the damage actually
+mended — and applying partial work when your treasury can't cover a full overhaul. At the
+neutral station you recruit crew/marines, cycle a shipyard offer
 across fighter/corvette/frigate/capital classes, buy the selected ship, and step into the
 **crew deck** to walk among your procedurally-built humanoid crew and order them to follow
 you. Once ships are manned, `F` becomes a direct fleet command: toggle escorts between

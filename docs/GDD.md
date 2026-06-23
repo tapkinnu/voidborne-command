@@ -72,6 +72,18 @@ back to **follow** the instant the target is destroyed, captured, turns friendly
 becomes invalid; toggling `F` also clears it. The fleet/economy panel and radar render the
 standing order as `FOLLOW`, `HOLD`, or `ATTACK <target>`.
 
+**Dock services (repair/refit).** While the flagship is within `SERVICE_RANGE` (70 u) of a
+**non-hostile** station — the neutral Halcyon hub or any captured/player-owned station —
+`H` services the fleet. It restores hull, shields, and energy across the flagship and every
+**manned** player-owned mobile ship (unmanned captured hulls and destroyed ships are
+skipped) and clears `disabled` on any serviced ship whose repaired hull rises above the
+disable threshold. The charge is deterministic: `hull_missing*0.6 + shield_missing*0.35 +
+energy_missing*0.15` summed across serviced ships, with a `SERVICE_MIN_CHARGE` (40 cr) floor
+when any work is done. If credits can't cover the bill, the dock applies proportional
+**partial** repairs and spends only what's available; if nothing is damaged it charges
+nothing and reports "all systems nominal". Hostile stations and open space refuse service
+(`ui_deny`). The economy panel surfaces an `[H] Repair/refit` cost hint while docked.
+
 ### 4.6 Ship classes
 See the table in `README.md` and the authoritative `SHIP_CLASSES` dictionary in
 `scripts/game_state.gd`. Each class has distinct stats, silhouette scale, and a unique

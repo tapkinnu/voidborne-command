@@ -42,7 +42,9 @@ func _draw() -> void:
 	var mode: String = String(data.get("mode", "space"))
 
 	# Top-left: economy / fleet / shipyard
-	draw_rect(Rect2(Vector2(8, 8), Vector2(250, 114)), C_BG, true)
+	var service: Dictionary = data.get("service", {})
+	var panel_h: float = 132.0 if not service.is_empty() else 114.0
+	draw_rect(Rect2(Vector2(8, 8), Vector2(250, panel_h)), C_BG, true)
 	_txt(Vector2(16, 28), "VOIDBORNE COMMAND", C_LINE, 14)
 	_txt(Vector2(16, 48), "Credits: %d" % int(data.get("credits", 0)), Color(1, 0.85, 0.4), 13)
 	_txt(Vector2(16, 64), "Crew: %d   Marines: %d" % [int(data.get("crew_pool", 0)), int(data.get("marine_pool", 0))], C_DIM, 13)
@@ -54,6 +56,10 @@ func _draw() -> void:
 		order_col = Color(1.0, 0.55, 0.42)
 	_txt(Vector2(16, 96), "Order: %s" % order_txt, order_col, 12)
 	_txt(Vector2(16, 112), "Shipyard: %s %dcr   Mode: %s" % [String(data.get("shipyard_class", "corvette")).to_upper(), int(data.get("shipyard_cost", 0)), mode.to_upper()], C_DIM, 12)
+	if not service.is_empty():
+		var svc_cost: int = int(service.get("cost", 0))
+		var svc_txt: String = "[H] Repair/refit: %d cr" % svc_cost if svc_cost > 0 else "[H] Repair/refit: nominal"
+		_txt(Vector2(16, 128), svc_txt, Color(0.55, 1.0, 0.72), 12)
 
 	# Objective (top center)
 	var obj: String = String(data.get("objective", ""))
