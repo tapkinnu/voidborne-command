@@ -145,8 +145,10 @@ func _draw() -> void:
 		var px: float = vp.x * 0.5 - pw * 0.5
 		var py: float = vp.y * 0.5 + 40.0
 		draw_rect(Rect2(Vector2(px - 8, py - 26), Vector2(pw + 16, 56)), C_BG, true)
-		_txt(Vector2(px, py - 6), "BOARDING %s" % String(board.get("name", "")), Color(1, 0.8, 0.4), 14)
-		_bar(Vector2(px, py), pw, 18, float(board.get("progress", 0.0)), Color(1.0, 0.6, 0.3), "MARINES")
+		var atk: int = int(board.get("attacker", 0))
+		var def: int = int(board.get("defender", 0))
+		_txt(Vector2(px, py - 6), "BOARDING %s   ATK: %d  DEF: %d" % [String(board.get("name", "")), atk, def], Color(1, 0.8, 0.4), 14)
+		_bar(Vector2(px, py), pw, 18, float(board.get("progress", 0.0)), Color(1.0, 0.6, 0.3), "CAPTURE")
 
 	# Reticle (center)
 	draw_arc(vp * 0.5, 12, 0, TAU, 24, Color(0.4, 1.0, 0.7, 0.8), 1.5)
@@ -211,7 +213,12 @@ func _draw_messages(vp: Vector2) -> void:
 	draw_rect(Rect2(Vector2(x - 12.0, top), Vector2(430.0, float(rows) * 16.0 + 14.0)), Color(0.26, 0.78, 1.0, 0.28), false, 1.0)
 	for i in range(rows):
 		var alpha: float = 1.0 - float(rows - 1 - i) * 0.12
-		_txt(Vector2(x, y - float(rows - 1 - i) * 16.0), String(msgs[i]), Color(0.78, 0.97, 1.0, clamp(alpha, 0.55, 1.0)), 12)
+		var msg: String = String(msgs[i])
+		# Failed-assault lines are tinted red so the player can't miss losing their marines.
+		var col: Color = Color(0.78, 0.97, 1.0, clamp(alpha, 0.55, 1.0))
+		if msg.begins_with("BOARDING FAILED"):
+			col = Color(1.0, 0.4, 0.34, clamp(alpha, 0.6, 1.0))
+		_txt(Vector2(x, y - float(rows - 1 - i) * 16.0), msg, col, 12)
 
 func _draw_prompt(vp: Vector2) -> void:
 	var prompt: String = String(data.get("prompt", ""))

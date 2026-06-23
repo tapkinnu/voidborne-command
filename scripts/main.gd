@@ -33,11 +33,23 @@ var fleet_order: String = "follow"        # follow | hold | attack
 var fleet_hold_positions: Dictionary = {}  # instance_id -> Vector3
 var fleet_attack_target: Node3D = null     # focus-fire target while fleet_order == "attack"
 
-# Boarding state.
+# Boarding state. Boarding is now a resolved squad action: the player's marines
+# (boarding_attacker_strength, drawn from Game.marine_pool) fight the target's defenders
+# (boarding_defender_strength, the ship's marine_garrison after its disable loss). Each
+# round both sides take casualties; capture happens when defenders hit 0, failure when
+# attackers hit 0. boarding_progress is kept only as the HUD bar fraction (capture nearness).
 var boarding_active: bool = false
 var boarding_target: Node3D = null
-var boarding_progress: float = 0.0
-const BOARD_RATE: float = 0.32     # progress per second per marine-batch
+var boarding_progress: float = 0.0        # 0..1 capture nearness for the HUD bar
+var boarding_attacker_strength: int = 0
+var boarding_defender_strength: int = 0
+var boarding_initial_attacker: int = 0
+var boarding_initial_defender: int = 0
+var boarding_round_timer: float = 0.0     # accumulates game time toward the next round
+var boarding_round_count: int = 0
+var boarding_failed: bool = false         # set briefly so the HUD can flag a failed assault
+const BOARD_ROUND_INTERVAL: float = 0.5   # seconds of game time per combat round
+const BOARD_EXCHANGE_RATE: float = 0.15   # casualty fraction inflicted per round
 
 # Economy costs.
 const COST_CREW: int = 120
@@ -891,10 +903,20 @@ func _try_start_boarding() -> void:
 		if audio: audio.play("ui_deny")
 		return
 	boarding_active = true
+	boarding_failed = false
 	boarding_target = target
 	boarding_progress = 0.0
-	_msg("Boarding %s — marines breaching!" % target.ship_name)
+	boarding_round_timer = 0.0
+	boarding_round_count = 0
+	boarding_attacker_strength = Game.marine_pool
+	boarding_defender_strength = int(target.marine_garrison)
+	boarding_initial_attacker = boarding_attacker_strength
+	boarding_initial_defender = boarding_defender_strength
+	_msg("Boarding %s — %d marines vs %d defenders!" % [target.ship_name, boarding_attacker_strength, boarding_defender_strength])
 	if audio: audio.play("board")
+	# An undefended target is captured the instant the boarders cross over.
+	if boarding_defender_strength <= 0:
+		_complete_capture(boarding_target)
 
 func _update_boarding(delta: float) -> void:
 	if not boarding_active:
@@ -902,31 +924,82 @@ func _update_boarding(delta: float) -> void:
 	if not is_instance_valid(boarding_target) or boarding_target.destroyed:
 		_cancel_boarding()
 		return
-	# Marines must stay close; progress scales with marine count.
+	# Marines must stay close; the boarding craft cannot tow a fleeing/disabled hull far.
 	if _pdist(boarding_target) > 120.0:
 		_msg("Boarding aborted — drifted out of range.")
 		_cancel_boarding()
 		return
-	var marines: int = max(1, Game.marine_pool)
-	boarding_progress += BOARD_RATE * (0.6 + 0.12 * float(marines)) * delta
-	if int(_elapsed * 4.0) % 8 == 0 and audio:
-		audio.play("board", rng.randf_range(0.9, 1.2))
-	if boarding_progress >= 1.0:
+	# Resolve squad combat in fixed-length rounds. Large frame deltas (tests) resolve
+	# several rounds at once; each round may end the boarding (capture or failure).
+	boarding_round_timer += delta
+	while boarding_active and boarding_round_timer >= BOARD_ROUND_INTERVAL:
+		boarding_round_timer -= BOARD_ROUND_INTERVAL
+		_resolve_boarding_round()
+	_update_boarding_bar()
+
+func _resolve_boarding_round() -> void:
+	var atk: int = boarding_attacker_strength
+	var def: int = boarding_defender_strength
+	# Each side inflicts casualties proportional to its own strength. Guarantee at least one
+	# casualty on a non-empty foe so small forces still resolve (no integer-floor stalemate).
+	var atk_cas: int = 0
+	if def > 0:
+		atk_cas = max(1, int(round(float(def) * BOARD_EXCHANGE_RATE * rng.randf_range(0.7, 1.3))))
+	var def_cas: int = 0
+	if atk > 0:
+		def_cas = max(1, int(round(float(atk) * BOARD_EXCHANGE_RATE * rng.randf_range(0.7, 1.3))))
+	boarding_attacker_strength = max(0, atk - atk_cas)
+	boarding_defender_strength = max(0, def - def_cas)
+	boarding_round_count += 1
+	if audio:
+		audio.play("boarding_round", rng.randf_range(0.9, 1.2))
+	# Report every other round to keep the log readable during a long assault.
+	if boarding_round_count % 2 == 1:
+		_msg("Breach round %d — ATK: %d (-%d)  DEF: %d (-%d)" % [boarding_round_count, boarding_attacker_strength, atk_cas, boarding_defender_strength, def_cas])
+	if boarding_defender_strength <= 0:
 		_complete_capture(boarding_target)
+	elif boarding_attacker_strength <= 0:
+		_fail_boarding()
+
+func _update_boarding_bar() -> void:
+	# Bar shows nearness to capture, derived from defenders remaining / initial defenders.
+	if boarding_initial_defender <= 0:
+		boarding_progress = 1.0
+	else:
+		boarding_progress = clamp(1.0 - float(boarding_defender_strength) / float(boarding_initial_defender), 0.0, 1.0)
+
+func _fail_boarding() -> void:
+	var lost: int = boarding_initial_attacker
+	var holders: int = boarding_defender_strength
+	var nm: String = boarding_target.ship_name if is_instance_valid(boarding_target) else "target"
+	Game.marine_pool = 0
+	boarding_failed = true
+	_msg("BOARDING FAILED — all %d marines lost. %s holds with %d defenders." % [lost, nm, holders])
+	if audio: audio.play("boarding_fail")
+	_cancel_boarding()
 
 func _cancel_boarding() -> void:
 	boarding_active = false
 	boarding_target = null
 	boarding_progress = 0.0
+	boarding_round_timer = 0.0
+	boarding_round_count = 0
+	boarding_attacker_strength = 0
+	boarding_defender_strength = 0
 
 func _complete_capture(s: Node3D) -> void:
 	var was_hostile: bool = s.faction == "hostile"
 	var reward: int = _capture_credit_reward(s) if was_hostile else 0
+	var attackers_lost: int = max(0, boarding_initial_attacker - boarding_attacker_strength)
+	var defenders_lost: int = max(0, boarding_initial_defender - boarding_defender_strength)
 	s.set_faction("player")
 	s.disabled = false
 	s.hull = max(s.hull, s.max_hull * 0.4)
-	Game.marine_pool = max(0, Game.marine_pool - 2)
+	# Captured asset starts ungarrisoned; the surviving boarders become the new marine pool.
+	s.marine_garrison = 0
+	Game.marine_pool = max(0, boarding_attacker_strength)
 	Game.captured_count += 1
+	_msg("Boarding won: %d attackers lost, %d defenders lost." % [attackers_lost, defenders_lost])
 	if reward > 0:
 		Game.credits += reward
 		_msg("Boarding prize secured: +%d cr capture bounty." % reward)
@@ -1275,6 +1348,7 @@ func _ship_to_dict(s: Node3D) -> Dictionary:
 		"is_player": s.is_player,
 		"manned": s.manned,
 		"crew_assigned": s.crew_assigned,
+		"marine_garrison": s.marine_garrison,
 		"hull": s.hull,
 		"max_hull": s.max_hull,
 		"shield": s.shield,
@@ -1371,6 +1445,13 @@ func _validate_save(parsed: Variant) -> String:
 		var rerr: String = _validate_vec3(sd.get("rot"))
 		if rerr != "":
 			return "ship %s rot %s" % [String(sd.get("ship_name", "?")), rerr]
+		# Marine garrison is optional (backward compatible). If present, a non-negative int.
+		if sd.has("marine_garrison"):
+			var garr_val: Variant = sd["marine_garrison"]
+			if typeof(garr_val) != TYPE_FLOAT and typeof(garr_val) != TYPE_INT:
+				return "ship %s marine_garrison non-numeric" % String(sd.get("ship_name", "?"))
+			if float(garr_val) < 0.0:
+				return "ship %s marine_garrison negative" % String(sd.get("ship_name", "?"))
 		# Subsystem health is optional (backward compatible). If present, must be a 0..1 float.
 		for sub_key in ["sub_engine", "sub_weapon", "sub_shield"]:
 			if sd.has(sub_key):
@@ -1462,6 +1543,8 @@ func _ship_from_dict(entry: Variant, used_names: Dictionary) -> Node3D:
 	s.is_player = bool(sd.get("is_player", false))
 	s.manned = bool(sd.get("manned", true))
 	s.crew_assigned = int(sd.get("crew_assigned", 0))
+	# Marine garrison: absent in pre-garrison saves, so default to 0 for backward compat.
+	s.marine_garrison = max(0, int(sd.get("marine_garrison", 0)))
 	s.max_hull = float(sd.get("max_hull", s.max_hull))
 	s.hull = float(sd.get("hull", s.hull))
 	s.max_shield = float(sd.get("max_shield", s.max_shield))
@@ -1623,9 +1706,15 @@ func _update_hud() -> void:
 			"sub_shield": target.sub_shield,
 			"sub_focus": subsystem_focus,
 		}
-	# Boarding block.
+	# Boarding block: squad combat state for the HUD bar + ATK/DEF readout.
 	if boarding_active and is_instance_valid(boarding_target):
-		d["boarding"] = {"active": true, "name": boarding_target.ship_name, "progress": boarding_progress}
+		d["boarding"] = {
+			"active": true,
+			"name": boarding_target.ship_name,
+			"progress": boarding_progress,
+			"attacker": boarding_attacker_strength,
+			"defender": boarding_defender_strength,
+		}
 
 	# Prompt based on context.
 	d["prompt"] = _context_prompt()

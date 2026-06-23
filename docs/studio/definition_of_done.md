@@ -50,7 +50,12 @@
 
 ### Crew & command depth
 - [ ] Named crew with roles, skills, morale; station assignments affect ship stats.
-- [ ] Boarding as a resolved squad action (attacker vs defender marines, casualties).
+- [x] Boarding as a resolved squad action (attacker vs defender marines, casualties).
+  Shipped: ships carry a class-based `marine_garrison` (halved on disable); boarding runs
+  fixed 0.5s rounds where attacker and defender marines exchange casualties (`0.15` rate ×
+  seeded `0.7–1.3` roll), capturing when defenders hit 0 and failing — losing all marines —
+  if attackers hit 0 first. HUD shows `ATK/DEF` and capture nearness; garrison saves/loads.
+  Regression: `tests/test_boarding_squad.gd` (`BOARDING_SQUAD_TEST_PASS`).
 - [ ] Deck navigation across multiple rooms / multiple owned ships.
 - [ ] Order menu (escort, attack-my-target, dock) for fleet ships beyond the current follow/hold toggle.
 
@@ -82,7 +87,8 @@
 ### Known limitations (current slice)
 - Crew/marines are abstract pools surfaced as humanoids on the deck, not persistent
   individuals with stats.
-- Boarding resolves on a timer scaled by marine count, not a modeled firefight.
+- Boarding resolves as a per-round attacker-vs-defender casualty exchange (with a class-based
+  defender garrison), but the marines themselves are still abstract counts, not individuals.
 - Fleet AI is a ring-formation / hold-position / attack-target command set; richer
   orders such as escort roles and docking are not built yet.
 - Target cycling prioritizes hostiles; neutral assets are fallback targets only after the

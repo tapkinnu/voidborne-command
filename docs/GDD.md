@@ -63,9 +63,28 @@ round-trips through the versioned save/load schema (optional fields, backward co
 with v1 saves that lack them).
 
 ### 4.3 Boarding & capture
-A disabled, non-allied target within range can be boarded (`B`). A boarding bar fills at
-a rate scaled by your marine count. On completion the asset `set_faction("player")`,
-consumes marines, and is added to your fleet — **manned** if you have spare crew for its
+A disabled, non-allied target within range can be boarded (`B`). Boarding is a **resolved
+squad action**, not a timer: your marines (`Game.marine_pool`) assault the target's
+**defending garrison** and both sides take casualties until one side is gone.
+
+Every ship carries a `marine_garrison` set by class — fighter 0, corvette 2, frigate 4,
+capital 8, station 12. When a ship is **disabled** its garrison is halved (rounded down):
+some defenders are casualties of the disabling fight. Combat then resolves in fixed
+`0.5s` rounds. Each round:
+- attacker casualties `= defender_strength × 0.15 × roll(0.7–1.3)`
+- defender casualties `= attacker_strength × 0.15 × roll(0.7–1.3)`
+
+(rolls come from the main seeded RNG, and each non-empty side inflicts at least one
+casualty per round so small forces never stalemate). Boarding **succeeds** when the
+defenders reach 0 — the surviving attackers become the new `marine_pool` and the asset
+`set_faction("player")`. Boarding **fails** if the attackers reach 0 first: all your
+marines are lost, the boarding is cancelled, and the target stays hostile (still disabled).
+A captured asset starts with garrison 0 (the new owner must garrison it themselves —
+out of scope this increment). The HUD boarding bar shows nearness to capture (defenders
+remaining vs initial) with an `ATK: N  DEF: M` readout; a failed assault prints a
+red-tinted `BOARDING FAILED` line.
+
+A successful capture is added to your fleet — **manned** if you have spare crew for its
 `crew_needed`, otherwise captured-but-unmanned. Hostile captures pay a boarding bounty
 (`18%` of the ship-class value, minimum 100 cr), while destroying a hostile instead pays
 smaller salvage (`8%`, minimum 40 cr). This keeps boarding economically superior and feeds

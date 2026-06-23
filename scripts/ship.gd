@@ -45,6 +45,11 @@ var crew_needed: int = 1
 var crew_assigned: int = 0
 var manned: bool = true
 
+# Marines stationed aboard for defense against boarding. Set by class in setup(); halved
+# when the ship is disabled (some defenders are casualties of the disabling fight); zeroed
+# on capture (the new owner must garrison it themselves — out of scope this increment).
+var marine_garrison: int = 0
+
 var velocity: Vector3 = Vector3.ZERO
 var throttle: float = 0.0           # 0..1 commanded throttle
 var boosting: bool = false
@@ -86,6 +91,7 @@ func setup(p_class: String, p_faction: String, p_name: String) -> void:
 	crew_needed = int(info.get("crew_needed", 1))
 	crew_assigned = crew_needed
 	manned = true
+	marine_garrison = int(info.get("garrison", 0))
 	class_color = info.get("color", Color.WHITE)
 	_build_mesh()
 
@@ -242,6 +248,8 @@ func take_damage(amount: float, subsystem: String = "") -> Dictionary:
 	if not disabled and hull <= max_hull * 0.22 and hull > 0.0:
 		disabled = true
 		result["disabled"] = true
+		# Disabling fight costs the defenders half their garrison (rounded down).
+		marine_garrison = int(floor(float(marine_garrison) / 2.0))
 	if hull <= 0.0:
 		hull = 0.0
 		# Disabled ships are captured, not destroyed, when reduced further while boarded.

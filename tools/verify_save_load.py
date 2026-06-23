@@ -86,6 +86,14 @@ def validate(data):
                     return "ship %s %s non-numeric" % (entry.get("ship_name", "?"), sub_key)
                 if val < 0.0 or val > 1.0:
                     return "ship %s %s out of range" % (entry.get("ship_name", "?"), sub_key)
+        # Marine garrison is optional (backward compatible). When present it must be a
+        # non-negative number; absent values default to 0 on load.
+        if "marine_garrison" in entry:
+            garr = entry["marine_garrison"]
+            if isinstance(garr, bool) or not isinstance(garr, (int, float)):
+                return "ship %s marine_garrison non-numeric" % (entry.get("ship_name", "?"))
+            if garr < 0:
+                return "ship %s marine_garrison negative" % (entry.get("ship_name", "?"))
         if entry.get("is_player"):
             player_count += 1
     if player_count == 0:
@@ -239,6 +247,26 @@ def _self_test():
     nonnum_sub = _minimal_valid()
     nonnum_sub["ships"][0]["sub_weapon"] = "broken"
     cases.append(("non-numeric subsystem health", nonnum_sub, False))
+
+    # Marine garrison round-trip: a save WITH a non-negative garrison is accepted.
+    with_garrison = _minimal_valid()
+    with_garrison["ships"][0]["marine_garrison"] = 4
+    cases.append(("ship with marine garrison", with_garrison, True))
+
+    # Backward compatibility: a save WITHOUT a garrison field is still accepted.
+    without_garrison = _minimal_valid()
+    without_garrison["ships"][0].pop("marine_garrison", None)
+    cases.append(("save without marine garrison", without_garrison, True))
+
+    # A negative garrison must be rejected.
+    neg_garrison = _minimal_valid()
+    neg_garrison["ships"][0]["marine_garrison"] = -3
+    cases.append(("negative marine garrison", neg_garrison, False))
+
+    # A non-numeric garrison must be rejected.
+    nonnum_garrison = _minimal_valid()
+    nonnum_garrison["ships"][0]["marine_garrison"] = "platoon"
+    cases.append(("non-numeric marine garrison", nonnum_garrison, False))
 
     # Round-trip through JSON text to mimic the on-disk path.
     failures = []

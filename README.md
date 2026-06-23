@@ -78,8 +78,14 @@ You start in a corvette with a small fighter wing near a neutral station and a h
 formation (fighter wing, corvette, frigate, capital, and a hostile relay station). `Tab`
 cycles combat hostiles first so the neutral shipyard hub does not steal target lock.
 Whittle a hostile ship or the hostile **Kryos Relay** station to the **disable** threshold
-(~22%), close within boarding range, and press `B` — marines breach and a boarding bar
-fills. On completion the asset **switches to your faction** and hostile captures pay a better
+(~22%), close within boarding range, and press `B` — your marines breach and fight the
+target's **defending garrison** in a resolved **squad action**. Each round both sides take
+casualties (scaled by their strength and a seeded roll); boarding **succeeds** when the
+defenders are cleared and **fails** — losing all your marines — if your boarders are wiped
+first. Bigger hulls garrison more marines (corvette 2 → frigate 4 → capital 8 → station 12),
+so disabling them first (which already halves the garrison) and bringing enough marines
+matters. On a successful boarding the asset **switches to your faction**, the surviving
+attackers become your marine pool, and hostile captures pay a better
 credit bounty than simple destruction salvage; if you have spare crew it is
 manned and joins your **fleet formation**, otherwise it sits captured-but-unmanned until
 you recruit crew. Docking at a friendly station (the neutral hub or a captured one) also
