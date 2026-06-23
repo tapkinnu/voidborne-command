@@ -41,13 +41,14 @@ func _draw() -> void:
 	var vp: Vector2 = get_viewport_rect().size
 	var mode: String = String(data.get("mode", "space"))
 
-	# Top-left: economy / fleet
-	draw_rect(Rect2(Vector2(8, 8), Vector2(230, 92)), C_BG, true)
+	# Top-left: economy / fleet / shipyard
+	draw_rect(Rect2(Vector2(8, 8), Vector2(250, 114)), C_BG, true)
 	_txt(Vector2(16, 28), "VOIDBORNE COMMAND", C_LINE, 14)
 	_txt(Vector2(16, 48), "Credits: %d" % int(data.get("credits", 0)), Color(1, 0.85, 0.4), 13)
 	_txt(Vector2(16, 64), "Crew: %d   Marines: %d" % [int(data.get("crew_pool", 0)), int(data.get("marine_pool", 0))], C_DIM, 13)
 	_txt(Vector2(16, 80), "Fleet: %d   Captured: %d" % [int(data.get("fleet_count", 0)), int(data.get("captured", 0))], C_DIM, 13)
-	_txt(Vector2(16, 96), "Mode: %s" % mode.to_upper(), C_DIM, 12)
+	_txt(Vector2(16, 96), "Shipyard: %s %dcr" % [String(data.get("shipyard_class", "corvette")).to_upper(), int(data.get("shipyard_cost", 0))], Color(0.56, 1.0, 0.82), 12)
+	_txt(Vector2(16, 112), "Mode: %s" % mode.to_upper(), C_DIM, 12)
 
 	# Objective (top center)
 	var obj: String = String(data.get("objective", ""))

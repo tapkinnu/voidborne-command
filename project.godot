@@ -101,6 +101,10 @@ buy_ship={
 "deadzone": 0.5,
 "events": [{"type":"key","keycode":89,"unicode":121}]
 }
+cycle_shipyard={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":71,"unicode":103}]
+}
 follow_toggle={
 "deadzone": 0.5,
 "events": [{"type":"key","keycode":70,"unicode":102}]

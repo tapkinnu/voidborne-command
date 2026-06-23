@@ -38,7 +38,8 @@ const BOARD_RATE: float = 0.32     # progress per second per marine-batch
 # Economy costs.
 const COST_CREW: int = 120
 const COST_MARINE: int = 180
-const BUY_CLASS: String = "corvette"
+const SHIPYARD_CLASSES: Array = ["corvette", "fighter", "frigate", "capital"]
+var shipyard_index: int = 0
 
 # Capture/demo: when launched for screenshots, the player auto-fights so frames are lively.
 var auto_demo: bool = false
@@ -787,6 +788,8 @@ func _handle_station_actions() -> void:
 		_set_deck_mode(not deck_mode)
 		return
 	var near_station: bool = is_instance_valid(station) and _pdist(station) < 70.0
+	if Input.is_action_just_pressed("cycle_shipyard"):
+		_cycle_shipyard_class(near_station)
 	if Input.is_action_just_pressed("recruit_crew"):
 		_recruit("crew", near_station)
 	if Input.is_action_just_pressed("recruit_marine"):
@@ -795,6 +798,21 @@ func _handle_station_actions() -> void:
 		_buy_ship(near_station)
 	if Input.is_action_just_pressed("follow_toggle"):
 		_toggle_fleet_follow()
+
+func _shipyard_class() -> String:
+	return String(SHIPYARD_CLASSES[shipyard_index % SHIPYARD_CLASSES.size()])
+
+func _shipyard_cost() -> int:
+	return int(Game.class_stat(_shipyard_class(), "value"))
+
+func _cycle_shipyard_class(near_station: bool = true) -> void:
+	if not near_station:
+		_msg("Fly to the STATION to browse the shipyard.")
+		if audio: audio.play("ui_deny")
+		return
+	shipyard_index = (shipyard_index + 1) % SHIPYARD_CLASSES.size()
+	_msg("Shipyard selected: %s (%d cr)." % [_shipyard_class().to_upper(), _shipyard_cost()])
+	if audio: audio.play("ui_recruit")
 
 func _recruit(kind: String, near_station: bool) -> void:
 	if not near_station:
@@ -822,26 +840,27 @@ func _buy_ship(near_station: bool) -> void:
 		_msg("Fly to the STATION to buy ships.")
 		if audio: audio.play("ui_deny")
 		return
-	var cost: int = int(Game.class_stat(BUY_CLASS, "value"))
+	var buy_class: String = _shipyard_class()
+	var cost: int = _shipyard_cost()
 	if Game.credits < cost:
-		_msg("Not enough credits for a %s (%d)." % [BUY_CLASS, cost])
+		_msg("Not enough credits for a %s (%d)." % [buy_class, cost])
 		if audio: audio.play("ui_deny")
 		return
 	Game.credits -= cost
 	Game.purchased_count += 1
 	var pos: Vector3 = station.global_position + Vector3(rng.randf_range(-14, 14), 6, 18)
-	var s: Node3D = _spawn_ship(BUY_CLASS, "player", "Bought-%d" % Game.purchased_count, pos)
+	var s: Node3D = _spawn_ship(buy_class, "player", "%s-%d" % [buy_class.capitalize(), Game.purchased_count], pos)
 	var need: int = s.crew_needed
 	if Game.crew_pool >= need:
 		Game.crew_pool -= need
 		s.crew_assigned = need
 		s.manned = true
 		s.ai_state = "follow"
-		_msg("Bought %s and assigned %d crew — manned, joins fleet." % [BUY_CLASS, need])
+		_msg("Bought %s and assigned %d crew — manned, joins fleet." % [buy_class, need])
 	else:
 		s.manned = false
 		s.crew_assigned = 0
-		_msg("Bought %s but UNMANNED (needs %d crew)." % [BUY_CLASS, need])
+		_msg("Bought %s but UNMANNED (needs %d crew)." % [buy_class, need])
 	if audio: audio.play("ui_buy")
 
 func _toggle_fleet_follow() -> void:
@@ -903,6 +922,8 @@ func _update_hud() -> void:
 	d["marine_pool"] = Game.marine_pool
 	d["fleet_count"] = _count_fleet()
 	d["captured"] = Game.captured_count
+	d["shipyard_class"] = _shipyard_class()
+	d["shipyard_cost"] = _shipyard_cost()
 	d["objective"] = objective
 	d["messages"] = messages.duplicate()
 	d["capture_demo"] = auto_demo
@@ -958,7 +979,7 @@ func _count_fleet() -> int:
 
 func _context_prompt() -> String:
 	if is_instance_valid(station) and _pdist(station) < 70.0:
-		return "STATION: [R] crew  [M] marine  [Y] buy ship  [C] crew deck  [F] man fleet"
+		return "STATION: [G] %s %dcr  [Y] buy  [R] crew  [M] marine  [C] deck  [F] man" % [_shipyard_class().to_upper(), _shipyard_cost()]
 	if is_instance_valid(target) and target.disabled and target.faction != "player":
 		return "[B] board %s with marines" % target.ship_name
 	return "[Tab] cycle target   [C] crew deck"

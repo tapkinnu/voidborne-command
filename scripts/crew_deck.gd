@@ -22,42 +22,80 @@ func _build_humanoid(col: Color) -> Node3D:
 	skin.albedo_color = Color(0.85, 0.7, 0.6)
 	# torso
 	var torso: MeshInstance3D = MeshInstance3D.new()
+	torso.name = "Torso"
 	var tm: CapsuleMesh = CapsuleMesh.new()
-	tm.radius = 0.28
-	tm.height = 1.1
+	tm.radius = 0.32
+	tm.height = 1.18
 	torso.mesh = tm
 	torso.material_override = mat
 	torso.position = Vector3(0, 0.95, 0)
 	h.add_child(torso)
 	# head
 	var head: MeshInstance3D = MeshInstance3D.new()
+	head.name = "Head"
 	var hm: SphereMesh = SphereMesh.new()
-	hm.radius = 0.18
-	hm.height = 0.36
+	hm.radius = 0.23
+	hm.height = 0.46
 	head.mesh = hm
 	head.material_override = skin
-	head.position = Vector3(0, 1.62, 0)
+	head.position = Vector3(0, 1.68, 0)
 	h.add_child(head)
+	# bright face visor so the humanoid reads as a character from the capture camera
+	var visor: MeshInstance3D = MeshInstance3D.new()
+	visor.name = "Visor"
+	var vm: BoxMesh = BoxMesh.new()
+	vm.size = Vector3(0.32, 0.08, 0.04)
+	visor.mesh = vm
+	var vmat: StandardMaterial3D = StandardMaterial3D.new()
+	vmat.albedo_color = Color(0.25, 0.95, 1.0)
+	vmat.emission_enabled = true
+	vmat.emission = Color(0.25, 0.95, 1.0)
+	vmat.emission_energy_multiplier = 2.5
+	visor.material_override = vmat
+	visor.position = Vector3(0, 1.70, -0.20)
+	h.add_child(visor)
 	# legs
-	for sx in [-0.13, 0.13]:
+	for spec in [["LeftLeg", -0.17], ["RightLeg", 0.17]]:
+		var sx: float = float(spec[1])
 		var leg: MeshInstance3D = MeshInstance3D.new()
+		leg.name = String(spec[0])
 		var lm: CapsuleMesh = CapsuleMesh.new()
-		lm.radius = 0.1
-		lm.height = 0.8
+		lm.radius = 0.115
+		lm.height = 0.86
 		leg.mesh = lm
 		leg.material_override = mat
 		leg.position = Vector3(sx, 0.4, 0)
 		h.add_child(leg)
+		var boot: MeshInstance3D = MeshInstance3D.new()
+		boot.name = "%sBoot" % String(spec[0])
+		var bm: BoxMesh = BoxMesh.new()
+		bm.size = Vector3(0.18, 0.10, 0.36)
+		boot.mesh = bm
+		boot.material_override = mat
+		boot.position = Vector3(sx, 0.05, -0.10)
+		h.add_child(boot)
 	# arms
-	for sx2 in [-0.34, 0.34]:
+	for spec2 in [["LeftArm", -0.42, 11.0], ["RightArm", 0.42, -11.0]]:
+		var sx2: float = float(spec2[1])
 		var arm: MeshInstance3D = MeshInstance3D.new()
+		arm.name = String(spec2[0])
 		var am: CapsuleMesh = CapsuleMesh.new()
-		am.radius = 0.08
-		am.height = 0.7
+		am.radius = 0.09
+		am.height = 0.78
 		arm.mesh = am
 		arm.material_override = mat
-		arm.position = Vector3(sx2, 0.95, 0)
+		arm.position = Vector3(sx2, 0.98, -0.02)
+		arm.rotation_degrees.z = float(spec2[2])
 		h.add_child(arm)
+	# small backpack/oxygen block gives the silhouette a readable front/back cue.
+	var pack: MeshInstance3D = MeshInstance3D.new()
+	pack.name = "LifeSupportPack"
+	var pm: BoxMesh = BoxMesh.new()
+	pm.size = Vector3(0.34, 0.42, 0.16)
+	pack.mesh = pm
+	pack.material_override = mat
+	pack.position = Vector3(0, 1.04, 0.23)
+	h.add_child(pack)
 	return h
 
 func build(p_rng: RandomNumberGenerator) -> void:
@@ -122,6 +160,7 @@ func build(p_rng: RandomNumberGenerator) -> void:
 
 	# Captain avatar
 	captain = _build_humanoid(Color(0.4, 1.0, 0.6))
+	captain.scale = Vector3(1.35, 1.35, 1.35)
 	captain.position = Vector3(0, 0, 6)
 	add_child(captain)
 	var beacon: MeshInstance3D = MeshInstance3D.new()
@@ -140,8 +179,9 @@ func build(p_rng: RandomNumberGenerator) -> void:
 
 	# Camera (angled third-person)
 	camera = Camera3D.new()
-	camera.position = Vector3(0, 7, 16)
-	camera.rotation_degrees = Vector3(-22, 0, 0)
+	camera.position = Vector3(0, 6, 13)
+	camera.rotation_degrees = Vector3(-19, 0, 0)
+	camera.fov = 58.0
 	add_child(camera)
 
 	refresh_roster()
@@ -166,6 +206,7 @@ func refresh_roster() -> void:
 func _spawn_crew(role: String, idx: int, total: int) -> void:
 	var col: Color = Color(0.42, 0.72, 1.0) if role == "crew" else Color(1.0, 0.5, 0.35)
 	var hh: Node3D = _build_humanoid(col)
+	hh.scale = Vector3(1.28, 1.28, 1.28)
 	var ang: float = float(idx) / float(total) * TAU
 	var home: Vector3 = Vector3(sin(ang) * 7.0, 0, -2.0 + cos(ang) * 4.0)
 	hh.position = home

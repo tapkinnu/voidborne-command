@@ -31,14 +31,32 @@ run_godot() {
 echo "-- Step 1: import --------------------------------------------" | tee -a "$LOG"
 run_godot 120 --headless --rendering-driver "$DRIVER" --path . --import | tee -a "$LOG" >/dev/null
 
-echo "-- Step 2: smoke run (10s) -----------------------------------" | tee -a "$LOG"
+echo "-- Step 2: GDScript tests -------------------------------------" | tee -a "$LOG"
+shopt -s nullglob
+for TEST in tests/test_*.gd; do
+	echo "test=$TEST" | tee -a "$LOG"
+	TMP="$(mktemp)"
+	run_godot 60 --headless --path . -s "$TEST" > "$TMP" 2>&1
+	STATUS=$?
+	cat "$TMP" >> "$LOG"
+	if [[ "$STATUS" -ne 0 ]] || ! grep -q "TEST_PASS" "$TMP"; then
+		echo "FAIL: $TEST exited $STATUS or did not print TEST_PASS" | tee -a "$LOG"
+		cat "$TMP"
+		rm -f "$TMP"
+		exit 1
+	fi
+	rm -f "$TMP"
+done
+shopt -u nullglob
+
+echo "-- Step 3: smoke run (10s) -----------------------------------" | tee -a "$LOG"
 # VOIDBORNE_CAPTURE makes the autopilot fight so weapons/boarding code paths execute,
 # but we point it at a scratch dir we discard; the real capture tool owns screenshots.
 SMOKE_DIR="$(mktemp -d)"
 VOIDBORNE_CAPTURE="$SMOKE_DIR" run_godot 30 --rendering-driver "$DRIVER" --path . --audio-driver Dummy | tee -a "$LOG" >/dev/null
 rm -rf "$SMOKE_DIR"
 
-echo "-- Step 3: scan for fatal errors -----------------------------" | tee -a "$LOG"
+echo "-- Step 4: scan for fatal errors -----------------------------" | tee -a "$LOG"
 # Match the three forbidden classes. Engine "ERROR:" lines (e.g. transient) are not fatal
 # unless they are one of these GDScript-level failures.
 HITS="$(grep -E "SCRIPT ERROR|Parse Error|Invalid call" "$LOG" || true)"

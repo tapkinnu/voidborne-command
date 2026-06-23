@@ -51,7 +51,8 @@ Screenshots are written to `artifacts/screenshots/` (plus a `contact_sheet.jpg`)
 | --- | --- |
 | `R` | Recruit crew (120 cr) |
 | `M` | Recruit marine (180 cr) |
-| `Y` | Buy a corvette (auto-mans if crew available) |
+| `G` | Cycle the station shipyard offer (fighter / corvette / frigate / capital) |
+| `Y` | Buy the selected shipyard class (auto-mans if crew available) |
 | `F` | Man any unmanned owned ships / hold formation |
 | `C` | Toggle the **crew deck** interior view |
 
@@ -72,8 +73,9 @@ the **disable** threshold (~22%), close within boarding range, and press `B` —
 breach and a boarding bar fills. On completion the ship **switches to your faction**; if
 you have spare crew it is manned and joins your **fleet formation**, otherwise it sits
 captured-but-unmanned until you recruit crew. At the station you recruit crew/marines,
-buy ships, and step into the **crew deck** to walk among your procedurally-built
-humanoid crew and order them to follow you.
+cycle a shipyard offer across fighter/corvette/frigate/capital classes, buy the selected
+ship, and step into the **crew deck** to walk among your procedurally-built humanoid crew
+and order them to follow you.
 
 ## Ship classes
 

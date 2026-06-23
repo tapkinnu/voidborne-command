@@ -48,7 +48,8 @@
 
 ### Economy & world
 - [ ] Persistent save/load of credits, roster, and fleet.
-- [ ] Station docking UI: market, shipyard with multiple buyable classes, repair/refit.
+- [x] Station shipyard can cycle multiple buyable classes (fighter/corvette/frigate/capital).
+- [ ] Station docking UI: repair/refit and a fuller market screen.
 - [ ] Multiple stations / a small system map with travel and respawning threats.
 - [ ] Mission/objective system beyond the single seeded scenario.
 

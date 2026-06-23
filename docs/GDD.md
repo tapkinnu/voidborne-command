@@ -58,9 +58,11 @@ per pooled crew/marine. The captain avatar walks (WASD) and orders the nearest h
 to follow (`F`); followers trail the captain in a loose formation.
 
 ### 4.5 Economy & fleet
-At the station: recruit crew (120) / marines (180), buy a corvette (2200). Purchased and
-captured ships need `crew_needed` crew to be **manned**; manned owned ships fly a ring
-formation behind the player and break off to engage nearby hostiles.
+At the station: recruit crew (120) / marines (180), cycle the shipyard offer with `G`,
+and buy the selected class with `Y` (fighter 800, corvette 2200, frigate 5200,
+capital 16000). Purchased and captured ships need `crew_needed` crew to be **manned**;
+manned owned ships fly a ring formation behind the player and break off to engage nearby
+hostiles.
 
 ### 4.6 Ship classes
 See the table in `README.md` and the authoritative `SHIP_CLASSES` dictionary in
