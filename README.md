@@ -140,6 +140,16 @@ on its own — only the station `H` repair/refit service restores it, and it rou
 save/load. The target panel shows a compact ENG/WPN/SHD status strip with the focused one
 marked.
 
+### Independent turrets
+
+Larger ships fight with **independently-tracking turret mounts** instead of a fixed muzzle
+volley. Frigates (2 mounts, ±110° arc), capitals (8 broadside mounts, ±85° arc) and stations
+(4 mounts, ±170° arc) each rotate their turrets toward the ship's current target, clamped to
+the mount's fire arc. Every turret carries its own cooldown and fires only when it is both
+ready and aimed — so muzzles fire one at a time from their tracked angle rather than all at
+once. Fighters and corvettes keep the classic all-muzzle volley. The weapons subsystem still
+gates every turret (OFFLINE = no fire, DAMAGED = half rate).
+
 ## Ship classes
 
 | Class | Hull | Shield | Speed | Turn | Scale | Weapon | Role |

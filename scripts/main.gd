@@ -388,6 +388,13 @@ func _process_space(delta: float) -> void:
 	_validate_fleet_attack()
 	_run_ai(delta)
 	_integrate_motion(delta)
+	# Tick independent turret tracking for all ships that have turrets.
+	for s in ships:
+		if is_instance_valid(s) and not s.destroyed and s.has_method("tick_turrets") and s.has_turrets():
+			var tt: Node3D = s.target if not s.is_player else target
+			if tt == null or not is_instance_valid(tt):
+				tt = null  # no target: turrets center
+			s.tick_turrets(delta, tt)
 	_update_projectiles(delta)
 	_update_beams(delta)
 	_update_explosions(delta)
@@ -607,6 +614,11 @@ func _try_fire(s: Node3D, delta: float, forced_target: Node3D = null) -> bool:
 	# Weapons subsystem OFFLINE: cannot fire, and the cooldown never advances.
 	if not s.can_fire():
 		return false
+	var aim_target: Node3D = forced_target if forced_target != null else (target if s.is_player else s.target)
+	# Ships with independent turrets fire each mount on its own cooldown/arc.
+	if s.has_turrets():
+		return _try_fire_turrets(s, delta, aim_target)
+	# --- fixed-muzzle path (fighter/corvette): fire all muzzles at once ---
 	s.weapon_cd -= delta
 	if s.weapon_cd > 0.0:
 		return false
@@ -615,12 +627,37 @@ func _try_fire(s: Node3D, delta: float, forced_target: Node3D = null) -> bool:
 	# DAMAGED weapons fire at half rate (doubled cooldown).
 	s.weapon_cd = s.fire_rate * s.weapon_cd_mult()
 	s.energy = max(0.0, s.energy - 2.0)
-	var aim_target: Node3D = forced_target if forced_target != null else (target if s.is_player else s.target)
 	if s.weapon_type == "beam":
 		_fire_beam(s, aim_target)
 	else:
 		_fire_projectile(s, aim_target)
 	return true
+
+func _try_fire_turrets(s: Node3D, delta: float, aim_target: Node3D) -> bool:
+	# Each turret tracks/cools on its own (ticked in _process_space). Here we only fire
+	# the mounts that are both ready and aimed at the target within their arc.
+	if aim_target == null or not is_instance_valid(aim_target):
+		return false
+	var fired: bool = false
+	var cd_mult: float = s.weapon_cd_mult()
+	for i in range(s.turrets.size()):
+		var td: Dictionary = s.turrets[i]
+		if float(td["cd"]) > 0.0:
+			continue
+		if not s.turret_ready_and_aimed(i, aim_target):
+			continue
+		if s.energy < 1.0:
+			break
+		td["cd"] = float(td["base_cd"]) * cd_mult
+		s.energy = max(0.0, s.energy - 1.0)
+		var origin: Vector3 = s.turret_muzzle_world(i)
+		var fire_dir: Vector3 = s.turret_fire_dir(i)
+		if s.weapon_type == "beam":
+			_fire_beam_from(s, aim_target, origin, fire_dir)
+		else:
+			_fire_projectile_from(s, aim_target, origin, fire_dir)
+		fired = true
+	return fired
 
 func _muzzle_world(s: Node3D, local: Vector3) -> Vector3:
 	var scale: float = s.radius() / 3.0
@@ -694,6 +731,68 @@ func _fire_beam(s: Node3D, aim_target: Node3D) -> void:
 	node.rotate_object_local(Vector3.RIGHT, PI / 2.0)
 	beams.append({"node": node, "ttl": 0.3})
 	# Hitscan damage.
+	_apply_damage(s, aim_target, s.weapon_dmg)
+	if audio:
+		audio.play("beam")
+
+func _fire_projectile_from(s: Node3D, aim_target: Node3D, origin: Vector3, fire_dir: Vector3) -> void:
+	var node: MeshInstance3D = MeshInstance3D.new()
+	var cm: CapsuleMesh = CapsuleMesh.new()
+	cm.radius = 0.26
+	cm.height = 3.2
+	node.mesh = cm
+	var col: Color = Color(0.5, 1.0, 0.6, 1.0) if s.faction == "player" else Color(1.0, 0.5, 0.35, 1.0)
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = col
+	mat.emission_enabled = true
+	mat.emission = col
+	mat.emission_energy_multiplier = 8.0
+	node.material_override = mat
+	add_child(node)
+	node.global_position = origin
+	node.look_at(origin + fire_dir, Vector3.UP)
+	node.rotate_object_local(Vector3.RIGHT, PI / 2.0)
+	var speed: float = 90.0
+	var shot_sub: String = subsystem_focus if s.is_player else ""
+	projectiles.append({
+		"node": node,
+		"vel": fire_dir * speed + s.velocity,
+		"dmg": s.weapon_dmg,
+		"ttl": s.weapon_range / speed + 0.4,
+		"faction": s.faction,
+		"subsystem": shot_sub,
+	})
+	if audio:
+		audio.play("laser", rng.randf_range(0.9, 1.1))
+
+func _fire_beam_from(s: Node3D, aim_target: Node3D, origin: Vector3, fire_dir: Vector3) -> void:
+	# Beam hitscan along fire_dir, up to weapon_range.
+	var dest: Vector3 = origin + fire_dir * s.weapon_range
+	# If we have a valid target, snap the beam endpoint to the target for visual clarity.
+	if aim_target != null and is_instance_valid(aim_target):
+		dest = aim_target.global_position
+	var mid: Vector3 = (origin + dest) * 0.5
+	var length: float = origin.distance_to(dest)
+	var node: MeshInstance3D = MeshInstance3D.new()
+	var cm: CylinderMesh = CylinderMesh.new()
+	cm.top_radius = 0.4
+	cm.bottom_radius = 0.4
+	cm.height = length
+	node.mesh = cm
+	var col: Color = Color(0.6, 1.0, 0.8, 1.0) if s.faction == "player" else Color(1.0, 0.4, 0.5, 1.0)
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = col
+	mat.emission_enabled = true
+	mat.emission = col
+	mat.emission_energy_multiplier = 5.0
+	node.material_override = mat
+	add_child(node)
+	node.global_position = mid
+	node.look_at(dest, Vector3.UP)
+	node.rotate_object_local(Vector3.RIGHT, PI / 2.0)
+	beams.append({"node": node, "ttl": 0.3})
 	_apply_damage(s, aim_target, s.weapon_dmg)
 	if audio:
 		audio.play("beam")
@@ -1457,7 +1556,7 @@ func _build_save_dict() -> Dictionary:
 	}
 
 func _ship_to_dict(s: Node3D) -> Dictionary:
-	return {
+	var d: Dictionary = {
 		"ship_name": s.ship_name,
 		"ship_class": s.ship_class,
 		"faction": s.faction,
@@ -1480,6 +1579,10 @@ func _ship_to_dict(s: Node3D) -> Dictionary:
 		"pos": [s.global_position.x, s.global_position.y, s.global_position.z],
 		"rot": [s.rotation.x, s.rotation.y, s.rotation.z],
 	}
+	# Independent turret state is only saved for ships that actually have turrets.
+	if s.has_turrets():
+		d["turrets"] = s.turret_state_to_array()
+	return d
 
 func _quick_load() -> bool:
 	if not FileAccess.file_exists(save_path):
@@ -1577,6 +1680,9 @@ func _validate_save(parsed: Variant) -> String:
 				var sub_f: float = float(sub_val)
 				if sub_f < 0.0 or sub_f > 1.0:
 					return "ship %s %s out of range" % [String(sd.get("ship_name", "?")), sub_key]
+		# Turret state is optional (backward compatible). If present, must be an Array.
+		if sd.has("turrets") and typeof(sd["turrets"]) != TYPE_ARRAY:
+			return "ship %s turrets not an array" % String(sd.get("ship_name", "?"))
 		if bool(sd.get("is_player", false)):
 			player_count += 1
 	if player_count == 0:
@@ -1678,6 +1784,11 @@ func _ship_from_dict(entry: Variant, used_names: Dictionary) -> Node3D:
 	s.position = Vector3(float(pos[0]), float(pos[1]), float(pos[2]))
 	var rot: Array = sd["rot"]
 	s.rotation = Vector3(float(rot[0]), float(rot[1]), float(rot[2]))
+	# Turret state: optional/backward-compatible. Only restored on ships that have turrets.
+	if s.has_turrets():
+		var turret_state: Variant = sd.get("turrets", [])
+		if typeof(turret_state) == TYPE_ARRAY:
+			s.restore_turret_state(turret_state)
 	ships.append(s)
 	if s.is_player:
 		player = s

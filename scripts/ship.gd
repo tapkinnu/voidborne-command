@@ -71,6 +71,16 @@ var _shield_flash: float = 0.0
 var _engine_nodes: Array = []
 var muzzles: Array = []             # Array[Vector3] local-space muzzle offsets
 
+# Independent turret mounts. Each entry is a Dictionary:
+#   "node": MeshInstance3D  — the visual turret (rotates around Y to track)
+#   "pos": Vector3          — local position on the ship hull (static)
+#   "muzzle_fwd": float     — how far forward (local -Z) the muzzle sits from the turret pivot
+#   "yaw": float            — current tracked yaw angle in radians (0 = ship forward)
+#   "arc_half": float       — half-angle fire arc in radians (turret can only track/fire within ±arc_half of ship forward)
+#   "cd": float             — per-turret weapon cooldown timer
+#   "base_cd": float        — per-turret base fire interval (seconds)
+var turrets: Array = []
+
 func setup(p_class: String, p_faction: String, p_name: String) -> void:
 	ship_class = p_class
 	faction = p_faction
@@ -169,8 +179,10 @@ func _build_mesh() -> void:
 			_add_box(root, Vector3(2.4, 1.6, 7.0), Vector3(0, 0, 0), _hull_mat)
 			_add_box(root, Vector3(1.2, 1.0, 2.0), Vector3(1.6, 0, 1.0), _hull_mat)    # side pods
 			_add_box(root, Vector3(1.2, 1.0, 2.0), Vector3(-1.6, 0, 1.0), _hull_mat)
-			_add_cyl(root, 0.5, 0.5, 0.6, Vector3(0, 1.1, -1.5), accent_mat)           # turret
-			_add_cyl(root, 0.5, 0.5, 0.6, Vector3(0, 1.1, 1.5), accent_mat)
+			var frig_t0: MeshInstance3D = _add_cyl(root, 0.5, 0.5, 0.6, Vector3(0, 1.1, -1.5), accent_mat)  # turret
+			var frig_t1: MeshInstance3D = _add_cyl(root, 0.5, 0.5, 0.6, Vector3(0, 1.1, 1.5), accent_mat)
+			_register_turret(frig_t0, Vector3(0, 1.1, -1.5), deg_to_rad(110.0), 1.2, fire_rate * 1.3)
+			_register_turret(frig_t1, Vector3(0, 1.1, 1.5), deg_to_rad(110.0), 1.2, fire_rate * 1.3)
 			_add_box(root, Vector3(0.8, 0.7, 1.2), Vector3(0, 0.9, -2.4), accent_mat)  # bridge
 			_engine_nodes.append(_add_box(root, Vector3(0.7, 0.7, 0.6), Vector3(0.8, 0, 3.6), _engine_mat))
 			_engine_nodes.append(_add_box(root, Vector3(0.7, 0.7, 0.6), Vector3(-0.8, 0, 3.6), _engine_mat))
@@ -181,8 +193,10 @@ func _build_mesh() -> void:
 			_add_box(root, Vector3(1.2, 0.9, 1.6), Vector3(0, 2.4, -3.0), accent_mat)  # bridge tower
 			for i in range(4):
 				var zz: float = -3.5 + float(i) * 2.4
-				_add_cyl(root, 0.45, 0.6, 0.9, Vector3(1.0, 1.4, zz), accent_mat)
-				_add_cyl(root, 0.45, 0.6, 0.9, Vector3(-1.0, 1.4, zz), accent_mat)
+				var cap_r: MeshInstance3D = _add_cyl(root, 0.45, 0.6, 0.9, Vector3(1.0, 1.4, zz), accent_mat)
+				var cap_l: MeshInstance3D = _add_cyl(root, 0.45, 0.6, 0.9, Vector3(-1.0, 1.4, zz), accent_mat)
+				_register_turret(cap_r, Vector3(1.0, 1.4, zz), deg_to_rad(85.0), 1.0, fire_rate * 2.0)
+				_register_turret(cap_l, Vector3(-1.0, 1.4, zz), deg_to_rad(85.0), 1.0, fire_rate * 2.0)
 			_add_box(root, Vector3(3.0, 1.8, 1.2), Vector3(0, 0, 6.2), _engine_mat)
 			_engine_nodes.append(_add_box(root, Vector3(0.9, 0.9, 0.6), Vector3(1.0, 0, 6.6), _engine_mat))
 			_engine_nodes.append(_add_box(root, Vector3(0.9, 0.9, 0.6), Vector3(-1.0, 0, 6.6), _engine_mat))
@@ -204,6 +218,10 @@ func _build_mesh() -> void:
 				sp.rotation.y = ang
 			_add_box(root, Vector3(1.0, 1.0, 1.0), Vector3(0, 2.4, 0), accent_mat)     # comms
 			muzzles = [Vector3(0, 0, 6.0), Vector3(6.0, 0, 0), Vector3(-6.0, 0, 0), Vector3(0, 0, -6.0)]
+			var st_positions: Array = [Vector3(0, 0, 6.0), Vector3(6.0, 0, 0), Vector3(-6.0, 0, 0), Vector3(0, 0, -6.0)]
+			for sp_pos in st_positions:
+				var st_t: MeshInstance3D = _add_cyl(root, 0.5, 0.5, 1.0, sp_pos, accent_mat)
+				_register_turret(st_t, sp_pos, deg_to_rad(170.0), 1.5, fire_rate)
 		_:
 			_add_box(root, Vector3(1, 1, 2), Vector3.ZERO, _hull_mat)
 			muzzles = [Vector3(0, 0, -1.5)]
@@ -343,3 +361,106 @@ func tick_visuals(delta: float) -> void:
 	var a: float = clamp(_shield_flash, 0.0, 0.35)
 	if _shield_mat:
 		_shield_mat.albedo_color = Color(0.4, 0.7, 1.0, a)
+
+# --- Independent turret subsystems -----------------------------------------
+func _register_turret(node: MeshInstance3D, pos: Vector3, arc_half: float, muzzle_fwd: float, base_cd: float) -> void:
+	turrets.append({
+		"node": node,
+		"pos": pos,
+		"muzzle_fwd": muzzle_fwd,
+		"yaw": 0.0,
+		"arc_half": arc_half,
+		"cd": 0.0,
+		"base_cd": base_cd,
+	})
+
+func has_turrets() -> bool:
+	return turrets.size() > 0
+
+func tick_turrets(delta: float, aim_target: Node3D) -> void:
+	# Rotate each turret toward the aim target, clamped to its fire arc.
+	# Decrement per-turret cooldown. Called from main.gd _process_space.
+	if turrets.is_empty():
+		return
+	if aim_target == null or not is_instance_valid(aim_target):
+		# No target: turrets return to center (yaw → 0) and cooldowns still tick.
+		for t in turrets:
+			var td: Dictionary = t
+			td["yaw"] = move_toward(float(td["yaw"]), 0.0, 1.5 * delta)
+			td["cd"] = max(0.0, float(td["cd"]) - delta)
+			_apply_turret_visual(td)
+		return
+	var to_target: Vector3 = aim_target.global_position - global_position
+	var local_dir: Vector3 = global_transform.basis.inverse() * to_target
+	# Desired yaw = atan2 of local_dir.x, -local_dir.z (ship forward is -Z)
+	var desired_yaw: float = atan2(local_dir.x, -local_dir.z)
+	for t in turrets:
+		var td: Dictionary = t
+		var clamped_yaw: float = clamp(desired_yaw, -float(td["arc_half"]), float(td["arc_half"]))
+		# Smoothly track toward the clamped yaw
+		var track_speed: float = 3.0  # radians per second
+		td["yaw"] = move_toward(float(td["yaw"]), clamped_yaw, track_speed * delta)
+		td["cd"] = max(0.0, float(td["cd"]) - delta)
+		_apply_turret_visual(td)
+
+func _apply_turret_visual(td: Dictionary) -> void:
+	var node: MeshInstance3D = td["node"]
+	if is_instance_valid(node):
+		node.rotation.y = float(td["yaw"])
+
+func turret_muzzle_world(idx: int) -> Vector3:
+	# World position of a turret's muzzle, accounting for turret yaw.
+	var td: Dictionary = turrets[idx]
+	var yaw: float = float(td["yaw"])
+	var pos: Vector3 = td["pos"]
+	var fwd: float = float(td["muzzle_fwd"])
+	# Muzzle local offset: turret pos + forward rotated by yaw
+	var muzzle_local: Vector3 = pos + Vector3(sin(yaw) * fwd, 0.0, -cos(yaw) * fwd)
+	var scale: float = float(Game.class_info(ship_class).get("scale", 1.0))
+	return global_transform * (muzzle_local * scale)
+
+func turret_fire_dir(idx: int) -> Vector3:
+	# World-space direction the turret is currently pointing.
+	var td: Dictionary = turrets[idx]
+	var yaw: float = float(td["yaw"])
+	var local_dir: Vector3 = Vector3(sin(yaw), 0.0, -cos(yaw))
+	return (global_transform.basis * local_dir).normalized()
+
+func turret_in_arc(idx: int, aim_target: Node3D) -> bool:
+	# True if the target is within this turret's fire arc.
+	if aim_target == null or not is_instance_valid(aim_target):
+		return false
+	var td: Dictionary = turrets[idx]
+	var to_target: Vector3 = (aim_target.global_position - global_position).normalized()
+	var local_dir: Vector3 = global_transform.basis.inverse() * to_target
+	var desired_yaw: float = atan2(local_dir.x, -local_dir.z)
+	return abs(desired_yaw) <= float(td["arc_half"])
+
+func turret_aimed(idx: int, aim_target: Node3D, tolerance: float = 0.1) -> bool:
+	# True if turret yaw is close enough to the desired yaw to fire.
+	if not turret_in_arc(idx, aim_target):
+		return false
+	var to_target: Vector3 = (aim_target.global_position - global_position).normalized()
+	var local_dir: Vector3 = global_transform.basis.inverse() * to_target
+	var desired_yaw: float = atan2(local_dir.x, -local_dir.z)
+	var td: Dictionary = turrets[idx]
+	return abs(float(td["yaw"]) - desired_yaw) < tolerance
+
+func turret_ready_and_aimed(idx: int, aim_target: Node3D) -> bool:
+	var td: Dictionary = turrets[idx]
+	return float(td["cd"]) <= 0.0 and turret_aimed(idx, aim_target)
+
+func turret_state_to_array() -> Array:
+	var out: Array = []
+	for t in turrets:
+		var td: Dictionary = t
+		out.append({"yaw": float(td["yaw"]), "cd": float(td["cd"])})
+	return out
+
+func restore_turret_state(state: Array) -> void:
+	for i in range(mini(state.size(), turrets.size())):
+		var sd: Dictionary = state[i]
+		var td: Dictionary = turrets[i]
+		td["yaw"] = float(sd.get("yaw", 0.0))
+		td["cd"] = float(sd.get("cd", 0.0))
+		_apply_turret_visual(td)

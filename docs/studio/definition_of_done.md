@@ -43,7 +43,16 @@
   scheme Auto→Keyboard+Mouse→Gamepad→Auto; `F1` opens a centered settings overlay. The
   `_flight_strength()` / `_flight_axis()` gate reads the right source(s) per scheme.
   Covered by `tests/test_mouse_aim_gamepad.gd` (`MOUSE_AIM_GAMEPAD_TEST_PASS`).
-- [ ] Turret subsystems that track independently; per-mount fire arcs.
+- [x] Turret subsystems that track independently; per-mount fire arcs. Shipped: frigates
+  (2 mounts, ±110° arc), capitals (8 mounts, ±85° broadside arc) and stations (4 mounts,
+  ±170° arc) register independent turret nodes that rotate around Y toward the ship's target,
+  clamped to their fire arc and tracking at 3 rad/s. Each turret carries its own cooldown
+  (`base_cd` per class) and fires only when both ready and aimed — muzzles fire one at a time
+  from their tracked position/direction, not all at once. Fighters/corvettes keep the fixed
+  all-muzzle volley. The weapons subsystem still gates all turrets (OFFLINE = no fire,
+  DAMAGED = doubled cooldown). Turret yaw/cooldown round-trips through save/load as a
+  backward-compatible optional `turrets` array. Covered by `tests/test_turret_tracking.gd`
+  (`TURRET_TRACKING_TEST_PASS`).
 - [x] Subsystem targeting (engines/weapons/shields) feeding the disable model. Shipped: `Z`
   cycles subsystem focus on the current target (none → engines → weapons → shields → none).
   Player fire routes 50% of post-shield damage into the focused subsystem; AI always does
