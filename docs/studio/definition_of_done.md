@@ -36,7 +36,13 @@
 ## Production backlog (next, beyond the slice)
 
 ### Flight & combat feel
-- [ ] Mouse-aim flight + gamepad support; configurable bindings.
+- [x] Mouse-aim flight + gamepad support; configurable bindings. Shipped: backtick toggles
+  mouse-aim (cursor captured, mouse X→yaw / Y→pitch, additive over keyboard); gamepad
+  axes/buttons mapped to all flight actions (left stick steer, triggers throttle, right
+  stick roll, A fire, B target, Y board, Back deck, Start mouse-aim); `F2` cycles control
+  scheme Auto→Keyboard+Mouse→Gamepad→Auto; `F1` opens a centered settings overlay. The
+  `_flight_strength()` / `_flight_axis()` gate reads the right source(s) per scheme.
+  Covered by `tests/test_mouse_aim_gamepad.gd` (`MOUSE_AIM_GAMEPAD_TEST_PASS`).
 - [ ] Turret subsystems that track independently; per-mount fire arcs.
 - [x] Subsystem targeting (engines/weapons/shields) feeding the disable model. Shipped: `Z`
   cycles subsystem focus on the current target (none → engines → weapons → shields → none).

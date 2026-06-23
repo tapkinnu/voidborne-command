@@ -48,6 +48,24 @@ Screenshots are written to `artifacts/screenshots/` (plus a `contact_sheet.jpg`)
 | `B` | Board a **disabled** target with marines |
 | `V` / `L` | **Quick save / quick load** the current battle (versioned `user://voidborne_save.json`) |
 | `Z` | **Cycle subsystem focus** on the current target: none → engines → weapons → shields → none |
+| `` ` `` (backtick) | Toggle **mouse-aim flight** — captures the cursor; mouse X→yaw, mouse Y→pitch (additive over keyboard) |
+| `F1` | Toggle the **settings overlay** (shows mouse-aim state and control scheme) |
+| `F2` | **Cycle control scheme**: Auto → Keyboard+Mouse → Gamepad → Auto |
+
+### Gamepad (when connected)
+| Control | Action |
+| --- | --- |
+| Left stick | Yaw / pitch |
+| Right stick X | Roll left / right |
+| Triggers (L/R) | Throttle down / up |
+| A / Cross | Fire weapons |
+| B / Circle | Cycle targets |
+| LB / RB | Brake / Boost |
+| Y / Triangle | Board disabled target |
+| Back / Select | Toggle crew deck |
+| Start / Menu | Toggle mouse-aim |
+
+In **Auto** mode both keyboard+mouse and gamepad work simultaneously. **Keyboard+Mouse** mode ignores gamepad axes; **Gamepad** mode ignores keyboard flight (UI keys like save/load still work).
 
 ### Command & economy (fly near the STATION)
 | Key | Action |
