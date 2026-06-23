@@ -44,6 +44,7 @@ Screenshots are written to `artifacts/screenshots/` (plus a `contact_sheet.jpg`)
 | `Q` / `E` | Roll left / right |
 | `Space` / LMB | Fire weapons |
 | `Tab` | Cycle target |
+| `T` | Order your manned fleet to **attack / focus-fire** the current target |
 | `B` | Board a **disabled** target with marines |
 
 ### Command & economy (fly near the STATION)
@@ -77,7 +78,11 @@ cycle a shipyard offer across fighter/corvette/frigate/capital classes, buy the 
 ship, and step into the **crew deck** to walk among your procedurally-built humanoid crew
 and order them to follow you. Once ships are manned, `F` becomes a direct fleet command:
 toggle escorts between following the flagship and holding their current tactical positions
-while covering nearby hostiles.
+while covering nearby hostiles. Press `T` to issue an explicit **attack order** — every
+manned escort breaks formation to focus-fire your current target until it is destroyed,
+captured, or otherwise neutralized, at which point the fleet automatically falls back to
+follow. The fleet/economy panel and radar ping show the standing order (`FOLLOW`, `HOLD`,
+or `ATTACK <target>`).
 
 ## Ship classes
 

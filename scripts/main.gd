@@ -28,8 +28,9 @@ var audio: Node
 var throttle: float = 0.4
 var target: Node3D = null
 var deck_mode: bool = false
-var fleet_order: String = "follow"        # follow | hold
+var fleet_order: String = "follow"        # follow | hold | attack
 var fleet_hold_positions: Dictionary = {}  # instance_id -> Vector3
+var fleet_attack_target: Node3D = null     # focus-fire target while fleet_order == "attack"
 
 # Boarding state.
 var boarding_active: bool = false
@@ -239,6 +240,7 @@ func _process_deck(delta: float) -> void:
 func _process_space(delta: float) -> void:
 	if is_instance_valid(player) and not player.destroyed:
 		_player_control(delta)
+	_validate_fleet_attack()
 	_run_ai(delta)
 	_integrate_motion(delta)
 	_update_projectiles(delta)
@@ -319,7 +321,9 @@ func _run_ai(delta: float) -> void:
 			s.velocity = s.velocity.move_toward(Vector3.ZERO, s.accel * delta)
 			continue
 		if s.faction == "player":
-			if s.ai_state == "hold" or fleet_order == "hold":
+			if fleet_order == "attack" and is_instance_valid(fleet_attack_target):
+				_ai_attack_target(s, delta)
+			elif s.ai_state == "hold" or fleet_order == "hold":
 				_ai_hold_position(s, delta)
 			else:
 				_ai_follow_player(s, delta)
@@ -356,6 +360,34 @@ func _ai_follow_player(s: Node3D, delta: float) -> void:
 	var offset: Vector3 = Vector3(sin(ang) * 14.0, 3.0, 16.0 + float(idx % 3) * 6.0)
 	var goal: Vector3 = player.global_position + player.global_transform.basis * offset
 	_steer_toward(s, goal, delta, 1.0)
+
+func _ai_attack_target(s: Node3D, delta: float) -> void:
+	# Fleet attack order: every manned escort focus-fires the commanded target even when
+	# other hostiles are closer. Validity is guaranteed by _validate_fleet_attack().
+	var foe: Node3D = fleet_attack_target
+	s.target = foe
+	var dist: float = s.global_position.distance_to(foe.global_position)
+	if dist > s.weapon_range * 0.7:
+		_steer_toward(s, foe.global_position, delta, 1.0)
+	else:
+		# Hold attack range while keeping the nose on the target.
+		_steer_toward(s, foe.global_position, delta, 0.4)
+	_face_and_fire(s, foe, delta)
+
+func _validate_fleet_attack() -> void:
+	# Drop attack mode the moment the commanded target is captured, destroyed, turned
+	# friendly or otherwise invalid, falling the fleet back to follow formation.
+	if fleet_order != "attack":
+		return
+	var t: Node3D = fleet_attack_target
+	if is_instance_valid(t) and not t.destroyed and t.faction != "player":
+		return
+	fleet_attack_target = null
+	fleet_order = "follow"
+	for s in ships:
+		if is_instance_valid(s) and s.faction == "player" and not s.is_player and s.manned:
+			s.ai_state = "follow"
+	_msg("Attack target lost — fleet reverts to FOLLOW formation.")
 
 func _ai_combat(s: Node3D, delta: float) -> void:
 	var foe: Node3D = _nearest(s, "player")
@@ -666,6 +698,7 @@ func _stage_capture_demo() -> void:
 	_add_demo_beam(player.global_position + Vector3(8, 2, 10), frigate.global_position + Vector3(7, 0, -3), Color(0.45, 0.8, 1.0))
 	_add_demo_beam(frigate.global_position + Vector3(-7, 0, -3), player.global_position + Vector3(0, 1, -3), Color(1.0, 0.35, 0.35))
 	_add_demo_burst(frigate.global_position + Vector3(4, 2.2, -2), 5.5)
+	_order_fleet_attack()   # set ATTACK order so the HUD/radar show the focus-fire command
 	_msg("Capture demo: hostile frigate Ironclaw is under fleet attack.")
 
 func _add_demo_beam(from_pos: Vector3, to_pos: Vector3, col: Color) -> void:
@@ -820,6 +853,8 @@ func _handle_station_actions() -> void:
 		_buy_ship(near_station)
 	if Input.is_action_just_pressed("follow_toggle"):
 		_toggle_fleet_follow()
+	if Input.is_action_just_pressed("fleet_attack"):
+		_order_fleet_attack()
 
 func _shipyard_class() -> String:
 	return String(SHIPYARD_CLASSES[shipyard_index % SHIPYARD_CLASSES.size()])
@@ -885,6 +920,33 @@ func _buy_ship(near_station: bool) -> void:
 		_msg("Bought %s but UNMANNED (needs %d crew)." % [buy_class, need])
 	if audio: audio.play("ui_buy")
 
+func _order_fleet_attack() -> void:
+	# Explicit tactical command: order every manned escort to focus-fire the current
+	# target. Space mode only (this runs from _handle_station_actions).
+	if target == null or not is_instance_valid(target) or target.destroyed:
+		_msg("No valid target to attack. [Tab] to select a hostile first.")
+		if audio: audio.play("ui_deny")
+		return
+	if target.faction == "player":
+		_msg("%s is one of yours — pick a hostile to attack." % target.ship_name)
+		if audio: audio.play("ui_deny")
+		return
+	fleet_order = "attack"
+	fleet_attack_target = target
+	fleet_hold_positions.clear()
+	var n: int = 0
+	for s in ships:
+		if not is_instance_valid(s) or s.faction != "player" or s.is_player or not s.manned:
+			continue
+		s.ai_state = "attack"
+		s.target = target
+		n += 1
+	if n > 0:
+		_msg("Fleet order: ATTACK %s — %d escort(s) focus fire." % [target.ship_name, n])
+	else:
+		_msg("Fleet order: ATTACK %s (no manned escorts yet)." % target.ship_name)
+	if audio: audio.play("ui_recruit")
+
 func _toggle_fleet_follow() -> void:
 	# First use available crew to man any owned ships; if none need crew, [F] toggles
 	# a tactical fleet order between follow formation and hold position.
@@ -896,12 +958,16 @@ func _toggle_fleet_follow() -> void:
 			Game.crew_pool -= s.crew_needed
 			s.crew_assigned = s.crew_needed
 			s.manned = true
-			s.ai_state = fleet_order
+			s.ai_state = fleet_order if fleet_order != "attack" else "follow"
 			changed += 1
 	if changed > 0:
-		_msg("Assigned crew to %d ship(s) — now manned and %s." % [changed, fleet_order])
+		_msg("Assigned crew to %d ship(s) — now manned and ordered." % changed)
 		if audio: audio.play("ui_recruit")
 		return
+
+	# Toggling follow/hold always clears any standing attack order; an attack order
+	# resolves to follow (its escorts disengage the focus target and re-form).
+	fleet_attack_target = null
 
 	if fleet_order == "follow":
 		fleet_order = "hold"
@@ -961,6 +1027,8 @@ func _update_hud() -> void:
 	d["marine_pool"] = Game.marine_pool
 	d["fleet_count"] = _count_fleet()
 	d["fleet_order"] = fleet_order
+	if fleet_order == "attack" and is_instance_valid(fleet_attack_target):
+		d["fleet_attack_target"] = fleet_attack_target.ship_name
 	d["captured"] = Game.captured_count
 	d["shipyard_class"] = _shipyard_class()
 	d["shipyard_cost"] = _shipyard_cost()
@@ -1022,7 +1090,10 @@ func _context_prompt() -> String:
 		return "STATION: [G] %s %dcr  [Y] buy  [R] crew  [M] marine  [C] deck  [F] man/order" % [_shipyard_class().to_upper(), _shipyard_cost()]
 	if is_instance_valid(target) and target.disabled and target.faction != "player":
 		return "[B] board %s with marines" % target.ship_name
-	return "[Tab] target   [F] fleet %s   [C] crew deck" % ("HOLD" if fleet_order == "follow" else "FOLLOW")
+	var order_label: String = fleet_order.to_upper()
+	if fleet_order == "attack" and is_instance_valid(fleet_attack_target):
+		order_label = "ATTACK %s" % fleet_attack_target.ship_name
+	return "[Tab] target  [T] fleet attack  [F] %s  [C] deck  (order: %s)" % [("HOLD" if fleet_order == "follow" else "FOLLOW"), order_label]
 
 func _build_radar() -> Array:
 	var blips: Array = []
@@ -1042,6 +1113,7 @@ func _build_radar() -> Array:
 			"faction": s.faction,
 			"target": s == target,
 			"self": s == player,
+			"attack": s == fleet_attack_target,
 		})
 	return blips
 

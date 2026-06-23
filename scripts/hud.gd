@@ -47,8 +47,13 @@ func _draw() -> void:
 	_txt(Vector2(16, 48), "Credits: %d" % int(data.get("credits", 0)), Color(1, 0.85, 0.4), 13)
 	_txt(Vector2(16, 64), "Crew: %d   Marines: %d" % [int(data.get("crew_pool", 0)), int(data.get("marine_pool", 0))], C_DIM, 13)
 	_txt(Vector2(16, 80), "Fleet: %d   Captured: %d" % [int(data.get("fleet_count", 0)), int(data.get("captured", 0))], C_DIM, 13)
-	_txt(Vector2(16, 96), "Order: %s   Shipyard: %s %dcr" % [String(data.get("fleet_order", "follow")).to_upper(), String(data.get("shipyard_class", "corvette")).to_upper(), int(data.get("shipyard_cost", 0))], Color(0.56, 1.0, 0.82), 12)
-	_txt(Vector2(16, 112), "Mode: %s" % mode.to_upper(), C_DIM, 12)
+	var order_txt: String = String(data.get("fleet_order", "follow")).to_upper()
+	var order_col: Color = Color(0.56, 1.0, 0.82)
+	if order_txt == "ATTACK":
+		order_txt = "ATTACK %s" % String(data.get("fleet_attack_target", "?"))
+		order_col = Color(1.0, 0.55, 0.42)
+	_txt(Vector2(16, 96), "Order: %s" % order_txt, order_col, 12)
+	_txt(Vector2(16, 112), "Shipyard: %s %dcr   Mode: %s" % [String(data.get("shipyard_class", "corvette")).to_upper(), int(data.get("shipyard_cost", 0)), mode.to_upper()], C_DIM, 12)
 
 	# Objective (top center)
 	var obj: String = String(data.get("objective", ""))
@@ -145,6 +150,10 @@ func _draw_radar(vp: Vector2) -> void:
 		if bool(bp.get("target", false)):
 			sz = 5.0
 			draw_arc(p, 7, 0, TAU, 12, Color(1, 0.9, 0.4), 1.0)
+		if bool(bp.get("attack", false)):
+			# Focus-fire command ping: a red marker ring around the ordered target.
+			sz = max(sz, 5.0)
+			draw_arc(p, 10, 0, TAU, 16, Color(1.0, 0.35, 0.3, 0.95), 2.0)
 		if bool(bp.get("self", false)):
 			col = Color(1, 1, 1)
 			sz = 4.0

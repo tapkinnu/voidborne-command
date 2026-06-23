@@ -109,6 +109,10 @@ follow_toggle={
 "deadzone": 0.5,
 "events": [{"type":"key","keycode":70,"unicode":102}]
 }
+fleet_attack={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":84,"unicode":116}]
+}
 toggle_deck={
 "deadzone": 0.5,
 "events": [{"type":"key","keycode":67,"unicode":99}]

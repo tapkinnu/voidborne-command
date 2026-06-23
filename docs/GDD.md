@@ -13,7 +13,7 @@ simplified, fully code-built form.
 1. **Fly your ship** — 6-DoF-ish arcade flight with throttle/boost/brake and yaw/pitch/roll.
 2. **Crew & marines** — recruit, see them as humanoids, order them to follow.
 3. **Disable → board → capture** — non-lethal takedown of ships and stations.
-4. **Buy & command** — purchase ships, man them, and issue follow/hold fleet orders.
+4. **Buy & command** — purchase ships, man them, and issue follow/hold/attack fleet orders.
 5. **Distinct classes** — fighter / corvette / frigate / capital / station.
 6. **Live battle** — hostile wing + larger ships + station, with weapons FX and a readable HUD.
 
@@ -64,7 +64,12 @@ capital 16000). Purchased and captured ships need `crew_needed` crew to be **man
 Once no unmanned owned ships need crew, `F` toggles the active fleet order between
 **follow** (ring formation behind the player, with nearest-enemy engagement) and
 **hold** (escorts brake at their current tactical points while still covering nearby
-hostiles).
+hostiles). `T` issues an explicit **attack** order: with a valid hostile selected, every
+manned escort breaks off to focus-fire that one target (`fleet_order = "attack"`,
+`fleet_attack_target` stored) regardless of which enemy is nearest. The order auto-clears
+back to **follow** the instant the target is destroyed, captured, turns friendly, or
+becomes invalid; toggling `F` also clears it. The fleet/economy panel and radar render the
+standing order as `FOLLOW`, `HOLD`, or `ATTACK <target>`.
 
 ### 4.6 Ship classes
 See the table in `README.md` and the authoritative `SHIP_CLASSES` dictionary in
