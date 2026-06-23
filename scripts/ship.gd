@@ -63,6 +63,7 @@ var being_boarded: bool = false
 
 var class_color: Color = Color.WHITE
 var _hull_mat: StandardMaterial3D
+var _accent_mat: StandardMaterial3D
 var _engine_mat: StandardMaterial3D
 var _shield_mesh: MeshInstance3D
 var _shield_mat: StandardMaterial3D

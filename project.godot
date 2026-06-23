@@ -117,10 +117,6 @@ toggle_deck={
 "deadzone": 0.5,
 "events": [{"type":"key","keycode":67,"unicode":99},{"type":"joypad_button","button_index":6}]
 }
-interact={
-"deadzone": 0.5,
-"events": [{"type":"key","keycode":4194309}]
-}
 station_service={
 "deadzone": 0.5,
 "events": [{"type":"key","keycode":72,"unicode":104}]

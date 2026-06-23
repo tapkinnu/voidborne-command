@@ -173,7 +173,7 @@ func build(p_rng: RandomNumberGenerator) -> void:
 	bmat.emission = Color(0.4, 1.0, 0.6)
 	bmat.emission_energy_multiplier = 3.0
 	bmat.albedo_color = Color(0.4, 1.0, 0.6)
-	beacon.mesh.material = bmat
+	beacon.material_override = bmat
 	beacon.position = Vector3(0, 2.0, 0)
 	captain.add_child(beacon)
 

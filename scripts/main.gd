@@ -740,10 +740,6 @@ func _update_beams(delta: float) -> void:
 # ---------------------------------------------------------------------------
 # DAMAGE / DESTRUCTION
 # ---------------------------------------------------------------------------
-func _apply_damage_from_faction(attacker_faction: String, victim: Node3D, dmg: float) -> void:
-	var ev: Dictionary = victim.take_damage(dmg)
-	_handle_damage_events(victim, ev)
-
 func _apply_damage(attacker: Node3D, victim: Node3D, dmg: float) -> void:
 	# Used by hitscan beams and tests. Player attacks route into the focused subsystem
 	# (the same focus carried by player projectiles); all AI damage stays generic.
@@ -1337,6 +1333,10 @@ func _order_fleet_attack() -> void:
 		return
 	if target.faction == "player":
 		_msg("%s is one of yours — pick a hostile to attack." % target.ship_name)
+		if audio: audio.play("ui_deny")
+		return
+	if target.faction == "neutral":
+		_msg("%s is neutral — we don't fire on neutrals. Pick a hostile." % target.ship_name)
 		if audio: audio.play("ui_deny")
 		return
 	fleet_order = "attack"

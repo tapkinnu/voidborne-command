@@ -27,6 +27,7 @@ func _initialize() -> void:
 	# Find a manned player escort (not the flagship) and a hostile target.
 	var escort: Node = null
 	var hostile: Node = null
+	var neutral: Node = null
 	for s in main.ships:
 		if not is_instance_valid(s):
 			continue
@@ -36,6 +37,9 @@ func _initialize() -> void:
 		elif String(s.faction) == "hostile" and String(s.ship_class) != "station":
 			if hostile == null:
 				hostile = s
+		elif String(s.faction) == "neutral":
+			if neutral == null:
+				neutral = s
 	if escort == null:
 		_fail("no manned player escort available for fleet-attack test")
 	if hostile == null:
@@ -60,6 +64,14 @@ func _initialize() -> void:
 		main.call("_order_fleet_attack")
 		if str(main.get("fleet_order")) != "attack" or main.get("fleet_attack_target") != hostile:
 			_fail("ordering attack on a friendly target must not change the standing order")
+
+	# Order must reject a neutral target (neutral-safety principle: beams bypass the
+	# projectile faction check, so the order itself must never aim the fleet at a neutral).
+	if not failed and neutral != null:
+		main.set("target", neutral)
+		main.call("_order_fleet_attack")
+		if str(main.get("fleet_order")) != "attack" or main.get("fleet_attack_target") != hostile:
+			_fail("ordering attack on a neutral target must not change the standing order")
 
 	# Capturing/neutralizing the target (faction flips to player) must auto-clear attack.
 	if not failed:
