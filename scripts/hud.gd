@@ -74,7 +74,7 @@ func _draw() -> void:
 
 	# Top-left: economy / fleet / shipyard
 	var service: Dictionary = data.get("service", {})
-	var panel_h: float = 132.0 if not service.is_empty() else 114.0
+	var panel_h: float = (132.0 if not service.is_empty() else 114.0) + 16.0
 	draw_rect(Rect2(Vector2(8, 8), Vector2(250, panel_h)), C_BG, true)
 	_txt(Vector2(16, 28), "VOIDBORNE COMMAND", C_LINE, 14)
 	_txt(Vector2(16, 48), "Credits: %d" % int(data.get("credits", 0)), Color(1, 0.85, 0.4), 13)
@@ -91,6 +91,12 @@ func _draw() -> void:
 		var svc_cost: int = int(service.get("cost", 0))
 		var svc_txt: String = "[H] Repair/refit: %d cr" % svc_cost if svc_cost > 0 else "[H] Repair/refit: nominal"
 		_txt(Vector2(16, 128), svc_txt, Color(0.55, 1.0, 0.72), 12)
+	# Mouse-aim + control-scheme indicator (bottom of the economy panel).
+	var ma_y: float = (144.0 if not service.is_empty() else 128.0)
+	var ma_on: bool = bool(data.get("mouse_aim", false))
+	var scheme: String = String(data.get("control_scheme", "auto")).to_upper()
+	var ma_col: Color = Color(0.5, 1.0, 0.72) if ma_on else C_DIM
+	_txt(Vector2(16, ma_y), "MOUSE AIM: %s   [%s]" % ["ON" if ma_on else "OFF", scheme], ma_col, 12)
 
 	# Objective (top center)
 	var obj: String = String(data.get("objective", ""))
@@ -103,6 +109,8 @@ func _draw() -> void:
 		_draw_deck_overlay(vp)
 		_draw_messages(vp)
 		_draw_prompt(vp)
+		if bool(data.get("settings_open", false)):
+			_draw_settings_overlay(vp)
 		return
 
 	# Player status bars (bottom-left)
@@ -159,6 +167,27 @@ func _draw() -> void:
 
 	_draw_messages(vp)
 	_draw_prompt(vp)
+	if bool(data.get("settings_open", false)):
+		_draw_settings_overlay(vp)
+
+func _draw_settings_overlay(vp: Vector2) -> void:
+	# Centered semi-transparent settings panel summarising control bindings.
+	var w: float = 360.0
+	var h: float = 150.0
+	var x: float = vp.x * 0.5 - w * 0.5
+	var y: float = vp.y * 0.5 - h * 0.5
+	draw_rect(Rect2(Vector2(x, y), Vector2(w, h)), Color(0.0, 0.04, 0.07, 0.88), true)
+	draw_rect(Rect2(Vector2(x, y), Vector2(w, h)), C_LINE, false, 1.5)
+	_txt(Vector2(x + 16, y + 26), "SETTINGS (F1 to close)", C_LINE, 15)
+	var ma_on: bool = bool(data.get("mouse_aim", false))
+	_txt(Vector2(x + 16, y + 54), "Mouse Aim: %s  (` to toggle)" % ("ON" if ma_on else "OFF"), C_DIM, 13)
+	var scheme: String = String(data.get("control_scheme", "auto"))
+	var scheme_label: String = {
+		"auto": "Auto", "keyboard": "Keyboard+Mouse", "gamepad": "Gamepad",
+	}.get(scheme, "Auto")
+	_txt(Vector2(x + 16, y + 78), "Control Scheme: %s  (F2 to cycle)" % scheme_label, C_DIM, 13)
+	_txt(Vector2(x + 16, y + 100), "  Keyboard+Mouse / Gamepad / Auto", Color(0.62, 0.82, 0.94, 0.7), 12)
+	_txt(Vector2(x + 16, y + 128), "Gamepad: L-stick steer, triggers thrust", Color(0.62, 0.82, 0.94, 0.7), 12)
 
 func _draw_combat_overlay(vp: Vector2) -> void:
 	# Capture-mode visual proof of active fleet fire. These bright streaks sit over

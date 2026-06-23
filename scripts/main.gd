@@ -27,6 +27,39 @@ var audio: Node
 # --- Player flight/combat state ---------------------------------------------
 var throttle: float = 0.4
 var target: Node3D = null
+
+# --- Input / control settings -----------------------------------------------
+# mouse_aim captures the cursor and steers the ship with mouse motion (additive over
+# the keyboard). control_scheme gates which input sources feed flight: "auto" reads
+# keyboard/mouse and gamepad together; "keyboard" ignores gamepad axes; "gamepad"
+# ignores keyboard/mouse flight (UI keys like save/load still work). settings_open
+# toggles a HUD overlay summarising these bindings.
+var mouse_aim: bool = false
+var settings_open: bool = false
+var control_scheme: String = "auto"   # "auto" | "keyboard" | "gamepad"
+var _mouse_aim_delta: Vector2 = Vector2.ZERO   # accumulated mouse motion this frame
+const MOUSE_AIM_SENS: float = 0.003
+
+# Per-source flight binding tables. The action system merges keyboard and gamepad
+# events, so to honour control_scheme ("keyboard" / "gamepad" / "auto") we read each
+# source explicitly. These mirror the events declared in project.godot [input].
+const _FLIGHT_KEYS: Dictionary = {
+	"thrust_up": KEY_W, "thrust_down": KEY_S,
+	"yaw_left": KEY_A, "yaw_right": KEY_D,
+	"pitch_up": KEY_UP, "pitch_down": KEY_DOWN,
+	"roll_left": KEY_Q, "roll_right": KEY_E,
+	"boost": KEY_SHIFT, "brake": KEY_X, "fire": KEY_SPACE,
+}
+const _FLIGHT_JOY_AXIS: Dictionary = {
+	# action -> [axis, direction(+1/-1)]
+	"thrust_up": [JOY_AXIS_TRIGGER_RIGHT, 1], "thrust_down": [JOY_AXIS_TRIGGER_LEFT, 1],
+	"yaw_left": [JOY_AXIS_LEFT_X, -1], "yaw_right": [JOY_AXIS_LEFT_X, 1],
+	"pitch_up": [JOY_AXIS_LEFT_Y, -1], "pitch_down": [JOY_AXIS_LEFT_Y, 1],
+	"roll_left": [JOY_AXIS_RIGHT_X, -1], "roll_right": [JOY_AXIS_RIGHT_X, 1],
+}
+const _FLIGHT_JOY_BTN: Dictionary = {
+	"boost": JOY_BUTTON_RIGHT_SHOULDER, "brake": JOY_BUTTON_LEFT_SHOULDER, "fire": JOY_BUTTON_A,
+}
 var subsystem_focus: String = ""          # "" | "engines" | "weapons" | "shields"
 var deck_mode: bool = false
 var fleet_order: String = "follow"        # follow | hold | attack
@@ -105,6 +138,74 @@ func _ready() -> void:
 	add_child(audio)
 	_msg("Voidborne Command online. WASD/QE fly, Space fire, Tab target.")
 	_msg("Fly to the STATION (neutral) to recruit crew/marines and buy ships.")
+	_msg("` mouse-aim   F1 settings   F2 control scheme.")
+
+func _input(event: InputEvent) -> void:
+	# Accumulate relative mouse motion while mouse-aim is engaged; consumed (and zeroed)
+	# each frame in _player_control. Ignored when the active scheme excludes mouse/keyboard.
+	if mouse_aim and control_scheme != "gamepad" and event is InputEventMouseMotion:
+		var m: InputEventMouseMotion = event
+		_mouse_aim_delta += m.relative
+
+# ---------------------------------------------------------------------------
+# INPUT SOURCE GATING + CONTROL SETTINGS
+# ---------------------------------------------------------------------------
+func _joy_axis(axis: int) -> float:
+	# Strongest reading of an axis across connected pads, with a small deadzone.
+	var v: float = 0.0
+	for d in Input.get_connected_joypads():
+		var a: float = Input.get_joy_axis(d, axis)
+		if abs(a) > abs(v):
+			v = a
+	return v if abs(v) >= 0.2 else 0.0
+
+func _flight_strength(action: String) -> float:
+	# 0..1 strength for a flight action honouring control_scheme: keyboard source unless
+	# scheme is "gamepad"; gamepad source unless scheme is "keyboard".
+	var v: float = 0.0
+	if control_scheme != "gamepad" and _FLIGHT_KEYS.has(action):
+		if Input.is_key_pressed(int(_FLIGHT_KEYS[action])):
+			v = 1.0
+	if control_scheme != "keyboard":
+		if _FLIGHT_JOY_AXIS.has(action):
+			var pair: Array = _FLIGHT_JOY_AXIS[action]
+			var comp: float = _joy_axis(int(pair[0])) * float(pair[1])
+			if comp > 0.0:
+				v = max(v, comp)
+		if _FLIGHT_JOY_BTN.has(action):
+			for d in Input.get_connected_joypads():
+				if Input.is_joy_button_pressed(d, int(_FLIGHT_JOY_BTN[action])):
+					v = max(v, 1.0)
+	return v
+
+func _flight_axis(pos_action: String, neg_action: String) -> float:
+	return _flight_strength(pos_action) - _flight_strength(neg_action)
+
+func _flight_pressed(action: String) -> bool:
+	return _flight_strength(action) > 0.5
+
+func _toggle_mouse_aim() -> void:
+	mouse_aim = not mouse_aim
+	_mouse_aim_delta = Vector2.ZERO
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if mouse_aim else Input.MOUSE_MODE_VISIBLE
+	_msg("MOUSE AIM: %s" % ("ON" if mouse_aim else "OFF"))
+	if audio: audio.play("ui_recruit")
+
+func _toggle_settings() -> void:
+	settings_open = not settings_open
+	_msg("Settings %s." % ("opened" if settings_open else "closed"))
+	if audio: audio.play("ui_recruit")
+
+func _cycle_control_scheme() -> void:
+	# auto -> keyboard -> gamepad -> auto
+	if control_scheme == "auto":
+		control_scheme = "keyboard"
+	elif control_scheme == "keyboard":
+		control_scheme = "gamepad"
+	else:
+		control_scheme = "auto"
+	_msg("Control scheme: %s" % control_scheme.to_upper())
+	if audio: audio.play("ui_recruit")
 
 # ---------------------------------------------------------------------------
 # WORLD CONSTRUCTION
@@ -295,18 +396,26 @@ func _process_space(delta: float) -> void:
 	_handle_station_actions()
 
 func _player_control(delta: float) -> void:
+	# control_scheme gates which input sources feed flight. _flight_axis() reads the right
+	# mix (keyboard, gamepad, or both) for each directional pair.
 	# Throttle / boost / brake.
-	throttle += (Input.get_action_strength("thrust_up") - Input.get_action_strength("thrust_down")) * delta * 0.8
+	throttle += _flight_axis("thrust_up", "thrust_down") * delta * 0.8
 	throttle = clamp(throttle, 0.0, 1.0)
-	var boosting: bool = Input.is_action_pressed("boost") and player.energy > 0.0
-	var braking: bool = Input.is_action_pressed("brake")
+	var boosting: bool = _flight_pressed("boost") and player.energy > 0.0
+	var braking: bool = _flight_pressed("brake")
 	player.throttle = throttle
 	player.boosting = boosting
 
 	# Rotation: yaw (A/D), pitch (arrows), roll (Q/E).
-	var yaw: float = Input.get_action_strength("yaw_left") - Input.get_action_strength("yaw_right")
-	var pitch: float = Input.get_action_strength("pitch_up") - Input.get_action_strength("pitch_down")
-	var roll: float = Input.get_action_strength("roll_left") - Input.get_action_strength("roll_right")
+	var yaw: float = _flight_axis("yaw_left", "yaw_right")
+	var pitch: float = _flight_axis("pitch_up", "pitch_down")
+	var roll: float = _flight_axis("roll_left", "roll_right")
+	# Mouse-aim steering: additive over the keyboard. Scaled by 1/delta so the per-frame
+	# relative motion becomes frame-rate independent once multiplied by rate*delta below.
+	if mouse_aim and control_scheme != "gamepad":
+		yaw += -_mouse_aim_delta.x * MOUSE_AIM_SENS / max(delta, 0.0001)
+		pitch += -_mouse_aim_delta.y * MOUSE_AIM_SENS / max(delta, 0.0001)
+	_mouse_aim_delta = Vector2.ZERO
 	if auto_demo:
 		# Steer toward the current target (with a little weave) so capture frames keep the
 		# battle framed instead of drifting into empty space.
@@ -339,7 +448,7 @@ func _player_control(delta: float) -> void:
 		player.shield = min(player.max_shield, player.shield + 6.0 * delta * player.shield_regen_mult())
 
 	# Firing.
-	var want_fire: bool = Input.is_action_pressed("fire") or auto_demo
+	var want_fire: bool = _flight_pressed("fire") or auto_demo
 	if want_fire:
 		_try_fire(player, delta)
 
@@ -1021,6 +1130,13 @@ func _complete_capture(s: Node3D) -> void:
 # STATION ECONOMY: recruit / buy / deck toggle
 # ---------------------------------------------------------------------------
 func _handle_station_actions() -> void:
+	# Control settings toggles (always available regardless of control_scheme).
+	if Input.is_action_just_pressed("mouse_aim"):
+		_toggle_mouse_aim()
+	if Input.is_action_just_pressed("settings"):
+		_toggle_settings()
+	if Input.is_action_just_pressed("cycle_scheme"):
+		_cycle_control_scheme()
 	if Input.is_action_just_pressed("toggle_deck"):
 		_set_deck_mode(not deck_mode)
 		return
@@ -1670,6 +1786,9 @@ func _update_hud() -> void:
 	d["objective"] = objective
 	d["messages"] = messages.duplicate()
 	d["capture_demo"] = auto_demo
+	d["mouse_aim"] = mouse_aim
+	d["control_scheme"] = control_scheme
+	d["settings_open"] = settings_open
 
 	if deck_mode:
 		var st: Dictionary = deck.status()
