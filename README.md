@@ -44,7 +44,7 @@ Screenshots are written to `artifacts/screenshots/` (plus a `contact_sheet.jpg`)
 | `Q` / `E` | Roll left / right |
 | `Space` / LMB | Fire weapons |
 | `Tab` | Cycle hostile targets first (neutral assets only after hostiles are cleared) |
-| `T` | Order your manned fleet to **attack / focus-fire** the current target |
+| `T` | Order your manned fleet to **attack / focus-fire** the current target (same as menu `[6]`) |
 | `B` | Board a **disabled** target with marines |
 | `V` / `L` | **Quick save / quick load** the current battle (versioned `user://voidborne_save.json`) |
 | `Z` | **Cycle subsystem focus** on the current target: none → engines → weapons → shields → none |
@@ -75,7 +75,9 @@ In **Auto** mode both keyboard+mouse and gamepad work simultaneously. **Keyboard
 | `G` | Cycle the station shipyard offer (fighter / corvette / frigate / capital) |
 | `Y` | Buy the selected shipyard class (auto-mans if crew available) |
 | `H` | **Repair / refit**: restore hull, shields, and energy across your flagship and manned fleet (cost scales with damage; partial work if short on credits) |
-| `F` | Man any unmanned owned ships; if none need crew, toggle fleet order **follow ↔ hold position** |
+| `F` | Man any unmanned owned ships; if none need crew, open/close the **fleet order menu** |
+| `1`–`6` | While the fleet order menu is open: `[1]` Follow · `[2]` Hold · `[3]` Escort · `[4]` Defend target · `[5]` Dock · `[6]` Attack target |
+| `Esc` | Close the fleet order menu without changing the order |
 | `C` | Toggle the **crew deck** interior view |
 
 Repair/refit works at the neutral **Halcyon** hub *and* at any station you have captured. Hostile stations refuse service until taken.
@@ -120,12 +122,17 @@ mended — and applying partial work when your treasury can't cover a full overh
 neutral station you recruit crew/marines, cycle a shipyard offer
 across fighter/corvette/frigate/capital classes, buy the selected ship, and step into the
 **crew deck** to walk among your procedurally-built humanoid crew and order them to follow
-you. Once ships are manned, `F` becomes a direct fleet command: toggle escorts between
-following the flagship and holding their current tactical positions while covering nearby
-hostiles. Press `T` to issue an explicit **attack order** — every manned escort breaks
-formation to focus-fire your current target until it is destroyed, captured, or otherwise
-neutralized, at which point the fleet automatically falls back to follow. The fleet/economy
-panel and radar ping show the standing order (`FOLLOW`, `HOLD`, or `ATTACK <target>`).
+you. Once ships are manned, `F` opens the **fleet order menu** — pick an order with the
+number keys: `[1]` **Follow** (ring formation on the flagship), `[2]` **Hold** (pin the
+current tactical positions while covering nearby hostiles), `[3]` **Escort** (a tight
+defensive ring that shoots any hostile closing on the captain but never chases far), `[4]`
+**Defend** (orbit and screen your current target), `[5]` **Dock** (head to the nearest
+friendly station and auto-repair at half the manual rate), or `[6]` **Attack** (focus-fire
+the current target — the same order as the `T` hotkey). `Esc` closes the menu without
+changing the order. Attack and defend orders self-clear when their target is destroyed,
+captured, or turns friendly/hostile, and dock reverts to follow if no station is in range —
+in each case the fleet falls back to follow. The fleet/economy panel and radar ping show the
+standing order (`FOLLOW`, `HOLD`, `ESCORT`, `DEFEND <target>`, `DOCK`, or `ATTACK <target>`).
 
 At any point press `V` to **quick-save** and `L` to **quick-load**. The save is a versioned
 JSON document (`user://voidborne_save.json`) carrying your economy (credits, crew/marine

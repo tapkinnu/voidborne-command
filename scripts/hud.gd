@@ -84,11 +84,20 @@ func _draw() -> void:
 	else:
 		_txt(Vector2(16, 64), "Crew: %d   Marines: %d" % [int(data.get("crew_pool", 0)), int(data.get("marine_pool", 0))], C_DIM, 13)
 	_txt(Vector2(16, 80), "Fleet: %d   Captured: %d" % [int(data.get("fleet_count", 0)), int(data.get("captured", 0))], C_DIM, 13)
-	var order_txt: String = String(data.get("fleet_order", "follow")).to_upper()
+	var order_key: String = String(data.get("fleet_order", "follow"))
+	var order_txt: String = order_key.to_upper()
 	var order_col: Color = Color(0.56, 1.0, 0.82)
-	if order_txt == "ATTACK":
-		order_txt = "ATTACK %s" % String(data.get("fleet_attack_target", "?"))
-		order_col = Color(1.0, 0.55, 0.42)
+	match order_key:
+		"attack":
+			order_txt = "ATTACK %s" % String(data.get("fleet_attack_target", "?"))
+			order_col = Color(1.0, 0.55, 0.42)
+		"defend":
+			order_txt = "DEFEND %s" % String(data.get("fleet_defend_target", "?"))
+			order_col = Color(0.5, 0.82, 1.0)
+		"escort":
+			order_col = Color(0.55, 1.0, 0.7)
+		"dock":
+			order_col = Color(1.0, 0.85, 0.4)
 	_txt(Vector2(16, 96), "Order: %s" % order_txt, order_col, 12)
 	_txt(Vector2(16, 112), "Shipyard: %s %dcr   Mode: %s" % [String(data.get("shipyard_class", "corvette")).to_upper(), int(data.get("shipyard_cost", 0)), mode.to_upper()], C_DIM, 12)
 	if not service.is_empty():
@@ -171,8 +180,38 @@ func _draw() -> void:
 
 	_draw_messages(vp)
 	_draw_prompt(vp)
+	if bool(data.get("fleet_menu_open", false)):
+		_draw_fleet_menu(vp)
 	if bool(data.get("settings_open", false)):
 		_draw_settings_overlay(vp)
+
+func _draw_fleet_menu(vp: Vector2) -> void:
+	# Centered fleet order menu: lists the six orders with their number keys and highlights
+	# the standing order in the accent color. Opened/closed with [F]; picked with 1-6 / Esc.
+	var rows: Array = [
+		["1", "follow", "Follow", "ring formation on flagship"],
+		["2", "hold", "Hold", "hold current position"],
+		["3", "escort", "Escort", "tight defensive ring, engage threats to flagship"],
+		["4", "defend", "Defend tgt", "guard current target"],
+		["5", "dock", "Dock", "navigate to station for auto-repair (50% cost)"],
+		["6", "attack", "Attack tgt", "focus-fire current target"],
+	]
+	var w: float = 460.0
+	var h: float = 56.0 + float(rows.size()) * 22.0
+	var x: float = vp.x * 0.5 - w * 0.5
+	var y: float = vp.y * 0.5 - h * 0.5
+	draw_rect(Rect2(Vector2(x, y), Vector2(w, h)), Color(0.0, 0.04, 0.07, 0.9), true)
+	draw_rect(Rect2(Vector2(x, y), Vector2(w, h)), C_LINE, false, 1.5)
+	_txt(Vector2(x + 16, y + 26), "FLEET ORDERS  (F/Esc to close)", C_LINE, 15)
+	var current: String = String(data.get("fleet_order", "follow"))
+	for i in range(rows.size()):
+		var row: Array = rows[i]
+		var key: String = String(row[1])
+		var ry: float = y + 50.0 + float(i) * 22.0
+		var is_current: bool = key == current
+		var col: Color = Color(1.0, 0.85, 0.35) if is_current else C_DIM
+		var marker: String = ">" if is_current else " "
+		_txt(Vector2(x + 16, ry), "%s[%s] %-11s — %s" % [marker, String(row[0]), String(row[2]), String(row[3])], col, 12)
 
 func _draw_settings_overlay(vp: Vector2) -> void:
 	# Centered semi-transparent settings panel summarising control bindings.

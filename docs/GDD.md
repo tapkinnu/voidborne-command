@@ -13,7 +13,7 @@ simplified, fully code-built form.
 1. **Fly your ship** — 6-DoF-ish arcade flight with throttle/boost/brake and yaw/pitch/roll.
 2. **Crew & marines** — recruit, see them as humanoids, order them to follow.
 3. **Disable → board → capture** — non-lethal takedown of ships and stations.
-4. **Buy & command** — purchase ships, man them, and issue follow/hold/attack fleet orders.
+4. **Buy & command** — purchase ships, man them, and issue fleet orders (follow / hold / escort / defend / dock / attack) from the `F` order menu.
 5. **Distinct classes** — fighter / corvette / frigate / capital / station.
 6. **Live battle** — hostile wing + larger ships + neutral hub + hostile station, with weapons FX and a readable HUD.
 
@@ -102,15 +102,26 @@ to follow (`F`); followers trail the captain in a loose formation.
 At the station: recruit crew (120) / marines (180), cycle the shipyard offer with `G`,
 and buy the selected class with `Y` (fighter 800, corvette 2200, frigate 5200,
 capital 16000). Purchased and captured ships need `crew_needed` crew to be **manned**.
-Once no unmanned owned ships need crew, `F` toggles the active fleet order between
-**follow** (ring formation behind the player, with nearest-enemy engagement) and
-**hold** (escorts brake at their current tactical points while still covering nearby
-hostiles). `T` issues an explicit **attack** order: with a valid hostile selected, every
-manned escort breaks off to focus-fire that one target (`fleet_order = "attack"`,
-`fleet_attack_target` stored) regardless of which enemy is nearest. The order auto-clears
-back to **follow** the instant the target is destroyed, captured, turns friendly, or
-becomes invalid; toggling `F` also clears it. The fleet/economy panel and radar render the
-standing order as `FOLLOW`, `HOLD`, or `ATTACK <target>`.
+Once no unmanned owned ships need crew, `F` opens the **fleet order menu**; number keys set
+the standing order (all routed through `_set_fleet_order()`):
+
+- **`[1]` Follow** — ring formation behind the player, engaging the nearest hostile.
+- **`[2]` Hold** — escorts brake at their current tactical points while covering nearby hostiles.
+- **`[3]` Escort** — a *tight* defensive ring (half the follow radius) that prioritizes shooting
+  any hostile closing on the flagship but never chases past `weapon_range * 0.9` from the captain.
+- **`[4]` Defend** — escorts orbit and screen the current target (`fleet_defend_target`) at ~20 u,
+  firing on hostiles that approach it. An invalid/hostile target reverts to follow.
+- **`[5]` Dock** — manned escorts route to the nearest friendly/neutral station and auto-repair
+  hull/shield/energy at half the manual `H` service rate (`_process_docking()`); no station in
+  range reverts to follow.
+- **`[6]` Attack** — focus-fire the current hostile (`fleet_attack_target`), identical to the `T`
+  hotkey, regardless of which enemy is nearest.
+
+`Esc` (or `F`) closes the menu without changing the order. Attack and defend self-clear via
+`_validate_fleet_attack()` / `_validate_fleet_defend()` when their target is destroyed,
+captured, or flips faction, and every fallback resolves to **follow**. The fleet/economy panel
+and radar render the standing order as `FOLLOW`, `HOLD`, `ESCORT`, `DEFEND <target>`, `DOCK`,
+or `ATTACK <target>`.
 
 **Dock services (repair/refit).** While the flagship is within `SERVICE_RANGE` (70 u) of a
 **non-hostile** station — the neutral Halcyon hub or any captured/player-owned station —

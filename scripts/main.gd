@@ -66,9 +66,19 @@ const _FLIGHT_JOY_BTN: Dictionary = {
 }
 var subsystem_focus: String = ""          # "" | "engines" | "weapons" | "shields"
 var deck_mode: bool = false
-var fleet_order: String = "follow"        # follow | hold | attack
+var fleet_order: String = "follow"        # follow | hold | attack | escort | defend | dock
 var fleet_hold_positions: Dictionary = {}  # instance_id -> Vector3
 var fleet_attack_target: Node3D = null     # focus-fire target while fleet_order == "attack"
+var fleet_defend_target: Node3D = null     # guarded target while fleet_order == "defend"
+var fleet_menu_open: bool = false          # transient: fleet order menu overlay open (not saved)
+# Dock-order auto-repair cost bookkeeping (fleet escorts repaired at SERVICE rates while docked).
+const DOCK_HULL_PER_SEC: float = 12.0
+const DOCK_SHIELD_PER_SEC: float = 10.0
+const DOCK_ENERGY_PER_SEC: float = 8.0
+const DOCK_COST_MULT: float = 0.5          # dock auto-repair costs half the manual service rate
+const FLEET_DOCK_RANGE: float = 500.0      # max distance a station can be for a dock order to hold
+var _dock_cost_accum: float = 0.0          # fractional credits owed for in-progress dock repairs
+var _dock_broke_msg: bool = false          # set once when dock repairs stall for lack of credits
 
 # Boarding state. Boarding is now a resolved squad action: the player's marines
 # (boarding_attacker_strength, drawn from Game.marine_pool) fight the target's defenders
@@ -150,6 +160,37 @@ func _input(event: InputEvent) -> void:
 	if mouse_aim and control_scheme != "gamepad" and event is InputEventMouseMotion:
 		var m: InputEventMouseMotion = event
 		_mouse_aim_delta += m.relative
+	# Fleet order menu: number keys 1-6 pick an order, Esc closes. Only while the menu is
+	# open in space mode so the digits never collide with flight controls.
+	if fleet_menu_open and not deck_mode and event is InputEventKey:
+		var ke: InputEventKey = event
+		if ke.pressed and not ke.echo:
+			_handle_fleet_menu_key(ke.keycode)
+
+func _handle_fleet_menu_key(keycode: int) -> void:
+	match keycode:
+		KEY_1:
+			fleet_menu_open = false
+			_set_fleet_order("follow")
+		KEY_2:
+			fleet_menu_open = false
+			_set_fleet_order("hold")
+		KEY_3:
+			fleet_menu_open = false
+			_set_fleet_order("escort")
+		KEY_4:
+			fleet_menu_open = false
+			_set_fleet_order("defend")
+		KEY_5:
+			fleet_menu_open = false
+			_set_fleet_order("dock")
+		KEY_6:
+			fleet_menu_open = false
+			_set_fleet_order("attack")
+		KEY_ESCAPE:
+			fleet_menu_open = false
+			_msg("Fleet order menu closed.")
+			if audio: audio.play("ui_recruit")
 
 # ---------------------------------------------------------------------------
 # INPUT SOURCE GATING + CONTROL SETTINGS
@@ -394,7 +435,9 @@ func _process_space(delta: float) -> void:
 	if is_instance_valid(player) and not player.destroyed:
 		_player_control(delta)
 	_validate_fleet_attack()
+	_validate_fleet_defend()
 	_run_ai(delta)
+	_process_docking(delta)
 	_integrate_motion(delta)
 	# Tick independent turret tracking for all ships that have turrets.
 	for s in ships:
@@ -496,12 +539,22 @@ func _run_ai(delta: float) -> void:
 			s.velocity = s.velocity.move_toward(Vector3.ZERO, s.accel * delta)
 			continue
 		if s.faction == "player":
-			if fleet_order == "attack" and is_instance_valid(fleet_attack_target):
-				_ai_attack_target(s, delta)
-			elif s.ai_state == "hold" or fleet_order == "hold":
-				_ai_hold_position(s, delta)
-			else:
-				_ai_follow_player(s, delta)
+			match fleet_order:
+				"attack":
+					if is_instance_valid(fleet_attack_target):
+						_ai_attack_target(s, delta)
+					else:
+						_ai_follow_player(s, delta)
+				"hold":
+					_ai_hold_position(s, delta)
+				"escort":
+					_ai_escort(s, delta)
+				"defend":
+					_ai_defend(s, delta)
+				"dock":
+					_ai_dock(s, delta)
+				_:
+					_ai_follow_player(s, delta)
 		else:
 			_ai_combat(s, delta)
 
@@ -548,6 +601,145 @@ func _ai_attack_target(s: Node3D, delta: float) -> void:
 		# Hold attack range while keeping the nose on the target.
 		_steer_toward(s, foe.global_position, delta, 0.4)
 	_face_and_fire(s, foe, delta)
+
+func _ai_escort(s: Node3D, delta: float) -> void:
+	# Escort order: hug the flagship in a tight defensive ring and shoot any hostile that
+	# closes on the captain. Escorts never chase past weapon_range * 0.9 from the player.
+	if not is_instance_valid(player):
+		_ai_follow_player(s, delta)
+		return
+	var enemy: Node3D = _nearest(player, "hostile")
+	if enemy != null:
+		var d_player: float = player.global_position.distance_to(enemy.global_position)
+		var d_self: float = s.global_position.distance_to(enemy.global_position)
+		if d_player < s.weapon_range * 0.9 and d_self < s.weapon_range:
+			_steer_toward(s, enemy.global_position, delta, 0.7)
+			_face_and_fire(s, enemy, delta)
+			s.target = enemy
+			return
+	# No close threat (or it strayed too far from the captain): re-form the tight ring.
+	var idx: int = ships.find(s)
+	var ang: float = float(idx) * 1.3
+	var offset: Vector3 = Vector3(sin(ang) * 8.0, 2.0, 10.0 + float(idx % 3) * 3.0)
+	var goal: Vector3 = player.global_position + player.global_transform.basis * offset
+	_steer_toward(s, goal, delta, 1.0)
+	s.target = null
+
+func _ai_defend(s: Node3D, delta: float) -> void:
+	# Defend order: orbit the guarded target at ~20 units and engage hostiles that approach it.
+	# An invalid target is handled by _validate_fleet_defend(); fall back to formation meanwhile.
+	if not is_instance_valid(fleet_defend_target) or fleet_defend_target.destroyed:
+		_ai_follow_player(s, delta)
+		return
+	var dt: Node3D = fleet_defend_target
+	var idx: int = ships.find(s)
+	var ang: float = float(idx) * 1.3 + _elapsed * 0.25
+	var offset: Vector3 = Vector3(cos(ang) * 20.0, 2.0, sin(ang) * 20.0)
+	var goal: Vector3 = dt.global_position + offset
+	_steer_toward(s, goal, delta, 0.5)
+	var enemy: Node3D = _nearest(dt, "hostile")
+	if enemy != null and dt.global_position.distance_to(enemy.global_position) < s.weapon_range:
+		_face_and_fire(s, enemy, delta)
+		s.target = enemy
+	else:
+		s.target = null
+
+func _ai_dock(s: Node3D, delta: float) -> void:
+	# Dock order: head to the nearest friendly/neutral station and hold within service range.
+	# The actual repair/charge happens in _process_docking(). No station nearby reverts to follow.
+	var svc: Node3D = _nearest_nonhostile_station(s)
+	if svc == null or s.global_position.distance_to(svc.global_position) > FLEET_DOCK_RANGE:
+		_set_fleet_order("follow")
+		return
+	var d: float = s.global_position.distance_to(svc.global_position)
+	if d > SERVICE_RANGE:
+		_steer_toward(s, svc.global_position, delta, 0.8)
+	else:
+		s.throttle = 0.0
+		s.velocity = s.velocity.move_toward(Vector3.ZERO, s.accel * delta)
+	s.target = null
+
+func _validate_fleet_defend() -> void:
+	# Drop defend mode the moment the guarded target is destroyed, turns hostile, or is freed,
+	# falling the fleet back to follow formation (mirrors _validate_fleet_attack()).
+	if fleet_order != "defend":
+		return
+	var t: Node3D = fleet_defend_target
+	if is_instance_valid(t) and not t.destroyed and t.faction != "hostile":
+		return
+	fleet_defend_target = null
+	fleet_order = "follow"
+	for s in ships:
+		if is_instance_valid(s) and s.faction == "player" and not s.is_player and s.manned:
+			s.ai_state = "follow"
+	_msg("Defend target lost — fleet reverts to FOLLOW formation.")
+
+func _process_docking(delta: float) -> void:
+	# While the fleet holds the DOCK order, repair manned escorts that are inside a friendly
+	# station's service range, charging credits at half the manual repair rate.
+	if fleet_order != "dock":
+		_dock_broke_msg = false
+		return
+	if Game.credits <= 0:
+		if not _dock_broke_msg:
+			_msg("Dock repairs halted — out of credits.")
+			if audio: audio.play("ui_deny")
+			_dock_broke_msg = true
+		return
+	var any_repaired: bool = false
+	for s in ships:
+		if not is_instance_valid(s) or s.destroyed:
+			continue
+		if s.faction != "player" or s.is_player or not s.manned or s.ship_class == "station":
+			continue
+		var svc: Node3D = _nearest_nonhostile_station(s)
+		if svc == null or s.global_position.distance_to(svc.global_position) > SERVICE_RANGE:
+			continue
+		var hull_rep: float = min(max(0.0, s.max_hull - s.hull), DOCK_HULL_PER_SEC * delta)
+		var shield_rep: float = min(max(0.0, s.max_shield - s.shield), DOCK_SHIELD_PER_SEC * delta)
+		var energy_rep: float = min(max(0.0, s.max_energy - s.energy), DOCK_ENERGY_PER_SEC * delta)
+		if hull_rep <= 0.0 and shield_rep <= 0.0 and energy_rep <= 0.0:
+			continue
+		s.hull += hull_rep
+		s.shield += shield_rep
+		s.energy += energy_rep
+		if s.disabled and s.hull > s.max_hull * DISABLE_FRAC:
+			s.disabled = false
+		_dock_cost_accum += (hull_rep * SERVICE_HULL_RATE + shield_rep * SERVICE_SHIELD_RATE + energy_rep * SERVICE_ENERGY_RATE) * DOCK_COST_MULT
+		any_repaired = true
+	if _dock_cost_accum >= 1.0:
+		var spend: int = min(int(floor(_dock_cost_accum)), Game.credits)
+		Game.credits -= spend
+		_dock_cost_accum -= float(spend)
+	if any_repaired:
+		_dock_broke_msg = false
+
+func _nearest_nonhostile_station(from: Node3D) -> Node3D:
+	# Nearest live, non-hostile station to an arbitrary node (used by dock AI/repair).
+	if not is_instance_valid(from):
+		return null
+	var best: Node3D = null
+	var bd: float = 1e9
+	for s in ships:
+		if not is_instance_valid(s) or s.destroyed or s.ship_class != "station":
+			continue
+		if s.faction == "hostile":
+			continue
+		var d: float = from.global_position.distance_to(s.global_position)
+		if d < bd:
+			bd = d
+			best = s
+	return best
+
+func _fleet_dock_station() -> Node3D:
+	# Station that would satisfy a fresh DOCK order: nearest non-hostile station within
+	# FLEET_DOCK_RANGE of the flagship. Returns null when no station is reachable.
+	if not is_instance_valid(player):
+		return null
+	var svc: Node3D = _nearest_nonhostile_station(player)
+	if svc == null or _pdist(svc) > FLEET_DOCK_RANGE:
+		return null
+	return svc
 
 func _validate_fleet_attack() -> void:
 	# Drop attack mode the moment the commanded target is captured, destroyed, turned
@@ -1438,8 +1630,9 @@ func _handle_station_actions() -> void:
 	if Input.is_action_just_pressed("station_service"):
 		_station_service()
 	if Input.is_action_just_pressed("follow_toggle"):
-		_toggle_fleet_follow()
+		_toggle_fleet_menu()
 	if Input.is_action_just_pressed("fleet_attack"):
+		fleet_menu_open = false
 		_order_fleet_attack()
 
 func _shipyard_class() -> String:
@@ -1634,6 +1827,7 @@ func _order_fleet_attack() -> void:
 		return
 	fleet_order = "attack"
 	fleet_attack_target = target
+	fleet_defend_target = null
 	fleet_hold_positions.clear()
 	var n: int = 0
 	for s in ships:
@@ -1648,9 +1842,9 @@ func _order_fleet_attack() -> void:
 		_msg("Fleet order: ATTACK %s (no manned escorts yet)." % target.ship_name)
 	if audio: audio.play("ui_recruit")
 
-func _toggle_fleet_follow() -> void:
-	# First use available crew to man any owned ships; if none need crew, [F] toggles
-	# a tactical fleet order between follow formation and hold position.
+func _toggle_fleet_menu() -> void:
+	# First use available crew to man any owned ships; if none need crew, [F] opens/closes
+	# the fleet order menu (the player then picks an order with the number keys).
 	var changed: int = 0
 	for s in ships:
 		if not is_instance_valid(s) or s.faction != "player" or s.is_player:
@@ -1668,26 +1862,79 @@ func _toggle_fleet_follow() -> void:
 		if audio: audio.play("ui_recruit")
 		return
 
-	# Toggling follow/hold always clears any standing attack order; an attack order
-	# resolves to follow (its escorts disengage the focus target and re-form).
-	fleet_attack_target = null
-
-	if fleet_order == "follow":
-		fleet_order = "hold"
-		fleet_hold_positions.clear()
-		for fs in ships:
-			if is_instance_valid(fs) and fs.faction == "player" and not fs.is_player and fs.manned:
-				fs.ai_state = "hold"
-				fleet_hold_positions[fs.get_instance_id()] = fs.global_position
-		_msg("Fleet order: HOLD POSITION and cover the flagship.")
+	fleet_menu_open = not fleet_menu_open
+	if fleet_menu_open:
+		_msg("Fleet orders: [1]Follow [2]Hold [3]Escort [4]Defend [5]Dock [6]Attack  [F/Esc close]")
 	else:
-		fleet_order = "follow"
-		fleet_hold_positions.clear()
-		for fs2 in ships:
-			if is_instance_valid(fs2) and fs2.faction == "player" and not fs2.is_player and fs2.manned:
-				fs2.ai_state = "follow"
-		_msg("Fleet order: FOLLOW formation on the flagship.")
+		_msg("Fleet order menu closed.")
 	if audio: audio.play("ui_recruit")
+
+func _apply_ai_state_to_escorts(state: String) -> void:
+	for s in ships:
+		if is_instance_valid(s) and s.faction == "player" and not s.is_player and s.manned:
+			s.ai_state = state
+
+func _set_fleet_order(order: String) -> void:
+	# Single entry point for every standing fleet order. Validates the order, clears stale
+	# focus/hold state, applies the matching ai_state to manned escorts, and reports it.
+	match order:
+		"attack":
+			_order_fleet_attack()
+			return
+		"defend":
+			if target == null or not is_instance_valid(target) or target.destroyed or target.faction == "hostile":
+				_msg("No valid defend target — reverting to FOLLOW.")
+				_set_fleet_order("follow")
+				return
+			fleet_order = "defend"
+			fleet_defend_target = target
+			fleet_attack_target = null
+			fleet_hold_positions.clear()
+			_apply_ai_state_to_escorts("defend")
+			_msg("Fleet order: DEFEND %s — escorts guard and screen it." % target.ship_name)
+			if audio: audio.play("ui_recruit")
+		"dock":
+			var svc: Node3D = _fleet_dock_station()
+			if svc == null:
+				_msg("No friendly station in range — reverting to FOLLOW.")
+				_set_fleet_order("follow")
+				return
+			fleet_order = "dock"
+			fleet_attack_target = null
+			fleet_defend_target = null
+			fleet_hold_positions.clear()
+			_dock_cost_accum = 0.0
+			_dock_broke_msg = false
+			_apply_ai_state_to_escorts("dock")
+			_msg("Fleet order: DOCK at %s — auto-repair at half rate." % svc.ship_name)
+			if audio: audio.play("ui_recruit")
+		"hold":
+			fleet_order = "hold"
+			fleet_attack_target = null
+			fleet_defend_target = null
+			fleet_hold_positions.clear()
+			for fs in ships:
+				if is_instance_valid(fs) and fs.faction == "player" and not fs.is_player and fs.manned:
+					fs.ai_state = "hold"
+					fleet_hold_positions[fs.get_instance_id()] = fs.global_position
+			_msg("Fleet order: HOLD POSITION and cover the flagship.")
+			if audio: audio.play("ui_recruit")
+		"escort":
+			fleet_order = "escort"
+			fleet_attack_target = null
+			fleet_defend_target = null
+			fleet_hold_positions.clear()
+			_apply_ai_state_to_escorts("escort")
+			_msg("Fleet order: ESCORT — tight defensive ring on the flagship.")
+			if audio: audio.play("ui_recruit")
+		_:
+			fleet_order = "follow"
+			fleet_attack_target = null
+			fleet_defend_target = null
+			fleet_hold_positions.clear()
+			_apply_ai_state_to_escorts("follow")
+			_msg("Fleet order: FOLLOW formation on the flagship.")
+			if audio: audio.play("ui_recruit")
 
 func _owned_ship_list() -> Array:
 	var list: Array = []
@@ -1743,6 +1990,9 @@ func _build_save_dict() -> Dictionary:
 	var atk_name: String = ""
 	if is_instance_valid(fleet_attack_target):
 		atk_name = String(fleet_attack_target.ship_name)
+	var def_name: String = ""
+	if is_instance_valid(fleet_defend_target):
+		def_name = String(fleet_defend_target.ship_name)
 	var tgt_name: String = ""
 	if is_instance_valid(target) and not target.destroyed:
 		tgt_name = String(target.ship_name)
@@ -1760,6 +2010,7 @@ func _build_save_dict() -> Dictionary:
 		"shipyard_index": shipyard_index,
 		"fleet_order": fleet_order,
 		"fleet_attack_target": atk_name,
+		"fleet_defend_target": def_name,
 		"target": tgt_name,
 		"ships": ship_list,
 	}
@@ -1906,6 +2157,10 @@ func _apply_save(parsed: Dictionary) -> void:
 		_set_deck_mode(false)
 	fleet_hold_positions.clear()
 	fleet_attack_target = null
+	fleet_defend_target = null
+	fleet_menu_open = false
+	_dock_cost_accum = 0.0
+	_dock_broke_msg = false
 	target = null
 
 	for s in ships:
@@ -1936,16 +2191,27 @@ func _apply_save(parsed: Dictionary) -> void:
 
 	station = _pick_station_ref()
 
-	# Fleet order: an attack order with a missing/invalid focus target falls back to follow.
+	# Fleet order: orders whose required focus/station is missing fall back to follow.
 	fleet_order = String(parsed.get("fleet_order", "follow"))
 	var atk_name: String = String(parsed.get("fleet_attack_target", ""))
 	fleet_attack_target = _find_ship_by_name(atk_name) if atk_name != "" else null
+	var def_name: String = String(parsed.get("fleet_defend_target", ""))
+	fleet_defend_target = _find_ship_by_name(def_name) if def_name != "" else null
 	if fleet_order == "attack" and not (is_instance_valid(fleet_attack_target) and not fleet_attack_target.destroyed and fleet_attack_target.faction != "player"):
 		fleet_order = "follow"
 		fleet_attack_target = null
-		for s in ships:
-			if is_instance_valid(s) and s.faction == "player" and not s.is_player and s.manned:
-				s.ai_state = "follow"
+	elif fleet_order == "defend" and not (is_instance_valid(fleet_defend_target) and not fleet_defend_target.destroyed and fleet_defend_target.faction != "hostile"):
+		fleet_order = "follow"
+		fleet_defend_target = null
+	elif fleet_order == "dock" and _fleet_dock_station() == null:
+		fleet_order = "follow"
+	# Re-derive escort ai_state from the resolved standing order.
+	var escort_state: String = fleet_order
+	if not ["follow", "hold", "attack", "escort", "defend", "dock"].has(escort_state):
+		escort_state = "follow"
+	for s in ships:
+		if is_instance_valid(s) and s.faction == "player" and not s.is_player and s.manned:
+			s.ai_state = escort_state
 
 	# Target: keep the saved lock if still valid/hostile, else pick a remaining hostile.
 	var tname: String = String(parsed.get("target", ""))
@@ -2116,8 +2382,11 @@ func _update_hud() -> void:
 	d["crew_roles"] = "(P%d E%d G%d)" % [p_count, e_count, g_count]
 	d["fleet_count"] = _count_fleet()
 	d["fleet_order"] = fleet_order
+	d["fleet_menu_open"] = fleet_menu_open
 	if fleet_order == "attack" and is_instance_valid(fleet_attack_target):
 		d["fleet_attack_target"] = fleet_attack_target.ship_name
+	if fleet_order == "defend" and is_instance_valid(fleet_defend_target):
+		d["fleet_defend_target"] = fleet_defend_target.ship_name
 	d["captured"] = Game.captured_count
 	d["shipyard_class"] = _shipyard_class()
 	d["shipyard_cost"] = _shipyard_cost()
@@ -2195,6 +2464,8 @@ func _count_fleet() -> int:
 	return n
 
 func _context_prompt() -> String:
+	if fleet_menu_open:
+		return "FLEET ORDERS: [1]Follow [2]Hold [3]Escort [4]Defend [5]Dock [6]Attack  [F/Esc close]"
 	if is_instance_valid(station) and _pdist(station) < 70.0:
 		return "STATION: [G] %s %dcr  [Y] buy  [R] crew  [M] marine  [H] repair  [C] deck  [V]save [L]load" % [_shipyard_class().to_upper(), _shipyard_cost()]
 	var svc: Node3D = _service_station()
@@ -2206,7 +2477,9 @@ func _context_prompt() -> String:
 	var order_label: String = fleet_order.to_upper()
 	if fleet_order == "attack" and is_instance_valid(fleet_attack_target):
 		order_label = "ATTACK %s" % fleet_attack_target.ship_name
-	return "[Tab] target  [T] attack  [Z] sub:%s  [F] %s  [C] deck  [V]save [L]load  (order: %s)" % [sub_label, ("HOLD" if fleet_order == "follow" else "FOLLOW"), order_label]
+	elif fleet_order == "defend" and is_instance_valid(fleet_defend_target):
+		order_label = "DEFEND %s" % fleet_defend_target.ship_name
+	return "[Tab] target  [T] attack  [Z] sub:%s  [F] fleet orders  [C] deck  [V]save [L]load  (order: %s)" % [sub_label, order_label]
 
 func _build_radar() -> Array:
 	var blips: Array = []

@@ -104,7 +104,17 @@
   and `goto_room()` API for tests; `set_ship_list()` wired into deck entry; backward
   compatible: single-ship behaviour unchanged. Covered by `tests/test_deck_navigation.gd`
   (`DECK_NAV_TEST_PASS`).
-- [ ] Order menu (escort, attack-my-target, dock) for fleet ships beyond the current follow/hold toggle.
+- [x] Order menu (escort, attack-my-target, dock) for fleet ships beyond the current follow/hold toggle.
+  Shipped: `F` opens a **fleet order menu** overlay (when no unmanned ship needs crew); number
+  keys pick the standing order — `[1]` Follow, `[2]` Hold, `[3]` Escort (tight defensive ring
+  that engages hostiles closing on the flagship but never chases past `weapon_range * 0.9`),
+  `[4]` Defend (orbit/screen the current target at ~20 units), `[5]` Dock (route manned escorts
+  to the nearest friendly station and auto-repair hull/shield/energy at half the manual service
+  cost), `[6]` Attack (focus-fire, same as `T`). `Esc` closes without changing the order. Each
+  order routes through `_set_fleet_order()` with validation; attack/defend self-clear via
+  `_validate_fleet_attack()` / `_validate_fleet_defend()` and dock reverts to follow when no
+  station is reachable, all falling back to FOLLOW. `fleet_defend_target` saves/loads (old
+  saves default to follow). Covered by `tests/test_fleet_order_menu.gd` (`FLEET_ORDER_MENU_TEST_PASS`).
 
 ### Economy & world
 - [x] Persistent save/load of credits, roster, and fleet. Shipped: versioned JSON quick
@@ -136,8 +146,9 @@
   abstract pool counts surfaced as humanoids on the deck.
 - Boarding resolves as a per-round attacker-vs-defender casualty exchange (with a class-based
   defender garrison), but the marines themselves are still abstract counts, not individuals.
-- Fleet AI is a ring-formation / hold-position / attack-target command set; richer
-  orders such as escort roles and docking are not built yet.
+- Fleet AI is a six-order command set (follow, hold, escort, defend, dock, attack) issued
+  through the `F` fleet order menu; richer doctrine (patrol routes, wing sub-grouping) is
+  still future work.
 - Target cycling prioritizes hostiles; neutral assets are fallback targets only after the
   hostile force is cleared.
 - Single hand-seeded scenario. Within a run, the battle state can be quick-saved/loaded

@@ -34,10 +34,10 @@ func _initialize() -> void:
 	if not failed:
 		if str(main.get("fleet_order")) != "follow":
 			_fail("fleet should start in follow order")
-		main.call("_toggle_fleet_follow")
+		main.call("_set_fleet_order", "hold")
 		await process_frame
 		if str(main.get("fleet_order")) != "hold":
-			_fail("F command without crew assignment should switch fleet_order to hold")
+			_fail("hold order should switch fleet_order to hold")
 		if str(escort.get("ai_state")) != "hold":
 			_fail("manned escort did not receive hold ai_state")
 		var holds: Dictionary = main.get("fleet_hold_positions")
@@ -45,10 +45,10 @@ func _initialize() -> void:
 			_fail("hold order did not record escort hold position")
 
 	if not failed:
-		main.call("_toggle_fleet_follow")
+		main.call("_set_fleet_order", "follow")
 		await process_frame
 		if str(main.get("fleet_order")) != "follow":
-			_fail("second F command should switch fleet_order back to follow")
+			_fail("follow order should switch fleet_order back to follow")
 		if str(escort.get("ai_state")) != "follow":
 			_fail("manned escort did not return to follow ai_state")
 
