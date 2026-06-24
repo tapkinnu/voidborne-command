@@ -165,3 +165,7 @@ pause={
 "deadzone": 0.5,
 "events": [{"type":"key","keycode":80,"unicode":112}]
 }
+jump={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":75,"unicode":107}]
+}

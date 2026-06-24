@@ -211,7 +211,9 @@ func _draw_system_map(vp: Vector2) -> void:
 	var rect: Rect2 = Rect2(origin, Vector2(size, size))
 	draw_rect(rect, Color(0.0, 0.03, 0.06, 0.92), true)
 	draw_rect(rect, C_LINE, false, 1.5)
-	_txt(origin + Vector2(14, 24), "SYSTEM MAP  (M to close)", C_LINE, 16)
+	var cur_sys: String = String(m.get("current_system", ""))
+	var title: String = "SYSTEM MAP — %s  (M to close)" % cur_sys if cur_sys != "" else "SYSTEM MAP  (M to close)"
+	_txt(origin + Vector2(14, 24), title, C_LINE, 16)
 
 	var stations: Array = m.get("stations", [])
 	var pl: Dictionary = m.get("player", {})
@@ -289,6 +291,25 @@ func _draw_system_map(vp: Vector2) -> void:
 	draw_line(Vector2(bar_x, bar_y - 4), Vector2(bar_x, bar_y + 4), C_DIM, 2.0)
 	draw_line(Vector2(bar_x + bar_px, bar_y - 4), Vector2(bar_x + bar_px, bar_y + 4), C_DIM, 2.0)
 	_txt(Vector2(bar_x, bar_y - 8), "%d u" % int(bar_world), C_DIM, 11)
+
+	# Jump-gate roster along the bottom-right of the panel: every reachable system, the
+	# current one boxed/highlighted. [K] cycles to the next gate in flight.
+	var gates: Array = m.get("jump_gates", [])
+	if not gates.is_empty():
+		var gx: float = origin.x + size * 0.42
+		var gy: float = origin.y + size - 24.0 - float(gates.size()) * 16.0
+		_txt(Vector2(gx, gy), "JUMP GATES  [K] next", C_LINE, 12)
+		gy += 16.0
+		for g in gates:
+			var gd: Dictionary = g
+			var gname: String = String(gd.get("name", ""))
+			var is_cur: bool = bool(gd.get("current", false))
+			var label: String = "%s %s" % ["▶" if is_cur else "  ", gname]
+			var gcol: Color = Color(0.55, 1.0, 0.7) if is_cur else Color(0.7, 0.85, 0.95)
+			if is_cur:
+				draw_rect(Rect2(Vector2(gx - 2, gy - 11), Vector2(150, 15)), Color(0.1, 0.35, 0.25, 0.5), true)
+			_txt(Vector2(gx, gy), label, gcol, 12)
+			gy += 16.0
 
 func _draw_mission_panel(vp: Vector2) -> void:
 	# Compact current-mission tracker under the target panel (top-right): title + reward,

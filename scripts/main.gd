@@ -148,7 +148,7 @@ var auto_demo: bool = false
 # Versioned quick save/load of the current single-system battle. save_path is a
 # script variable so tests can redirect it to a scratch file.
 const SAVE_GAME_ID: String = "voidborne_command"
-const SAVE_VERSION: int = 1
+const SAVE_VERSION: int = 2   # v2 adds current_system_index (v1 saves load as system 0)
 var save_path: String = "user://voidborne_save.json"
 
 var messages: Array = []           # rolling message log (strings)
@@ -168,6 +168,87 @@ var _destroyed_hostile_count: int = 0   # cumulative mobile hostiles destroyed (
 var _purchased_frigate: bool = false    # set true once the player buys a frigate at the shipyard
 var _mission_check_accum: float = 0.0   # throttle accumulator for periodic mission evaluation
 const MISSION_CHECK_INTERVAL: float = 0.5
+
+# --- Multi-system / inter-system jump layer ---------------------------------
+# Each star system is a self-contained battle layout: stations (neutral hub + capturable
+# hostile relays), the player spawn, and a hostile composition. System 0 reproduces the
+# original single-system battle EXACTLY (same names/positions) for save/test compatibility;
+# systems 1+ are tougher sectors. `jump_to_system()` tears down and rebuilds around these.
+# Vector3 literals are constant-expressions so the whole table can be a const.
+const STAR_SYSTEMS: Array = [
+	{
+		"name": "Halcyon Reach",
+		"difficulty": 1.0,
+		"player_spawn": Vector3(0, 4, 80),
+		"stations": [
+			{"name": "Halcyon", "faction": "neutral", "pos": Vector3(0, 0, -40)},
+			{"name": "Aurora Station", "faction": "neutral", "pos": Vector3(400, 0, -200)},
+			{"name": "Kryos Relay", "faction": "hostile", "pos": Vector3(-300, -10, -350), "ai": "guard"},
+			{"name": "Ironhold", "faction": "hostile", "pos": Vector3(500, 20, -500), "ai": "guard"},
+		],
+		"hostiles": [
+			{"class": "fighter", "name": "Raider-1", "pos": Vector3(-30, 0, -110), "jitter_y": Vector2(-6, 8), "ai": "engage"},
+			{"class": "fighter", "name": "Raider-2", "pos": Vector3(-12, 0, -116), "jitter_y": Vector2(-6, 8), "ai": "engage"},
+			{"class": "fighter", "name": "Raider-3", "pos": Vector3(6, 0, -122), "jitter_y": Vector2(-6, 8), "ai": "engage"},
+			{"class": "fighter", "name": "Raider-4", "pos": Vector3(24, 0, -128), "jitter_y": Vector2(-6, 8), "ai": "engage"},
+			{"class": "corvette", "name": "Cleaver", "pos": Vector3(40, 6, -90), "ai": "engage"},
+			{"class": "frigate", "name": "Ironclaw", "pos": Vector3(-20, -4, -150), "ai": "engage"},
+			{"class": "capital", "name": "Dread Maw", "pos": Vector3(60, 10, -200), "ai": "engage"},
+		],
+	},
+	{
+		"name": "Tarsis Drift",
+		"difficulty": 1.4,
+		"player_spawn": Vector3(0, 4, 90),
+		"stations": [
+			{"name": "Tarsis Hub", "faction": "neutral", "pos": Vector3(0, 0, -50)},
+			{"name": "Vesper Yard", "faction": "neutral", "pos": Vector3(-450, 10, -160)},
+			{"name": "Skarn Bastion", "faction": "hostile", "pos": Vector3(360, -20, -400), "ai": "guard"},
+			{"name": "Greve Platform", "faction": "hostile", "pos": Vector3(-520, 30, -480), "ai": "guard"},
+		],
+		"hostiles": [
+			{"class": "fighter", "name": "Raider-1", "pos": Vector3(-40, 4, -120), "ai": "engage"},
+			{"class": "fighter", "name": "Raider-2", "pos": Vector3(-18, -2, -128), "ai": "engage"},
+			{"class": "fighter", "name": "Raider-3", "pos": Vector3(6, 5, -134), "ai": "engage"},
+			{"class": "fighter", "name": "Raider-4", "pos": Vector3(30, -3, -140), "ai": "engage"},
+			{"class": "fighter", "name": "Raider-5", "pos": Vector3(52, 2, -146), "ai": "engage"},
+			{"class": "corvette", "name": "Saber", "pos": Vector3(-60, 8, -110), "ai": "engage"},
+			{"class": "corvette", "name": "Hatchet", "pos": Vector3(70, -6, -130), "ai": "engage"},
+			{"class": "frigate", "name": "Hollow Wake", "pos": Vector3(-30, -8, -180), "ai": "engage"},
+			{"class": "capital", "name": "Black Tide", "pos": Vector3(80, 14, -240), "ai": "engage"},
+		],
+	},
+	{
+		"name": "Cinder Expanse",
+		"difficulty": 1.8,
+		"player_spawn": Vector3(0, 4, 100),
+		"stations": [
+			{"name": "Ember Gate", "faction": "neutral", "pos": Vector3(0, 0, -60)},
+			{"name": "Forge Anchor", "faction": "neutral", "pos": Vector3(520, -10, -260)},
+			{"name": "Pyre Citadel", "faction": "hostile", "pos": Vector3(-420, 20, -460), "ai": "guard"},
+			{"name": "Molten Spur", "faction": "hostile", "pos": Vector3(470, -30, -540), "ai": "guard"},
+		],
+		"hostiles": [
+			{"class": "fighter", "name": "Raider-1", "pos": Vector3(-50, 6, -130), "ai": "engage"},
+			{"class": "fighter", "name": "Raider-2", "pos": Vector3(-28, -4, -138), "ai": "engage"},
+			{"class": "fighter", "name": "Raider-3", "pos": Vector3(-6, 7, -144), "ai": "engage"},
+			{"class": "fighter", "name": "Raider-4", "pos": Vector3(18, -5, -150), "ai": "engage"},
+			{"class": "fighter", "name": "Raider-5", "pos": Vector3(40, 3, -156), "ai": "engage"},
+			{"class": "fighter", "name": "Raider-6", "pos": Vector3(62, -2, -162), "ai": "engage"},
+			{"class": "corvette", "name": "Reaver", "pos": Vector3(-70, 9, -120), "ai": "engage"},
+			{"class": "corvette", "name": "Flense", "pos": Vector3(80, -7, -140), "ai": "engage"},
+			{"class": "frigate", "name": "Cinderfall", "pos": Vector3(-36, -9, -200), "ai": "engage"},
+			{"class": "capital", "name": "Worldbreaker", "pos": Vector3(90, 16, -270), "ai": "engage"},
+		],
+	},
+]
+
+# Index of the active star system; round-tripped through the save. system_count is exposed
+# as a read-only property so tests/HUD can read it via Object.get().
+var current_system_index: int = 0
+var system_count: int:
+	get:
+		return STAR_SYSTEMS.size()
 
 # --- System map overlay (transient UI; not saved) ---------------------------
 var system_map_open: bool = false
@@ -725,44 +806,9 @@ func _spawn_ship(p_class: String, faction: String, ship_name: String, pos: Vecto
 	return s
 
 func _build_battle() -> void:
-	# Neutral station hub (recruit / buy / capture objective). Stays the primary hub the
-	# `station` variable points to so all existing station-proximity logic keeps working.
-	station = _spawn_ship("station", "neutral", "Halcyon", Vector3(0, 0, -40))
-
-	# Second neutral outpost across the system — a travel destination with the same
-	# repair/refit service as Halcyon (station-finding funcs pick the nearest one).
-	_spawn_ship("station", "neutral", "Aurora Station", Vector3(400, 0, -200))
-
-	# Player flagship (corvette) and starting wing.
-	player = _spawn_ship("corvette", "player", "Captain", Vector3(0, 4, 80))
-	player.is_player = true
-	player.look_at(player.global_position + Vector3(0, 0, -1), Vector3.UP)
-
-	var ally1: Node3D = _spawn_ship("fighter", "player", "Wing-1", Vector3(-10, 3, 90))
-	var ally2: Node3D = _spawn_ship("fighter", "player", "Wing-2", Vector3(10, 3, 90))
-	ally1.ai_state = "follow"
-	ally2.ai_state = "follow"
-
-	# Hostile wing of fighters.
-	for i in range(4):
-		var hp: Vector3 = Vector3(-30 + i * 18, rng.randf_range(-6, 8), -110 - i * 6)
-		_spawn_ship("fighter", "hostile", "Raider-%d" % (i + 1), hp)
-
-	# Larger hostile ships: a corvette and the frigate (primary boarding target).
-	_spawn_ship("corvette", "hostile", "Cleaver", Vector3(40, 6, -90))
-	var frig: Node3D = _spawn_ship("frigate", "hostile", "Ironclaw", Vector3(-20, -4, -150))
-	frig.ai_state = "engage"
-
-	# A hostile capital to show the largest mobile silhouette class in the battle.
-	_spawn_ship("capital", "hostile", "Dread Maw", Vector3(60, 10, -200))
-
-	# Capturable hostile stations across the system. The neutral Halcyon station remains
-	# the recruit/shipyard hub; these relays prove the station capture path in live combat
-	# and give the multi-station map two hostile objectives to travel between.
-	var relay: Node3D = _spawn_ship("station", "hostile", "Kryos Relay", Vector3(-300, -10, -350))
-	relay.ai_state = "guard"
-	var ironhold: Node3D = _spawn_ship("station", "hostile", "Ironhold", Vector3(500, 20, -500))
-	ironhold.ai_state = "guard"
+	# Boot the starting system (index 0 == the original hand-seeded battle) and create the
+	# shared chase camera once. Jumps reuse _build_system_battle() but never recreate the camera.
+	_build_system_battle(0, true)
 
 	# Third-person chase camera. Far plane is generous so distant stations stay visible
 	# across the enlarged system map.
@@ -772,6 +818,220 @@ func _build_battle() -> void:
 	add_child(space_camera)
 	_update_camera(0.001, true)
 	space_camera.current = true
+
+func _build_system_battle(sys_index: int, spawn_wing: bool = true) -> void:
+	# Data-driven battle builder. Spawns the system's neutral stations (the first neutral one
+	# becomes the recruit/shipyard hub `station` points at), the player flagship + starting
+	# wing, the mobile hostile force, and the capturable hostile stations — in the same order
+	# the original hand-coded battle used so system 0 is bit-for-bit identical (incl. the rng
+	# y-jitter on the opening raider wing). spawn_wing is false when a carried fleet will be
+	# restored on top of the new system (so the wing is not duplicated).
+	var idx: int = clampi(sys_index, 0, STAR_SYSTEMS.size() - 1)
+	var sys: Dictionary = STAR_SYSTEMS[idx]
+
+	# Neutral stations first; first neutral station is the primary hub.
+	station = null
+	for st in sys.get("stations", []):
+		var sd: Dictionary = st
+		if String(sd.get("faction", "neutral")) == "hostile":
+			continue
+		var nst: Node3D = _spawn_ship("station", String(sd.get("faction", "neutral")), String(sd.get("name", "Station")), sd.get("pos", Vector3.ZERO))
+		var nai: String = String(sd.get("ai", ""))
+		if nai != "":
+			nst.ai_state = nai
+		if station == null and String(sd.get("faction", "neutral")) == "neutral":
+			station = nst
+
+	# Player flagship (corvette) near the system hub.
+	var pspawn: Vector3 = sys.get("player_spawn", Vector3(0, 4, 80))
+	player = _spawn_ship("corvette", "player", "Captain", pspawn)
+	player.is_player = true
+	player.look_at(player.global_position + Vector3(0, 0, -1), Vector3.UP)
+
+	# Starting wing (skipped when a carried fleet will be restored on top).
+	if spawn_wing:
+		var ally1: Node3D = _spawn_ship("fighter", "player", "Wing-1", pspawn + Vector3(-10, -1, 10))
+		var ally2: Node3D = _spawn_ship("fighter", "player", "Wing-2", pspawn + Vector3(10, -1, 10))
+		ally1.ai_state = "follow"
+		ally2.ai_state = "follow"
+
+	# Mobile hostile force (fighters, corvettes, frigate, capital).
+	for h in sys.get("hostiles", []):
+		var hd: Dictionary = h
+		var hpos: Vector3 = hd.get("pos", Vector3.ZERO)
+		if hd.has("jitter_y"):
+			var jy: Vector2 = hd.get("jitter_y")
+			hpos.y = rng.randf_range(jy.x, jy.y)
+		var hs: Node3D = _spawn_ship(String(hd.get("class", "fighter")), "hostile", String(hd.get("name", "Raider")), hpos)
+		var hai: String = String(hd.get("ai", ""))
+		if hai != "":
+			hs.ai_state = hai
+
+	# Capturable hostile stations last (matches original spawn order).
+	for st2 in sys.get("stations", []):
+		var sd2: Dictionary = st2
+		if String(sd2.get("faction", "neutral")) != "hostile":
+			continue
+		var hst: Node3D = _spawn_ship("station", "hostile", String(sd2.get("name", "Relay")), sd2.get("pos", Vector3.ZERO))
+		hst.ai_state = String(sd2.get("ai", "guard"))
+
+# ---------------------------------------------------------------------------
+# INTER-SYSTEM JUMP
+# ---------------------------------------------------------------------------
+func system_name(idx: int) -> String:
+	if idx < 0 or idx >= STAR_SYSTEMS.size():
+		return ""
+	var sys: Dictionary = STAR_SYSTEMS[idx]
+	return String(sys.get("name", ""))
+
+func _initial_raider_seq(idx: int) -> int:
+	# Highest "Raider-N" index a system seeds, so respawn reinforcements continue the count.
+	var n: int = 0
+	if idx < 0 or idx >= STAR_SYSTEMS.size():
+		return n
+	var sys: Dictionary = STAR_SYSTEMS[idx]
+	for h in sys.get("hostiles", []):
+		var hd: Dictionary = h
+		if String(hd.get("class", "")) == "fighter":
+			n += 1
+	return n
+
+func _capture_fleet_state() -> Array:
+	# Snapshot the owned, non-player, non-station fleet so it survives a jump teardown.
+	var out: Array = []
+	for s in ships:
+		if not is_instance_valid(s) or s.destroyed:
+			continue
+		if s.faction == "player" and not s.is_player and s.ship_class != "station":
+			out.append({
+				"ship_class": String(s.ship_class),
+				"ship_name": String(s.ship_name),
+				"manned": bool(s.manned),
+				"crew_assigned": int(s.crew_assigned),
+				"marine_garrison": int(s.marine_garrison),
+				"max_hull": float(s.max_hull), "hull": float(s.hull),
+				"max_shield": float(s.max_shield), "shield": float(s.shield),
+				"max_energy": float(s.max_energy), "energy": float(s.energy),
+				"disabled": bool(s.disabled),
+				"sub_engine": float(s.sub_engine),
+				"sub_weapon": float(s.sub_weapon),
+				"sub_shield": float(s.sub_shield),
+			})
+	return out
+
+func _restore_fleet_state(fleet: Array) -> void:
+	# Re-spawn carried fleet ships in a loose formation behind the player with saved health.
+	if fleet.is_empty():
+		return
+	var base: Vector3 = player.global_position if is_instance_valid(player) else Vector3.ZERO
+	var i: int = 0
+	for entry in fleet:
+		var fd: Dictionary = entry
+		var off: Vector3 = Vector3(-14.0 + float(i % 3) * 14.0, 2.0 + float(i % 2), 12.0 + float(i) * 5.0)
+		var s: Node3D = _spawn_ship(String(fd.get("ship_class", "fighter")), "player", String(fd.get("ship_name", "Wing")), base + off, bool(fd.get("manned", true)))
+		s.crew_assigned = int(fd.get("crew_assigned", s.crew_assigned))
+		s.marine_garrison = int(fd.get("marine_garrison", s.marine_garrison))
+		s.max_hull = float(fd.get("max_hull", s.max_hull))
+		s.hull = float(fd.get("hull", s.hull))
+		s.max_shield = float(fd.get("max_shield", s.max_shield))
+		s.shield = float(fd.get("shield", s.shield))
+		s.max_energy = float(fd.get("max_energy", s.max_energy))
+		s.energy = float(fd.get("energy", s.energy))
+		s.disabled = bool(fd.get("disabled", false))
+		s.sub_engine = clamp(float(fd.get("sub_engine", 1.0)), 0.0, 1.0)
+		s.sub_weapon = clamp(float(fd.get("sub_weapon", 1.0)), 0.0, 1.0)
+		s.sub_shield = clamp(float(fd.get("sub_shield", 1.0)), 0.0, 1.0)
+		s.ai_state = "follow"
+		i += 1
+
+func _apply_system_missions(sys_index: int) -> void:
+	# Point the system-specific "capture station" missions at the active system's hostile
+	# stations (in order). Non-station missions (destroy raiders, buy frigate, fleet of three)
+	# are untouched so their cross-system progress is preserved.
+	if sys_index < 0 or sys_index >= STAR_SYSTEMS.size():
+		return
+	var sys: Dictionary = STAR_SYSTEMS[sys_index]
+	var hostile_names: Array = []
+	for st in sys.get("stations", []):
+		var sd: Dictionary = st
+		if String(sd.get("faction", "")) == "hostile":
+			hostile_names.append(String(sd.get("name", "")))
+	var ci: int = 0
+	for m in missions:
+		var md: Dictionary = m
+		var objs: Array = md.get("objectives", [])
+		for o in objs:
+			var od: Dictionary = o
+			if String(od.get("check", "")) != "capture_station":
+				continue
+			if ci < hostile_names.size():
+				var nm: String = String(hostile_names[ci])
+				od["arg"] = nm
+				od["text"] = "Capture %s" % nm
+				md["title"] = "Capture %s" % nm
+				md["desc"] = "Disable and board the hostile %s station." % nm
+				ci += 1
+	objective = _current_objective_text()
+
+func jump_to_system(target_idx: int) -> void:
+	# Public jump: tear down the current battle, rebuild around the destination system, and
+	# carry the owned fleet (and all Game-singleton economy/crew) across. Out-of-range indices
+	# wrap with modulo so the [K] cycle is forgiving.
+	var count: int = STAR_SYSTEMS.size()
+	if count <= 0:
+		return
+	var idx: int = ((target_idx % count) + count) % count
+	var dest_name: String = system_name(idx)
+	_msg("Jumping to %s..." % dest_name)
+
+	# Snapshot the fleet before the teardown frees every ship.
+	var fleet_carry: Array = _capture_fleet_state()
+
+	# Tear down transient + battle state (mirrors _apply_save's teardown).
+	_cancel_boarding()
+	_clear_transient_nodes()
+	if deck_mode:
+		_set_deck_mode(false)
+	fleet_hold_positions.clear()
+	fleet_attack_target = null
+	fleet_defend_target = null
+	fleet_menu_open = false
+	fleet_order = "follow"
+	_dock_cost_accum = 0.0
+	_dock_broke_msg = false
+	target = null
+	for s in ships:
+		if is_instance_valid(s):
+			s.queue_free()
+	ships.clear()
+	player = null
+	station = null
+
+	# Build the destination system; the carried fleet replaces the default wing.
+	current_system_index = idx
+	_build_system_battle(idx, fleet_carry.is_empty())
+	_restore_fleet_state(fleet_carry)
+
+	# Reset the sector's respawn bookkeeping and reinforcement naming.
+	_respawn_timer = 0.0
+	_respawn_warned = false
+	_raider_seq = _initial_raider_seq(idx)
+
+	# Retarget the capture-station missions onto the new system's relays.
+	_apply_system_missions(idx)
+
+	# Re-acquire a target and snap the camera to the freshly-spawned player.
+	target = _nearest_hostile()
+	if is_instance_valid(player):
+		_update_camera(0.001, true)
+		space_camera.current = true
+		throttle = clamp(player.throttle, 0.0, 1.0)
+
+	_msg("Arrived at %s." % dest_name)
+	if audio: audio.play("ui_buy")
+
+func _do_jump_next() -> void:
+	jump_to_system((current_system_index + 1) % STAR_SYSTEMS.size())
 
 func _build_hud() -> void:
 	var layer: CanvasLayer = CanvasLayer.new()
@@ -2046,6 +2306,11 @@ func _handle_station_actions() -> void:
 		_cycle_control_scheme()
 	if Input.is_action_just_pressed("system_map"):
 		_toggle_system_map()
+	# [K] jumps to the next star system. _handle_station_actions only runs in space mode and
+	# never while paused / in the dock screen / in the settings menu, so those gates are implicit.
+	if Input.is_action_just_pressed("jump"):
+		_do_jump_next()
+		return
 	if Input.is_action_just_pressed("cycle_mission"):
 		_cycle_mission()
 	if Input.is_action_just_pressed("toggle_deck"):
@@ -2101,10 +2366,19 @@ func _build_system_map() -> Dictionary:
 	if is_instance_valid(player):
 		pf = -player.global_transform.basis.z
 		pp = player.global_position
+	var gates: Array = []
+	for i in range(STAR_SYSTEMS.size()):
+		gates.append({
+			"name": system_name(i),
+			"index": i,
+			"current": i == current_system_index,
+		})
 	return {
 		"stations": stations,
 		"ships": dots,
 		"player": {"x": pp.x, "z": pp.z, "fx": pf.x, "fz": pf.z},
+		"current_system": system_name(current_system_index),
+		"jump_gates": gates,
 	}
 
 # ---------------------------------------------------------------------------
@@ -2760,6 +3034,7 @@ func _build_save_dict() -> Dictionary:
 		"fleet_defend_target": def_name,
 		"target": tgt_name,
 		"ships": ship_list,
+		"current_system_index": current_system_index,
 		"missions": _missions_to_save(),
 		"current_mission_index": current_mission_index,
 		"destroyed_hostile_count": _destroyed_hostile_count,
@@ -2861,6 +3136,14 @@ func _validate_save(parsed: Variant) -> String:
 	# Missions are optional (backward compatible). If present, must be an Array.
 	if d.has("missions") and typeof(d["missions"]) != TYPE_ARRAY:
 		return "missions not an array"
+	# System index is optional (v1 saves predate it). If present, an int in range.
+	if d.has("current_system_index"):
+		var sys_val: Variant = d["current_system_index"]
+		if typeof(sys_val) != TYPE_FLOAT and typeof(sys_val) != TYPE_INT:
+			return "current_system_index non-numeric"
+		var sys_i: int = int(sys_val)
+		if sys_i < 0 or sys_i >= STAR_SYSTEMS.size():
+			return "current_system_index out of range"
 	var ships_arr: Array = d["ships"]
 	var player_count: int = 0
 	for entry in ships_arr:
@@ -2924,6 +3207,12 @@ func _apply_save(parsed: Dictionary) -> void:
 	player = null
 	station = null
 
+	# Restore the active system index first so the HUD/jump logic and capture-mission
+	# retargeting below all reference the correct system (v1 saves default to system 0).
+	current_system_index = int(parsed.get("current_system_index", 0))
+	if current_system_index < 0 or current_system_index >= STAR_SYSTEMS.size():
+		current_system_index = 0
+
 	var econ: Dictionary = parsed["economy"]
 	Game.credits = int(econ["credits"])
 	Game.crew_pool = int(econ["crew_pool"])
@@ -2975,7 +3264,9 @@ func _apply_save(parsed: Dictionary) -> void:
 	else:
 		target = _nearest_hostile()
 
-	# Restore mission progress (backward compatible: old saves leave defaults intact).
+	# Point the capture-station missions at the loaded system's relays, then restore mission
+	# progress on top (backward compatible: old saves leave the freshly-initialised state intact).
+	_apply_system_missions(current_system_index)
 	_missions_from_save(parsed)
 
 	if is_instance_valid(player):

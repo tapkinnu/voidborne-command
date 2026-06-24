@@ -149,8 +149,24 @@
   `RESPAWN_THRESHOLD` (3) for `RESPAWN_INTERVAL` (30 s), with quiet-sector / reinforcement HUD
   messages; hostile stations never respawn and the system is disabled in capture/demo mode.
   Camera far plane (3000) and the starfield shell (800–1200) were widened for the larger area.
-  Covered by `tests/test_system_map.gd` (`SYSTEM_MAP_TEST_PASS`). A multi-system / inter-system
-  jump layer remains backlog.
+  Covered by `tests/test_system_map.gd` (`SYSTEM_MAP_TEST_PASS`).
+- [x] Multi-system / inter-system jump layer. Shipped: a `const STAR_SYSTEMS` table defines
+  **three star systems** — **Halcyon Reach** (difficulty 1.0, the original hand-seeded battle,
+  reproduced bit-for-bit so existing saves/tests are unaffected), **Tarsis Drift** (1.4), and
+  **Cinder Expanse** (1.8) — each with its own station layout (neutral hub + capturable hostile
+  relays) and a hostile composition scaled by difficulty. `current_system_index` tracks the
+  active sector; `system_count` (read-only property) and `system_name(idx)` expose the roster.
+  `_build_battle()` now delegates to a data-driven `_build_system_battle(sys_index, spawn_wing)`.
+  `jump_to_system(target_idx)` (bound to **`K`** via the new `jump` input action, cycling to the
+  next system) tears down the current battle, rebuilds the destination, and **carries the owned
+  fleet** (hull/shield/energy/crew/subsystems) across while the Game-singleton economy/crew/marine
+  pools persist; out-of-range targets wrap with modulo. Capture-station missions retarget onto the
+  new system's relays; cross-system missions (destroy raiders, buy frigate, fleet of three) keep
+  progress; respawn bookkeeping resets per sector. The system map (`hud.gd _draw_system_map`) now
+  shows the **current system name** in its title and a **JUMP GATES** roster highlighting the
+  active gate, fed by `_build_system_map()`'s `current_system` / `jump_gates` keys. Save format
+  bumped to **v2** (`current_system_index` round-trips; v1 saves load as system 0). Covered by
+  `tests/test_jump_system.gd` (`JUMP_SYSTEM_TEST_PASS`).
 - [x] Mission/objective system beyond the single seeded scenario. `main.gd _init_missions`
       defines five trackable missions (capture Kryos Relay / Ironhold, destroy 5 raiders, buy a
       frigate, command a 3-ship fleet) with credit rewards; `O` cycles the tracked mission,
@@ -223,6 +239,7 @@
   still future work.
 - Target cycling prioritizes hostiles; neutral assets are fallback targets only after the
   hostile force is cleared.
-- Single hand-seeded scenario. Within a run, the battle state can be quick-saved/loaded
-  (`V`/`L`) to one versioned slot; there is no autosave, multi-slot, or cross-system
-  persistence yet.
+- Three hand-seeded star systems reachable via the `K` jump layer. Within a run, the battle
+  state (including the active system index) can be quick-saved/loaded (`V`/`L`) to one
+  versioned slot; there is no autosave or multi-slot persistence yet, and captured stations in
+  a system are not retained once the player jumps away from that system.
