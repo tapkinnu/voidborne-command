@@ -94,7 +94,11 @@ func _draw() -> void:
 		_txt(Vector2(16, 64), "Crew: %d %s   %s" % [int(data.get("crew_pool", 0)), role_str, _marines_str(data)], C_DIM, 13)
 	else:
 		_txt(Vector2(16, 64), "Crew: %d   %s" % [int(data.get("crew_pool", 0)), _marines_str(data)], C_DIM, 13)
-	_txt(Vector2(16, 80), "Fleet: %d   Captured: %d" % [int(data.get("fleet_count", 0)), int(data.get("captured", 0))], C_DIM, 13)
+	var wing_counts: String = String(data.get("wing_counts", ""))
+	var fleet_line: String = "Fleet: %d   Captured: %d" % [int(data.get("fleet_count", 0)), int(data.get("captured", 0))]
+	if wing_counts != "":
+		fleet_line += "   Wings: %s" % wing_counts
+	_txt(Vector2(16, 80), fleet_line, C_DIM, 13)
 	var order_key: String = String(data.get("fleet_order", "follow"))
 	var order_txt: String = order_key.to_upper()
 	var order_col: Color = Color(0.56, 1.0, 0.82)
@@ -381,7 +385,7 @@ func _draw_fleet_menu(vp: Vector2) -> void:
 	var y: float = vp.y * 0.5 - h * 0.5
 	draw_rect(Rect2(Vector2(x, y), Vector2(w, h)), Color(0.0, 0.04, 0.07, 0.9), true)
 	draw_rect(Rect2(Vector2(x, y), Vector2(w, h)), C_LINE, false, 1.5)
-	_txt(Vector2(x + 16, y + 26), "FLEET ORDERS  (F/Esc to close)", C_LINE, 15)
+	_txt(Vector2(x + 16, y + 26), "FLEET ORDERS  (F/Esc close, W wings)", C_LINE, 15)
 	var current: String = String(data.get("fleet_order", "follow"))
 	for i in range(rows.size()):
 		var row: Array = rows[i]
@@ -391,6 +395,32 @@ func _draw_fleet_menu(vp: Vector2) -> void:
 		var col: Color = Color(1.0, 0.85, 0.35) if is_current else C_DIM
 		var marker: String = ">" if is_current else " "
 		_txt(Vector2(x + 16, ry), "%s[%s] %-11s — %s" % [marker, String(row[0]), String(row[2]), String(row[3])], col, 12)
+	if bool(data.get("wing_menu_open", false)):
+		_draw_wing_menu(x, y + h + 8.0, w)
+
+func _draw_wing_menu(x: float, y: float, w: float) -> void:
+	# Wing-order sub-panel drawn below the fleet menu: one row per wing with its current order
+	# and (for attack/defend) the target name. The selected wing is marked with a cursor.
+	var summary: Array = data.get("wing_summary", [])
+	var cursor: int = int(data.get("wing_menu_cursor", 0))
+	var rows: int = maxi(summary.size(), 1)
+	var h: float = 62.0 + float(rows) * 18.0
+	draw_rect(Rect2(Vector2(x, y), Vector2(w, h)), Color(0.0, 0.04, 0.07, 0.92), true)
+	draw_rect(Rect2(Vector2(x, y), Vector2(w, h)), C_LINE, false, 1.5)
+	_txt(Vector2(x + 16, y + 24), "WING ORDERS  (W/Esc back, ↑↓ select wing)", C_LINE, 14)
+	for i in range(summary.size()):
+		var entry: Dictionary = summary[i]
+		var wid: String = String(entry.get("id", ""))
+		var order: String = String(entry.get("order", ""))
+		var tname: String = String(entry.get("target", ""))
+		var label: String = order.to_upper() if order != "" else "(unassigned)"
+		if tname != "":
+			label += " " + tname
+		var selected: bool = i == cursor
+		var marker: String = "►" if selected else " "
+		var col: Color = Color(1.0, 0.85, 0.35) if selected else C_DIM
+		_txt(Vector2(x + 16, y + 44.0 + float(i) * 18.0), "%s %-7s %s" % [marker, wid.capitalize() + ":", label], col, 12)
+	_txt(Vector2(x + 16, y + 48.0 + float(summary.size()) * 18.0), "[1-7] set order for selected wing", C_DIM, 11)
 
 func _draw_mission_giver(vp: Vector2) -> void:
 	var mission_list: Array = data.get("mission_giver_list", [])

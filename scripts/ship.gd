@@ -64,6 +64,9 @@ var destroyed: bool = false
 
 var target: Node3D = null
 var ai_state: String = "engage"
+# Wing sub-group membership for player-owned escorts. "" = unassigned (follows the global
+# fleet order); "alpha"/"beta"/"gamma" = follows that wing's independent standing order.
+var wing_id: String = ""
 var board_progress: float = 0.0     # 0..1 when being boarded by player marines
 var being_boarded: bool = false
 

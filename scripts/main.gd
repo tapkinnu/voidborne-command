@@ -92,6 +92,20 @@ var fleet_defend_target: Node3D = null     # guarded target while fleet_order ==
 var fleet_menu_open: bool = false          # transient: fleet order menu overlay open (not saved)
 var patrol_waypoints: Array[Vector3] = []  # ordered patrol route waypoints (saved; positions only)
 var patrol_indices: Dictionary = {}        # instance_id -> current waypoint index (transient)
+# --- Wing sub-grouping --------------------------------------------------------
+# Escorts may be assigned to a named wing (alpha/beta/gamma); each wing carries its own
+# standing order, independent of the global fleet_order. An unassigned escort (wing_id == "")
+# follows the global fleet_order, so existing behaviour is unchanged. All wing state below is
+# keyed by wing_id and mirrors the global fleet_* state one-per-wing.
+const WING_IDS: Array = ["alpha", "beta", "gamma"]
+var wing_orders: Dictionary = {}           # wing_id -> order string (lazy-default "follow")
+var wing_attack_targets: Dictionary = {}   # wing_id -> Node3D (focus-fire target for attack)
+var wing_defend_targets: Dictionary = {}   # wing_id -> Node3D (guarded target for defend)
+var wing_hold_positions: Dictionary = {}   # wing_id -> { instance_id -> Vector3 }
+var wing_patrol_waypoints: Dictionary = {} # wing_id -> Array[Vector3]
+var wing_patrol_indices: Dictionary = {}   # wing_id -> { instance_id -> int }
+var wing_menu_open: bool = false           # transient: wing-order sub-mode of the fleet menu
+var wing_menu_cursor: int = 0              # 0=alpha, 1=beta, 2=gamma (selected wing in sub-menu)
 # Dock-order auto-repair cost bookkeeping (fleet escorts repaired at SERVICE rates while docked).
 const DOCK_HULL_PER_SEC: float = 12.0
 const DOCK_SHIELD_PER_SEC: float = 10.0
@@ -399,7 +413,10 @@ func _input(event: InputEvent) -> void:
 	if fleet_menu_open and not deck_mode and event is InputEventKey:
 		var fe: InputEventKey = event
 		if fe.pressed and not fe.echo:
-			_handle_fleet_menu_key(fe.keycode)
+			if wing_menu_open:
+				_handle_wing_menu_key(fe.keycode)
+			else:
+				_handle_fleet_menu_key(fe.keycode)
 
 func _handle_settings_menu_key(keycode: int) -> void:
 	match keycode:
@@ -457,9 +474,42 @@ func _handle_fleet_menu_key(keycode: int) -> void:
 				if audio: audio.play("ui_recruit")
 			else:
 				_set_fleet_order("patrol")
+		KEY_W:
+			# Enter the wing-order sub-mode (keeps the fleet menu open underneath).
+			wing_menu_open = true
+			wing_menu_cursor = 0
+			_msg("Wing orders: [↑↓] select wing  [1-7] set order  [W/Esc] back.")
+			if audio: audio.play("ui_recruit")
 		KEY_ESCAPE:
 			fleet_menu_open = false
+			wing_menu_open = false
 			_msg("Fleet order menu closed.")
+			if audio: audio.play("ui_recruit")
+
+func _handle_wing_menu_key(keycode: int) -> void:
+	# Wing-order sub-mode: pick which wing with up/down, set its order with 1-7, W/Esc back.
+	match keycode:
+		KEY_UP:
+			wing_menu_cursor = (wing_menu_cursor + WING_IDS.size() - 1) % WING_IDS.size()
+		KEY_DOWN:
+			wing_menu_cursor = (wing_menu_cursor + 1) % WING_IDS.size()
+		KEY_1:
+			_set_wing_order(String(WING_IDS[wing_menu_cursor]), "follow")
+		KEY_2:
+			_set_wing_order(String(WING_IDS[wing_menu_cursor]), "hold")
+		KEY_3:
+			_set_wing_order(String(WING_IDS[wing_menu_cursor]), "escort")
+		KEY_4:
+			_set_wing_order(String(WING_IDS[wing_menu_cursor]), "defend")
+		KEY_5:
+			_set_wing_order(String(WING_IDS[wing_menu_cursor]), "dock")
+		KEY_6:
+			_set_wing_order(String(WING_IDS[wing_menu_cursor]), "attack")
+		KEY_7:
+			_set_wing_order(String(WING_IDS[wing_menu_cursor]), "patrol")
+		KEY_W, KEY_ESCAPE:
+			wing_menu_open = false
+			_msg("Fleet orders: [1-7] set, [W] wings, [F/Esc] close.")
 			if audio: audio.play("ui_recruit")
 
 # ---------------------------------------------------------------------------
@@ -1254,6 +1304,7 @@ func _capture_fleet_state() -> Array:
 			out.append({
 				"ship_class": String(s.ship_class),
 				"ship_name": String(s.ship_name),
+				"wing_id": String(s.wing_id),
 				"manned": bool(s.manned),
 				"crew_assigned": int(s.crew_assigned),
 				"marine_garrison": int(s.marine_garrison),
@@ -1277,6 +1328,7 @@ func _restore_fleet_state(fleet: Array) -> void:
 		var fd: Dictionary = entry
 		var off: Vector3 = Vector3(-14.0 + float(i % 3) * 14.0, 2.0 + float(i % 2), 12.0 + float(i) * 5.0)
 		var s: Node3D = _spawn_ship(String(fd.get("ship_class", "fighter")), "player", String(fd.get("ship_name", "Wing")), base + off, bool(fd.get("manned", true)))
+		s.wing_id = String(fd.get("wing_id", ""))
 		s.crew_assigned = int(fd.get("crew_assigned", s.crew_assigned))
 		s.marine_garrison = int(fd.get("marine_garrison", s.marine_garrison))
 		s.max_hull = float(fd.get("max_hull", s.max_hull))
@@ -1345,6 +1397,16 @@ func jump_to_system(target_idx: int) -> void:
 	fleet_defend_target = null
 	fleet_menu_open = false
 	fleet_order = "follow"
+	# Wing orders/targets/positions don't survive a jump (targets are freed, positions are
+	# system-local). Wing *membership* (ship.wing_id) is carried by _capture_fleet_state, so
+	# wings reform on arrival and default back to FOLLOW until re-ordered.
+	wing_menu_open = false
+	wing_orders.clear()
+	wing_attack_targets.clear()
+	wing_defend_targets.clear()
+	wing_hold_positions.clear()
+	wing_patrol_waypoints.clear()
+	wing_patrol_indices.clear()
 	# Patrol waypoints are position-based and don't map across systems — clear the route.
 	patrol_waypoints.clear()
 	patrol_indices.clear()
@@ -1564,6 +1626,70 @@ func _player_control(delta: float) -> void:
 	if Input.is_action_just_pressed("board_ship") or (auto_demo and _elapsed > 3.0):
 		_try_start_boarding()
 
+# --- Effective-order helpers -------------------------------------------------
+# A winged escort follows its wing's order/target/positions; an unassigned escort
+# (wing_id == "") falls back to the global fleet_* state. These helpers are the single
+# source of truth for AI dispatch and the HUD, so the AI functions stay wing-agnostic.
+func _get_ship_order(s: Node3D) -> String:
+	if not is_instance_valid(s):
+		return fleet_order
+	var wid: String = String(s.wing_id)
+	if wid == "":
+		return fleet_order
+	return String(wing_orders.get(wid, "follow"))
+
+func _get_ship_attack_target(s: Node3D) -> Node3D:
+	var wid: String = String(s.wing_id) if is_instance_valid(s) else ""
+	if wid == "":
+		return fleet_attack_target
+	var t: Variant = wing_attack_targets.get(wid, null)
+	return t if (t is Node3D) else null
+
+func _get_ship_defend_target(s: Node3D) -> Node3D:
+	var wid: String = String(s.wing_id) if is_instance_valid(s) else ""
+	if wid == "":
+		return fleet_defend_target
+	var t: Variant = wing_defend_targets.get(wid, null)
+	return t if (t is Node3D) else null
+
+func _get_ship_hold_positions(s: Node3D) -> Dictionary:
+	var wid: String = String(s.wing_id) if is_instance_valid(s) else ""
+	if wid == "":
+		return fleet_hold_positions
+	if not wing_hold_positions.has(wid):
+		wing_hold_positions[wid] = {}
+	return wing_hold_positions[wid]
+
+func _get_ship_patrol_waypoints(s: Node3D) -> Array:
+	var wid: String = String(s.wing_id) if is_instance_valid(s) else ""
+	if wid == "":
+		return patrol_waypoints
+	var arr: Variant = wing_patrol_waypoints.get(wid, null)
+	return arr if (arr is Array) else []
+
+func _get_ship_patrol_indices(s: Node3D) -> Dictionary:
+	var wid: String = String(s.wing_id) if is_instance_valid(s) else ""
+	if wid == "":
+		return patrol_indices
+	if not wing_patrol_indices.has(wid):
+		wing_patrol_indices[wid] = {}
+	return wing_patrol_indices[wid]
+
+func _formation_index(s: Node3D) -> int:
+	# Ring-offset index for follow/escort/defend formations. Unwinged ships use their global
+	# fleet position (legacy behaviour); winged ships use their position within the wing so
+	# wingmates form a tight sub-group instead of spreading across the global ring.
+	var wid: String = String(s.wing_id) if is_instance_valid(s) else ""
+	if wid == "":
+		return ships.find(s)
+	var idx: int = 0
+	for o in ships:
+		if o == s:
+			return idx
+		if is_instance_valid(o) and o.faction == "player" and not o.is_player and String(o.wing_id) == wid:
+			idx += 1
+	return idx
+
 func _run_ai(delta: float) -> void:
 	for s in ships:
 		if not is_instance_valid(s) or s.is_player or s.destroyed:
@@ -1576,9 +1702,9 @@ func _run_ai(delta: float) -> void:
 			s.velocity = s.velocity.move_toward(Vector3.ZERO, s.accel * delta)
 			continue
 		if s.faction == "player":
-			match fleet_order:
+			match _get_ship_order(s):
 				"attack":
-					if is_instance_valid(fleet_attack_target):
+					if is_instance_valid(_get_ship_attack_target(s)):
 						_ai_attack_target(s, delta)
 					else:
 						_ai_follow_player(s, delta)
@@ -1600,10 +1726,11 @@ func _run_ai(delta: float) -> void:
 func _ai_hold_position(s: Node3D, delta: float) -> void:
 	# Fleet command mode: hold the current tactical point while still firing at
 	# close hostiles. This makes [F] a real command order, not only a crew-assignment key.
+	var positions: Dictionary = _get_ship_hold_positions(s)
 	var id: int = s.get_instance_id()
-	if not fleet_hold_positions.has(id):
-		fleet_hold_positions[id] = s.global_position
-	var goal: Vector3 = fleet_hold_positions[id]
+	if not positions.has(id):
+		positions[id] = s.global_position
+	var goal: Vector3 = positions[id]
 	var enemy: Node3D = _nearest(s, "hostile")
 	if enemy != null and s.global_position.distance_to(enemy.global_position) < s.weapon_range:
 		_face_and_fire(s, enemy, delta)
@@ -1622,7 +1749,7 @@ func _ai_follow_player(s: Node3D, delta: float) -> void:
 		_face_and_fire(s, enemy, delta)
 		s.target = enemy
 		return
-	var idx: int = ships.find(s)
+	var idx: int = _formation_index(s)
 	var ang: float = float(idx) * 1.3
 	var offset: Vector3 = Vector3(sin(ang) * 14.0, 3.0, 16.0 + float(idx % 3) * 6.0)
 	var goal: Vector3 = player.global_position + player.global_transform.basis * offset
@@ -1631,7 +1758,10 @@ func _ai_follow_player(s: Node3D, delta: float) -> void:
 func _ai_attack_target(s: Node3D, delta: float) -> void:
 	# Fleet attack order: every manned escort focus-fires the commanded target even when
 	# other hostiles are closer. Validity is guaranteed by _validate_fleet_attack().
-	var foe: Node3D = fleet_attack_target
+	var foe: Node3D = _get_ship_attack_target(s)
+	if not is_instance_valid(foe):
+		_ai_follow_player(s, delta)
+		return
 	s.target = foe
 	var dist: float = s.global_position.distance_to(foe.global_position)
 	if dist > s.weapon_range * 0.7:
@@ -1657,7 +1787,7 @@ func _ai_escort(s: Node3D, delta: float) -> void:
 			s.target = enemy
 			return
 	# No close threat (or it strayed too far from the captain): re-form the tight ring.
-	var idx: int = ships.find(s)
+	var idx: int = _formation_index(s)
 	var ang: float = float(idx) * 1.3
 	var offset: Vector3 = Vector3(sin(ang) * 8.0, 2.0, 10.0 + float(idx % 3) * 3.0)
 	var goal: Vector3 = player.global_position + player.global_transform.basis * offset
@@ -1667,11 +1797,11 @@ func _ai_escort(s: Node3D, delta: float) -> void:
 func _ai_defend(s: Node3D, delta: float) -> void:
 	# Defend order: orbit the guarded target at ~20 units and engage hostiles that approach it.
 	# An invalid target is handled by _validate_fleet_defend(); fall back to formation meanwhile.
-	if not is_instance_valid(fleet_defend_target) or fleet_defend_target.destroyed:
+	var dt: Node3D = _get_ship_defend_target(s)
+	if not is_instance_valid(dt) or dt.destroyed:
 		_ai_follow_player(s, delta)
 		return
-	var dt: Node3D = fleet_defend_target
-	var idx: int = ships.find(s)
+	var idx: int = _formation_index(s)
 	var ang: float = float(idx) * 1.3 + _elapsed * 0.25
 	var offset: Vector3 = Vector3(cos(ang) * 20.0, 2.0, sin(ang) * 20.0)
 	var goal: Vector3 = dt.global_position + offset
@@ -1686,7 +1816,8 @@ func _ai_defend(s: Node3D, delta: float) -> void:
 func _ai_patrol(s: Node3D, delta: float) -> void:
 	# Patrol order: escorts cycle through patrol_waypoints in order, engaging nearby
 	# hostiles en route. With no waypoints, fall back to follow formation.
-	if patrol_waypoints.is_empty():
+	var wps: Array = _get_ship_patrol_waypoints(s)
+	if wps.is_empty():
 		_ai_follow_player(s, delta)
 		return
 	# Engage nearby hostiles within weapon range.
@@ -1697,17 +1828,18 @@ func _ai_patrol(s: Node3D, delta: float) -> void:
 		s.target = enemy
 		return
 	# Advance to the current waypoint; cycle to next when close.
+	var indices: Dictionary = _get_ship_patrol_indices(s)
 	var id: int = s.get_instance_id()
-	var idx: int = int(patrol_indices.get(id, 0))
-	if idx >= patrol_waypoints.size():
+	var idx: int = int(indices.get(id, 0))
+	if idx >= wps.size():
 		idx = 0
-	var goal: Vector3 = patrol_waypoints[idx]
+	var goal: Vector3 = wps[idx]
 	if s.global_position.distance_to(goal) < 12.0:
-		idx = (idx + 1) % patrol_waypoints.size()
-		patrol_indices[id] = idx
-		goal = patrol_waypoints[idx]
+		idx = (idx + 1) % wps.size()
+		indices[id] = idx
+		goal = wps[idx]
 	else:
-		patrol_indices[id] = idx
+		indices[id] = idx
 	_steer_toward(s, goal, delta, 0.9)
 	s.target = null
 
@@ -2826,6 +2958,7 @@ func _handle_station_actions() -> void:
 		_toggle_fleet_menu()
 	if Input.is_action_just_pressed("fleet_attack"):
 		fleet_menu_open = false
+		wing_menu_open = false
 		_order_fleet_attack()
 	# [P] drops a patrol waypoint at the flagship's position (anywhere in space). Outside the
 	# PATROL order, P pauses instead — see the KEY_P branch in _input. _drop_patrol_waypoint
@@ -3506,8 +3639,9 @@ func _toggle_fleet_menu() -> void:
 		return
 
 	fleet_menu_open = not fleet_menu_open
+	wing_menu_open = false
 	if fleet_menu_open:
-		_msg("Fleet orders: [1]Follow [2]Hold [3]Escort [4]Defend [5]Dock [6]Attack [7]Patrol  [F/Esc close]")
+		_msg("Fleet orders: [1]Follow [2]Hold [3]Escort [4]Defend [5]Dock [6]Attack [7]Patrol  [W]wings  [F/Esc close]")
 	else:
 		_msg("Fleet order menu closed.")
 	if audio: audio.play("ui_recruit")
@@ -3590,6 +3724,79 @@ func _set_fleet_order(order: String) -> void:
 			_msg("Fleet order: FOLLOW formation on the flagship.")
 			if audio: audio.play("ui_recruit")
 
+func _apply_ai_state_to_wing(wid: String, state: String) -> void:
+	for s in ships:
+		if is_instance_valid(s) and s.faction == "player" and not s.is_player and s.manned and String(s.wing_id) == wid:
+			s.ai_state = state
+
+func _set_wing_order(p_wing: String, order: String, p_target: Node3D = null) -> void:
+	# Per-wing analogue of _set_fleet_order: set one wing's independent standing order,
+	# validating attack/defend/dock the same way the global order does, and applying the
+	# resulting ai_state to that wing's manned escorts. Invalid orders revert the wing to follow.
+	var wid: String = String(p_wing)
+	if not WING_IDS.has(wid):
+		return
+	match order:
+		"attack":
+			var atk: Node3D = p_target if p_target != null else target
+			if atk == null or not is_instance_valid(atk) or atk.destroyed or atk.faction == "player" or atk.faction == "neutral":
+				_msg("Wing %s: no valid attack target — holding FOLLOW." % wid.capitalize())
+				_set_wing_order(wid, "follow")
+				return
+			wing_orders[wid] = "attack"
+			wing_attack_targets[wid] = atk
+			wing_defend_targets.erase(wid)
+			if wing_hold_positions.has(wid):
+				wing_hold_positions[wid].clear()
+			_msg("Wing %s order: ATTACK %s." % [wid.capitalize(), atk.ship_name])
+		"defend":
+			var dfd: Node3D = p_target if p_target != null else target
+			if dfd == null or not is_instance_valid(dfd) or dfd.destroyed or dfd.faction == "hostile":
+				_msg("Wing %s: no valid defend target — holding FOLLOW." % wid.capitalize())
+				_set_wing_order(wid, "follow")
+				return
+			wing_orders[wid] = "defend"
+			wing_defend_targets[wid] = dfd
+			wing_attack_targets.erase(wid)
+			_msg("Wing %s order: DEFEND %s." % [wid.capitalize(), dfd.ship_name])
+		"dock":
+			var svc: Node3D = _fleet_dock_station()
+			if svc == null:
+				_msg("Wing %s: no friendly station in range — holding FOLLOW." % wid.capitalize())
+				_set_wing_order(wid, "follow")
+				return
+			wing_orders[wid] = "dock"
+			wing_attack_targets.erase(wid)
+			wing_defend_targets.erase(wid)
+			_msg("Wing %s order: DOCK at %s." % [wid.capitalize(), svc.ship_name])
+		"hold":
+			wing_orders[wid] = "hold"
+			wing_attack_targets.erase(wid)
+			wing_defend_targets.erase(wid)
+			var hp: Dictionary = {}
+			for fs in ships:
+				if is_instance_valid(fs) and fs.faction == "player" and not fs.is_player and fs.manned and String(fs.wing_id) == wid:
+					hp[fs.get_instance_id()] = fs.global_position
+			wing_hold_positions[wid] = hp
+			_msg("Wing %s order: HOLD POSITION." % wid.capitalize())
+		"escort":
+			wing_orders[wid] = "escort"
+			wing_attack_targets.erase(wid)
+			wing_defend_targets.erase(wid)
+			_msg("Wing %s order: ESCORT the flagship." % wid.capitalize())
+		"patrol":
+			wing_orders[wid] = "patrol"
+			wing_attack_targets.erase(wid)
+			wing_defend_targets.erase(wid)
+			_msg("Wing %s order: PATROL." % wid.capitalize())
+		_:
+			wing_orders[wid] = "follow"
+			wing_attack_targets.erase(wid)
+			wing_defend_targets.erase(wid)
+			_msg("Wing %s order: FOLLOW formation." % wid.capitalize())
+	_apply_ai_state_to_wing(wid, String(wing_orders.get(wid, "follow")))
+	if audio: audio.play("ui_recruit")
+
 func _owned_ship_list() -> Array:
 	var list: Array = []
 	if is_instance_valid(player) and not player.destroyed:
@@ -3659,6 +3866,34 @@ func _waypoints_to_save() -> Array:
 		out.append([float(wp.x), float(wp.y), float(wp.z)])
 	return out
 
+func _wing_orders_to_save() -> Dictionary:
+	# Serialise wing_orders as wing_id -> order string (plain strings for JSON).
+	var out: Dictionary = {}
+	for wid in wing_orders.keys():
+		out[String(wid)] = String(wing_orders[wid])
+	return out
+
+func _wing_targets_to_save(src: Dictionary) -> Dictionary:
+	# Serialise a wing_id -> Node3D target map as wing_id -> ship name string (live nodes only).
+	var out: Dictionary = {}
+	for wid in src.keys():
+		var t: Variant = src[wid]
+		if t is Node3D and is_instance_valid(t):
+			out[String(wid)] = String(t.ship_name)
+	return out
+
+func _wing_patrol_to_save() -> Dictionary:
+	# Serialise wing_patrol_waypoints as wing_id -> array of [x, y, z] float triples.
+	var out: Dictionary = {}
+	for wid in wing_patrol_waypoints.keys():
+		var arr: Array = []
+		var wps: Variant = wing_patrol_waypoints[wid]
+		if wps is Array:
+			for wp in wps:
+				arr.append([float(wp.x), float(wp.y), float(wp.z)])
+		out[String(wid)] = arr
+	return out
+
 func _build_save_dict() -> Dictionary:
 	var ship_list: Array = []
 	for s in ships:
@@ -3691,6 +3926,10 @@ func _build_save_dict() -> Dictionary:
 		"fleet_attack_target": atk_name,
 		"fleet_defend_target": def_name,
 		"patrol_waypoints": _waypoints_to_save(),
+		"wing_orders": _wing_orders_to_save(),
+		"wing_attack_targets": _wing_targets_to_save(wing_attack_targets),
+		"wing_defend_targets": _wing_targets_to_save(wing_defend_targets),
+		"wing_patrol_waypoints": _wing_patrol_to_save(),
 		"target": tgt_name,
 		"ships": ship_list,
 		"current_system_index": current_system_index,
@@ -3708,6 +3947,7 @@ func _ship_to_dict(s: Node3D) -> Dictionary:
 		"faction": s.faction,
 		"is_player": s.is_player,
 		"manned": s.manned,
+		"wing_id": s.wing_id,
 		"crew_assigned": s.crew_assigned,
 		"marine_garrison": s.marine_garrison,
 		"hull": s.hull,
@@ -3881,6 +4121,13 @@ func _apply_save(parsed: Dictionary) -> void:
 	fleet_attack_target = null
 	fleet_defend_target = null
 	fleet_menu_open = false
+	wing_menu_open = false
+	wing_orders.clear()
+	wing_attack_targets.clear()
+	wing_defend_targets.clear()
+	wing_hold_positions.clear()
+	wing_patrol_waypoints.clear()
+	wing_patrol_indices.clear()
 	patrol_waypoints.clear()
 	patrol_indices.clear()
 	_dock_cost_accum = 0.0
@@ -3964,13 +4211,18 @@ func _apply_save(parsed: Dictionary) -> void:
 	for wp_entry in saved_wps:
 		if typeof(wp_entry) == TYPE_ARRAY and wp_entry.size() >= 3:
 			patrol_waypoints.append(Vector3(float(wp_entry[0]), float(wp_entry[1]), float(wp_entry[2])))
-	# Re-derive escort ai_state from the resolved standing order.
-	var escort_state: String = fleet_order
-	if not ["follow", "hold", "attack", "escort", "defend", "dock", "patrol"].has(escort_state):
-		escort_state = "follow"
+
+	# Restore per-wing state. All wing fields are backward-compatible: old saves without them
+	# leave every wing empty, so all escorts fall back to the global fleet_order.
+	_restore_wing_state(parsed)
+
+	# Re-derive escort ai_state from each ship's effective (wing-aware) standing order.
 	for s in ships:
 		if is_instance_valid(s) and s.faction == "player" and not s.is_player and s.manned:
-			s.ai_state = escort_state
+			var eff: String = _get_ship_order(s)
+			if not ["follow", "hold", "attack", "escort", "defend", "dock", "patrol"].has(eff):
+				eff = "follow"
+			s.ai_state = eff
 
 	# Target: keep the saved lock if still valid/hostile, else pick a remaining hostile.
 	var tname: String = String(parsed.get("target", ""))
@@ -3989,6 +4241,58 @@ func _apply_save(parsed: Dictionary) -> void:
 		_update_camera(0.001, true)
 		space_camera.current = true
 		throttle = clamp(player.throttle, 0.0, 1.0)
+
+func _restore_wing_state(parsed: Dictionary) -> void:
+	# Rebuild wing_orders/targets/patrol from a save payload, then sanitise: an attack/defend
+	# order whose target no longer resolves (or turned friendly/hostile) reverts to follow.
+	var saved_orders: Variant = parsed.get("wing_orders", {})
+	if typeof(saved_orders) == TYPE_DICTIONARY:
+		for wid in (saved_orders as Dictionary).keys():
+			var swid: String = String(wid)
+			if WING_IDS.has(swid):
+				wing_orders[swid] = String((saved_orders as Dictionary)[wid])
+
+	var saved_atk: Variant = parsed.get("wing_attack_targets", {})
+	if typeof(saved_atk) == TYPE_DICTIONARY:
+		for wid in (saved_atk as Dictionary).keys():
+			var t: Node3D = _find_ship_by_name(String((saved_atk as Dictionary)[wid]))
+			if is_instance_valid(t):
+				wing_attack_targets[String(wid)] = t
+
+	var saved_def: Variant = parsed.get("wing_defend_targets", {})
+	if typeof(saved_def) == TYPE_DICTIONARY:
+		for wid in (saved_def as Dictionary).keys():
+			var t2: Node3D = _find_ship_by_name(String((saved_def as Dictionary)[wid]))
+			if is_instance_valid(t2):
+				wing_defend_targets[String(wid)] = t2
+
+	var saved_wpat: Variant = parsed.get("wing_patrol_waypoints", {})
+	if typeof(saved_wpat) == TYPE_DICTIONARY:
+		for wid in (saved_wpat as Dictionary).keys():
+			var arr: Array = []
+			var raw: Variant = (saved_wpat as Dictionary)[wid]
+			if raw is Array:
+				for wp_entry in raw:
+					if typeof(wp_entry) == TYPE_ARRAY and wp_entry.size() >= 3:
+						arr.append(Vector3(float(wp_entry[0]), float(wp_entry[1]), float(wp_entry[2])))
+			wing_patrol_waypoints[String(wid)] = arr
+
+	# Sanitise orders whose dependencies are missing after the rebuild.
+	for wid in wing_orders.keys():
+		var wo: String = String(wing_orders[wid])
+		if wo == "attack":
+			var at: Variant = wing_attack_targets.get(wid, null)
+			if not (at is Node3D and is_instance_valid(at) and not at.destroyed and at.faction != "player"):
+				wing_orders[wid] = "follow"
+				wing_attack_targets.erase(wid)
+		elif wo == "defend":
+			var dt: Variant = wing_defend_targets.get(wid, null)
+			if not (dt is Node3D and is_instance_valid(dt) and not dt.destroyed and dt.faction != "hostile"):
+				wing_orders[wid] = "follow"
+				wing_defend_targets.erase(wid)
+		elif wo == "dock":
+			if _fleet_dock_station() == null:
+				wing_orders[wid] = "follow"
 
 func _ship_from_dict(entry: Variant, used_names: Dictionary) -> Node3D:
 	var sd: Dictionary = entry
@@ -4010,6 +4314,8 @@ func _ship_from_dict(entry: Variant, used_names: Dictionary) -> Node3D:
 	s.ship_name = nm
 	s.is_player = bool(sd.get("is_player", false))
 	s.manned = bool(sd.get("manned", true))
+	# Wing membership: optional/backward-compatible (old saves default to unassigned).
+	s.wing_id = String(sd.get("wing_id", ""))
 	s.crew_assigned = int(sd.get("crew_assigned", 0))
 	# Marine garrison: absent in pre-garrison saves, so default to 0 for backward compat.
 	s.marine_garrison = max(0, int(sd.get("marine_garrison", 0)))
@@ -4153,6 +4459,34 @@ func _update_hud() -> void:
 	d["fleet_order"] = fleet_order
 	d["fleet_menu_open"] = fleet_menu_open
 	d["patrol_waypoint_count"] = patrol_waypoints.size()
+	# Wing sub-grouping HUD data: membership counts + per-wing order summary for the sub-menu.
+	d["wing_menu_open"] = wing_menu_open
+	d["wing_menu_cursor"] = wing_menu_cursor
+	var w_alpha: int = 0
+	var w_beta: int = 0
+	var w_gamma: int = 0
+	for ws in ships:
+		if not is_instance_valid(ws) or ws.faction != "player" or ws.is_player or ws.destroyed:
+			continue
+		match String(ws.wing_id):
+			"alpha": w_alpha += 1
+			"beta": w_beta += 1
+			"gamma": w_gamma += 1
+	d["wing_counts"] = "A:%d B:%d G:%d" % [w_alpha, w_beta, w_gamma]
+	var wing_summary: Array = []
+	for wid in WING_IDS:
+		var wo: String = String(wing_orders.get(wid, ""))
+		var tname: String = ""
+		if wo == "attack":
+			var at: Variant = wing_attack_targets.get(wid, null)
+			if at is Node3D and is_instance_valid(at):
+				tname = String(at.ship_name)
+		elif wo == "defend":
+			var dt: Variant = wing_defend_targets.get(wid, null)
+			if dt is Node3D and is_instance_valid(dt):
+				tname = String(dt.ship_name)
+		wing_summary.append({"id": String(wid), "order": wo, "target": tname})
+	d["wing_summary"] = wing_summary
 	if fleet_order == "attack" and is_instance_valid(fleet_attack_target):
 		d["fleet_attack_target"] = fleet_attack_target.ship_name
 	if fleet_order == "defend" and is_instance_valid(fleet_defend_target):
