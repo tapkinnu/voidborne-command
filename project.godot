@@ -177,3 +177,7 @@ mission_giver={
 "deadzone": 0.5,
 "events": [{"type":"key","keycode":85,"unicode":117}]
 }
+drop_waypoint={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":80,"unicode":112}]
+}

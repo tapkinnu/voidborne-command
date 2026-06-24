@@ -85,11 +85,13 @@ const _FLIGHT_JOY_BTN: Dictionary = {
 }
 var subsystem_focus: String = ""          # "" | "engines" | "weapons" | "shields"
 var deck_mode: bool = false
-var fleet_order: String = "follow"        # follow | hold | attack | escort | defend | dock
+var fleet_order: String = "follow"        # follow | hold | attack | escort | defend | dock | patrol
 var fleet_hold_positions: Dictionary = {}  # instance_id -> Vector3
 var fleet_attack_target: Node3D = null     # focus-fire target while fleet_order == "attack"
 var fleet_defend_target: Node3D = null     # guarded target while fleet_order == "defend"
 var fleet_menu_open: bool = false          # transient: fleet order menu overlay open (not saved)
+var patrol_waypoints: Array[Vector3] = []  # ordered patrol route waypoints (saved; positions only)
+var patrol_indices: Dictionary = {}        # instance_id -> current waypoint index (transient)
 # Dock-order auto-repair cost bookkeeping (fleet escorts repaired at SERVICE rates while docked).
 const DOCK_HULL_PER_SEC: float = 12.0
 const DOCK_SHIELD_PER_SEC: float = 10.0
@@ -384,9 +386,13 @@ func _input(event: InputEvent) -> void:
 			if ke.keycode == KEY_U:
 				_toggle_mission_giver()
 				return
-			# P pauses/resumes outside the settings menu.
+			# P pauses/resumes outside the settings menu. Exception: while the fleet is on
+			# the PATROL order in active space mode, P instead drops a patrol waypoint — the
+			# drop is performed by the drop_waypoint action poll in _handle_station_actions,
+			# so here we simply decline to pause and let that poll handle the press.
 			if ke.keycode == KEY_P:
-				_toggle_pause()
+				if not (fleet_order == "patrol" and not paused and not deck_mode):
+					_toggle_pause()
 				return
 	# Fleet order menu: number keys 1-6 pick an order, Esc closes. Only while the menu is
 	# open in space mode so the digits never collide with flight controls.
@@ -442,6 +448,15 @@ func _handle_fleet_menu_key(keycode: int) -> void:
 		KEY_6:
 			fleet_menu_open = false
 			_set_fleet_order("attack")
+		KEY_7:
+			fleet_menu_open = false
+			if fleet_order == "patrol" and patrol_waypoints.size() > 0:
+				patrol_waypoints.clear()
+				patrol_indices.clear()
+				_msg("Patrol route cleared.")
+				if audio: audio.play("ui_recruit")
+			else:
+				_set_fleet_order("patrol")
 		KEY_ESCAPE:
 			fleet_menu_open = false
 			_msg("Fleet order menu closed.")
@@ -1330,6 +1345,9 @@ func jump_to_system(target_idx: int) -> void:
 	fleet_defend_target = null
 	fleet_menu_open = false
 	fleet_order = "follow"
+	# Patrol waypoints are position-based and don't map across systems — clear the route.
+	patrol_waypoints.clear()
+	patrol_indices.clear()
 	_dock_cost_accum = 0.0
 	_dock_broke_msg = false
 	target = null
@@ -1572,6 +1590,8 @@ func _run_ai(delta: float) -> void:
 					_ai_defend(s, delta)
 				"dock":
 					_ai_dock(s, delta)
+				"patrol":
+					_ai_patrol(s, delta)
 				_:
 					_ai_follow_player(s, delta)
 		else:
@@ -1662,6 +1682,49 @@ func _ai_defend(s: Node3D, delta: float) -> void:
 		s.target = enemy
 	else:
 		s.target = null
+
+func _ai_patrol(s: Node3D, delta: float) -> void:
+	# Patrol order: escorts cycle through patrol_waypoints in order, engaging nearby
+	# hostiles en route. With no waypoints, fall back to follow formation.
+	if patrol_waypoints.is_empty():
+		_ai_follow_player(s, delta)
+		return
+	# Engage nearby hostiles within weapon range.
+	var enemy: Node3D = _nearest(s, "hostile")
+	if enemy != null and s.global_position.distance_to(enemy.global_position) < s.weapon_range * 0.8:
+		_steer_toward(s, enemy.global_position, delta, 0.8)
+		_face_and_fire(s, enemy, delta)
+		s.target = enemy
+		return
+	# Advance to the current waypoint; cycle to next when close.
+	var id: int = s.get_instance_id()
+	var idx: int = int(patrol_indices.get(id, 0))
+	if idx >= patrol_waypoints.size():
+		idx = 0
+	var goal: Vector3 = patrol_waypoints[idx]
+	if s.global_position.distance_to(goal) < 12.0:
+		idx = (idx + 1) % patrol_waypoints.size()
+		patrol_indices[id] = idx
+		goal = patrol_waypoints[idx]
+	else:
+		patrol_indices[id] = idx
+	_steer_toward(s, goal, delta, 0.9)
+	s.target = null
+
+func _drop_patrol_waypoint() -> void:
+	# Append the flagship's current position as the next patrol waypoint. Only meaningful
+	# while the fleet is on the PATROL order; keeps at most 8 waypoints (oldest drops off).
+	if fleet_order != "patrol":
+		_msg("Press [F] then [7] to set PATROL order first.")
+		if audio: audio.play("ui_deny")
+		return
+	if not is_instance_valid(player):
+		return
+	if patrol_waypoints.size() >= 8:
+		patrol_waypoints.pop_front()
+	patrol_waypoints.append(player.global_position)
+	_msg("Patrol waypoint %d dropped at current position." % patrol_waypoints.size())
+	if audio: audio.play("ui_recruit")
 
 func _ai_dock(s: Node3D, delta: float) -> void:
 	# Dock order: head to the nearest friendly/neutral station and hold within service range.
@@ -2764,6 +2827,11 @@ func _handle_station_actions() -> void:
 	if Input.is_action_just_pressed("fleet_attack"):
 		fleet_menu_open = false
 		_order_fleet_attack()
+	# [P] drops a patrol waypoint at the flagship's position (anywhere in space). Outside the
+	# PATROL order, P pauses instead — see the KEY_P branch in _input. _drop_patrol_waypoint
+	# itself guards on the order, so this poll is safe even when not patrolling.
+	if Input.is_action_just_pressed("drop_waypoint"):
+		_drop_patrol_waypoint()
 
 # ---------------------------------------------------------------------------
 # SYSTEM MAP OVERLAY
@@ -3439,7 +3507,7 @@ func _toggle_fleet_menu() -> void:
 
 	fleet_menu_open = not fleet_menu_open
 	if fleet_menu_open:
-		_msg("Fleet orders: [1]Follow [2]Hold [3]Escort [4]Defend [5]Dock [6]Attack  [F/Esc close]")
+		_msg("Fleet orders: [1]Follow [2]Hold [3]Escort [4]Defend [5]Dock [6]Attack [7]Patrol  [F/Esc close]")
 	else:
 		_msg("Fleet order menu closed.")
 	if audio: audio.play("ui_recruit")
@@ -3501,6 +3569,17 @@ func _set_fleet_order(order: String) -> void:
 			fleet_hold_positions.clear()
 			_apply_ai_state_to_escorts("escort")
 			_msg("Fleet order: ESCORT — tight defensive ring on the flagship.")
+			if audio: audio.play("ui_recruit")
+		"patrol":
+			fleet_order = "patrol"
+			fleet_attack_target = null
+			fleet_defend_target = null
+			fleet_hold_positions.clear()
+			_apply_ai_state_to_escorts("patrol")
+			if patrol_waypoints.is_empty():
+				_msg("Fleet order: PATROL — no waypoints set. Drop some with [P] first.")
+			else:
+				_msg("Fleet order: PATROL — %d waypoint(s) set. Escorts cycling route." % patrol_waypoints.size())
 			if audio: audio.play("ui_recruit")
 		_:
 			fleet_order = "follow"
@@ -3573,6 +3652,13 @@ func _do_autosave() -> bool:
 	if audio: audio.play("ui_buy")
 	return true
 
+func _waypoints_to_save() -> Array:
+	# Serialise patrol_waypoints as plain [x, y, z] float triples for JSON.
+	var out: Array = []
+	for wp in patrol_waypoints:
+		out.append([float(wp.x), float(wp.y), float(wp.z)])
+	return out
+
 func _build_save_dict() -> Dictionary:
 	var ship_list: Array = []
 	for s in ships:
@@ -3604,6 +3690,7 @@ func _build_save_dict() -> Dictionary:
 		"fleet_order": fleet_order,
 		"fleet_attack_target": atk_name,
 		"fleet_defend_target": def_name,
+		"patrol_waypoints": _waypoints_to_save(),
 		"target": tgt_name,
 		"ships": ship_list,
 		"current_system_index": current_system_index,
@@ -3794,6 +3881,8 @@ func _apply_save(parsed: Dictionary) -> void:
 	fleet_attack_target = null
 	fleet_defend_target = null
 	fleet_menu_open = false
+	patrol_waypoints.clear()
+	patrol_indices.clear()
 	_dock_cost_accum = 0.0
 	_dock_broke_msg = false
 	target = null
@@ -3866,9 +3955,18 @@ func _apply_save(parsed: Dictionary) -> void:
 		fleet_defend_target = null
 	elif fleet_order == "dock" and _fleet_dock_station() == null:
 		fleet_order = "follow"
+	# Restore the patrol route (position-only; patrol_indices stays empty and rebuilds as
+	# ships move). A "patrol" order with no saved waypoints is kept — the player can drop new
+	# ones. Old saves without the field simply leave patrol_waypoints empty.
+	var saved_wps: Array = parsed.get("patrol_waypoints", [])
+	patrol_waypoints.clear()
+	patrol_indices.clear()
+	for wp_entry in saved_wps:
+		if typeof(wp_entry) == TYPE_ARRAY and wp_entry.size() >= 3:
+			patrol_waypoints.append(Vector3(float(wp_entry[0]), float(wp_entry[1]), float(wp_entry[2])))
 	# Re-derive escort ai_state from the resolved standing order.
 	var escort_state: String = fleet_order
-	if not ["follow", "hold", "attack", "escort", "defend", "dock"].has(escort_state):
+	if not ["follow", "hold", "attack", "escort", "defend", "dock", "patrol"].has(escort_state):
 		escort_state = "follow"
 	for s in ships:
 		if is_instance_valid(s) and s.faction == "player" and not s.is_player and s.manned:
@@ -4054,6 +4152,7 @@ func _update_hud() -> void:
 	d["fleet_count"] = _count_fleet()
 	d["fleet_order"] = fleet_order
 	d["fleet_menu_open"] = fleet_menu_open
+	d["patrol_waypoint_count"] = patrol_waypoints.size()
 	if fleet_order == "attack" and is_instance_valid(fleet_attack_target):
 		d["fleet_attack_target"] = fleet_attack_target.ship_name
 	if fleet_order == "defend" and is_instance_valid(fleet_defend_target):

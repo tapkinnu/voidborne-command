@@ -109,6 +109,10 @@ func _draw() -> void:
 			order_col = Color(0.55, 1.0, 0.7)
 		"dock":
 			order_col = Color(1.0, 0.85, 0.4)
+		"patrol":
+			var wp_count: int = int(data.get("patrol_waypoint_count", 0))
+			order_txt = "PATROL (%d wp)" % wp_count
+			order_col = Color(0.75, 0.6, 1.0)
 	_txt(Vector2(16, 96), "Order: %s" % order_txt, order_col, 12)
 	_txt(Vector2(16, 112), "Shipyard: %s %dcr   Mode: %s" % [String(data.get("shipyard_class", "corvette")).to_upper(), int(data.get("shipyard_cost", 0)), mode.to_upper()], C_DIM, 12)
 	if not service.is_empty():
@@ -369,6 +373,7 @@ func _draw_fleet_menu(vp: Vector2) -> void:
 		["4", "defend", "Defend tgt", "guard current target"],
 		["5", "dock", "Dock", "navigate to station for auto-repair (50% cost)"],
 		["6", "attack", "Attack tgt", "focus-fire current target"],
+		["7", "patrol", "Patrol", "cycle waypoints (drop with P, [7] again clears)"],
 	]
 	var w: float = 460.0
 	var h: float = 56.0 + float(rows.size()) * 22.0

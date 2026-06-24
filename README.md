@@ -56,7 +56,7 @@ Screenshots are written to `artifacts/screenshots/` (plus a `contact_sheet.jpg`)
 | `Z` | **Cycle subsystem focus** on the current target: none → engines → weapons → shields → none |
 | `` ` `` (backtick) | Toggle **mouse-aim flight** — captures the cursor; mouse X→yaw, mouse Y→pitch (additive over keyboard) |
 | `F1` | Toggle the **settings overlay** — interactive menu: resolution, volume, graphics quality, pause, mouse-aim, control scheme |
-| `P` | **Pause** the game (flight/AI/combat freeze; HUD shows a "PAUSED" banner). Press `P` again to resume |
+| `P` | **Pause** the game (flight/AI/combat freeze; HUD shows a "PAUSED" banner). Press `P` again to resume. *(Exception: while the fleet is on the **Patrol** order, `P` drops a patrol waypoint instead — see the command section.)* |
 | `F2` | **Cycle control scheme**: Auto → Keyboard+Mouse → Gamepad → Auto |
 | `M` | Toggle the **system map** overlay — top-down view of all stations, fleet, and threats (flight stays live); also lists the jump gates |
 | `K` | **Jump to the next star system** — warps the player and the owned fleet to the next sector (three systems cycle); economy/crew/missions carry over; **captured stations persist** across jumps |
@@ -120,7 +120,8 @@ it is rebuilt by scanning the slot files. While the menu is open, flight/AI/comb
 | `Y` | Buy the selected shipyard class (auto-mans if crew available) |
 | `H` | **Repair / refit**: restore hull, shields, and energy across your flagship and manned fleet (cost scales with damage; partial work if short on credits) |
 | `F` | Man any unmanned owned ships; if none need crew, open/close the **fleet order menu** |
-| `1`–`6` | While the fleet order menu is open: `[1]` Follow · `[2]` Hold · `[3]` Escort · `[4]` Defend target · `[5]` Dock · `[6]` Attack target |
+| `1`–`7` | While the fleet order menu is open: `[1]` Follow · `[2]` Hold · `[3]` Escort · `[4]` Defend target · `[5]` Dock · `[6]` Attack target · `[7]` Patrol (press `[7]` again to clear the route) |
+| `P` | While on the **Patrol** order: drop a patrol waypoint at the flagship's current position (otherwise `P` pauses/resumes) |
 | `Esc` | Close the fleet order menu without changing the order |
 | `C` | Toggle the **crew deck** interior view |
 
@@ -183,12 +184,21 @@ number keys: `[1]` **Follow** (ring formation on the flagship), `[2]` **Hold** (
 current tactical positions while covering nearby hostiles), `[3]` **Escort** (a tight
 defensive ring that shoots any hostile closing on the captain but never chases far), `[4]`
 **Defend** (orbit and screen your current target), `[5]` **Dock** (head to the nearest
-friendly station and auto-repair at half the manual rate), or `[6]` **Attack** (focus-fire
-the current target — the same order as the `T` hotkey). `Esc` closes the menu without
-changing the order. Attack and defend orders self-clear when their target is destroyed,
-captured, or turns friendly/hostile, and dock reverts to follow if no station is in range —
-in each case the fleet falls back to follow. The fleet/economy panel and radar ping show the
-standing order (`FOLLOW`, `HOLD`, `ESCORT`, `DEFEND <target>`, `DOCK`, or `ATTACK <target>`).
+friendly station and auto-repair at half the manual rate), `[6]` **Attack** (focus-fire
+the current target — the same order as the `T` hotkey), or `[7]` **Patrol** (described
+below). `Esc` closes the menu without changing the order. Attack and defend orders
+self-clear when their target is destroyed, captured, or turns friendly/hostile, and dock
+reverts to follow if no station is in range — in each case the fleet falls back to follow.
+The fleet/economy panel and radar ping show the standing order (`FOLLOW`, `HOLD`, `ESCORT`,
+`DEFEND <target>`, `DOCK`, `ATTACK <target>`, or `PATROL (<n> wp)`).
+
+**Patrol routes.** With the **Patrol** order set (`[7]`), fly the flagship to a spot and
+press `P` to drop a patrol **waypoint** there; drop up to eight (the oldest rolls off after
+that). Your manned escorts then cycle through the waypoints in order, peeling off to engage
+any hostile that strays within weapon range before returning to the route. Pressing `[7]`
+again while already patrolling **clears** the route. Waypoints are positions in the current
+sector, so they are wiped when you jump to a new system; the route itself is saved with the
+game. (Outside the Patrol order, `P` keeps its usual pause behaviour.)
 
 At any point press `V` to **quick-save** and `L` to **quick-load**. The save is a versioned
 JSON document (`user://voidborne_save.json`) carrying your economy (credits, crew/marine

@@ -266,9 +266,12 @@
   (`1.0 - wounds*0.25` each), survivors keep their wounds, and docking at a friendly station
   heals the whole squad. The crew deck and HUD economy panel surface wounded marines
   (`SHIPPED`, validated by `MARINE_WOUNDS_TEST_PASS`).
-- Fleet AI is a six-order command set (follow, hold, escort, defend, dock, attack) issued
-  through the `F` fleet order menu; richer doctrine (patrol routes, wing sub-grouping) is
-  still future work.
+- Fleet AI is a seven-order command set (follow, hold, escort, defend, dock, attack, and
+  now **patrol**) issued through the `F` fleet order menu. **Patrol routes are shipped**:
+  set the `[7]` Patrol order, drop up to eight waypoints with `P`, and manned escorts cycle
+  the route while engaging hostiles en route (`_ai_patrol()`, saved with the game, validated
+  by `PATROL_ORDER_TEST_PASS`). Richer doctrine beyond this (wing sub-grouping, per-ship
+  station assignment) is still future work.
 - Target cycling prioritizes hostiles; neutral assets are fallback targets only after the
   hostile force is cleared.
 - Three hand-seeded star systems reachable via the `K` jump layer. Within a run, the battle
