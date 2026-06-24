@@ -910,6 +910,10 @@ func _destroy_ship(s: Node3D) -> void:
 		target = null
 	if boarding_target == s:
 		_cancel_boarding()
+	# Clear stale target references on other ships so they don't hold a freed instance.
+	for other in ships:
+		if is_instance_valid(other) and other.target == s:
+			other.target = null
 	ships.erase(s)
 	s.queue_free()
 
