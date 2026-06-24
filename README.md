@@ -212,14 +212,18 @@ gates every turret (OFFLINE = no fire, DAMAGED = half rate).
 
 (Full tables in `scripts/game_state.gd` and `docs/GDD.md`.)
 
-### Named crew
+### Named crew & marines
 
-Crew are no longer just numbers — each crew member has a name, a role (pilot,
-engineer, or gunner), a skill level (1–10), and morale. When assigned to a ship,
-their skills directly modify its combat stats: pilots boost speed and turn rate,
-engineers boost acceleration, and gunners boost weapon damage and fire rate.
-Recruit crew at the station, then step onto the **crew deck** to see each
-crew member's name, role, and skill displayed above their humanoid avatar.
+Crew and marines are no longer just numbers — each crew member has a name, a role
+(pilot, engineer, or gunner), a skill level (1–10), and morale, and each marine has a
+name, skill, and morale. When assigned to a ship, crew skills directly modify its
+combat stats: pilots boost speed and turn rate, engineers boost acceleration, and
+gunners boost weapon damage and fire rate. Marines are named individuals in a
+`marine_roster` (mirroring the crew roster); boarding draws your available marines
+(highest-skill first), suffers casualties by count, and restores the survivors by
+name. Recruit crew and marines at the station, then step onto the **crew deck** to
+see each crew member's and marine's name and skill displayed above their humanoid
+avatar.
 
 ## Project layout
 

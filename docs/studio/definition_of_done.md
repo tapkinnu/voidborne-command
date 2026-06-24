@@ -229,11 +229,25 @@
       autoload keep running. Settings are display preferences and are not part of the
       save file. Covered by `tests/test_settings_menu.gd` (`SETTINGS_MENU_TEST_PASS`).
 
+### Named marines (shipped)
+- [x] Marines are named individuals with skills and morale, mirroring the named-crew
+  pattern. Shipped: `Game.marine_roster` array of named individuals (name, skill 1..10,
+  morale 0..1, assigned flag). `marine_pool` remains the available-count integer with the
+  invariant `marine_pool == available_marines().size()`. Recruit creates a named marine
+  (`recruit_marine_member`); boarding draws the entire available pool into
+  `boarding_drawn_marines` (highest-skill first), erases the fallen on failure, restores
+  only the survivors (`boarding_attacker_strength`) on capture, and restores all on abort.
+  The crew-deck Marine Barracks shows each marine's name and skill on a Label3D above their
+  humanoid (`_spawn_crew_marine_named`). The roster round-trips through save/load as a
+  backward-compatible optional `marine_roster` key (no `SAVE_VERSION` bump; old saves
+  rebuild a default roster). Covered by `tests/test_named_marines.gd`
+  (`NAMED_MARINES_TEST_PASS`).
+
 ### Known limitations (current slice)
-- Crew are named individuals with roles, skills, and morale; marines are still
-  abstract pool counts surfaced as humanoids on the deck.
-- Boarding resolves as a per-round attacker-vs-defender casualty exchange (with a class-based
-  defender garrison), but the marines themselves are still abstract counts, not individuals.
+- Crew and marines are both named individuals with skills and morale; the deck shows names
+  for both. Boarding still resolves as a per-round attacker-vs-defender casualty exchange
+  (with a class-based defender garrison) — named marines are drawn, suffer casualties by
+  count, and survivors are restored, but there is no per-marine wound/injury state yet.
 - Fleet AI is a six-order command set (follow, hold, escort, defend, dock, attack) issued
   through the `F` fleet order menu; richer doctrine (patrol routes, wing sub-grouping) is
   still future work.
