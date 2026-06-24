@@ -61,7 +61,21 @@
   subsystems apply partial penalties. Station `H` refit restores subsystems. Subsystem health
   round-trips through save/load (backward-compatible optional fields). Covered by
   `tests/test_subsystem_targeting.gd`.
-- [ ] Hit decals, muzzle flashes, shield-impact shaders, debris.
+- [x] Hit decals, muzzle flashes, shield-impact shaders, debris. Shipped: four
+  code-built VFX systems in `main.gd` — (1) muzzle flashes: faction-tinted glow
+  spheres at every muzzle on all four fire paths (fixed/turret × projectile/beam),
+  expanding 1→2.5× and fading over 0.12s; (2) shield impacts: blue ripple sphere
+  at the exact projectile hit point when shields absorb damage (beam hitscan passes
+  `Vector3.ZERO` and falls back to the existing full-bubble `_shield_flash`); (3)
+  hit decals: dark scorch `QuadMesh` parented to the ship `Hull` node at hull-damage
+  impact points, capped at 8 per ship via `decal_count` metadata, persisting for the
+  ship's lifetime; (4) debris: 4–8 emissive box fragments flung from `_destroy_ship`
+  with random velocity/spin, fading over 1.5s. The impact position is threaded
+  through `_update_projectiles → _deal_damage → _handle_damage_events` with
+  backward-compatible optional `Vector3.ZERO` defaults so all existing callers
+  (including `_apply_damage` for beams) are unaffected. All update functions follow
+  the existing `_update_explosions` cull pattern and are wired into `_process_space`.
+  Covered by `tests/test_combat_vfx.gd` (`COMBAT_VFX_TEST_PASS`).
 
 ### Crew & command depth
 - [ ] Named crew with roles, skills, morale; station assignments affect ship stats.
