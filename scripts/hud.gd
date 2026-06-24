@@ -184,6 +184,97 @@ func _draw() -> void:
 		_draw_fleet_menu(vp)
 	if bool(data.get("settings_open", false)):
 		_draw_settings_overlay(vp)
+	# System map overlay sits on top of the whole HUD when toggled on (M key).
+	if bool(data.get("system_map_open", false)):
+		_draw_system_map(vp)
+
+func _draw_system_map(vp: Vector2) -> void:
+	# Centered top-down map of the system: stations as labelled squares, other ships as
+	# faction-coloured dots, the player as a heading arrow, plus a distance-scale bar.
+	var m: Dictionary = data.get("system_map", {})
+	var size: float = 600.0
+	var origin: Vector2 = Vector2(vp.x * 0.5 - size * 0.5, vp.y * 0.5 - size * 0.5)
+	var rect: Rect2 = Rect2(origin, Vector2(size, size))
+	draw_rect(rect, Color(0.0, 0.03, 0.06, 0.92), true)
+	draw_rect(rect, C_LINE, false, 1.5)
+	_txt(origin + Vector2(14, 24), "SYSTEM MAP  (M to close)", C_LINE, 16)
+
+	var stations: Array = m.get("stations", [])
+	var pl: Dictionary = m.get("player", {})
+	var ships_arr: Array = m.get("ships", [])
+
+	# World-space bounds over every station plus the player, so the whole system fits.
+	var minx: float = INF
+	var maxx: float = -INF
+	var minz: float = INF
+	var maxz: float = -INF
+	var pts: Array = []
+	for st in stations:
+		pts.append(Vector2(float(st.get("x", 0.0)), float(st.get("z", 0.0))))
+	if not pl.is_empty():
+		pts.append(Vector2(float(pl.get("x", 0.0)), float(pl.get("z", 0.0))))
+	for p in pts:
+		var pv: Vector2 = p
+		minx = min(minx, pv.x); maxx = max(maxx, pv.x)
+		minz = min(minz, pv.y); maxz = max(maxz, pv.y)
+	if pts.is_empty():
+		minx = -100.0; maxx = 100.0; minz = -100.0; maxz = 100.0
+	var cx: float = (minx + maxx) * 0.5
+	var cz: float = (minz + maxz) * 0.5
+	var spanx: float = max(maxx - minx, 1.0)
+	var spanz: float = max(maxz - minz, 1.0)
+	var margin: float = 70.0
+	var usable: float = size - margin * 2.0
+	var scale: float = min(usable / spanx, usable / spanz)
+	var center: Vector2 = origin + Vector2(size * 0.5, size * 0.5 + 8.0)
+
+	# Faint grid + center crosshair for orientation.
+	draw_line(center - Vector2(usable * 0.5, 0), center + Vector2(usable * 0.5, 0), Color(0.3, 0.7, 0.8, 0.18), 1.0)
+	draw_line(center - Vector2(0, usable * 0.5), center + Vector2(0, usable * 0.5), Color(0.3, 0.7, 0.8, 0.18), 1.0)
+
+	# Other ships as small dots.
+	for sh in ships_arr:
+		var sd: Dictionary = sh
+		var wp: Vector2 = (Vector2(float(sd.get("x", 0.0)), float(sd.get("z", 0.0))) - Vector2(cx, cz)) * scale + center
+		var scol: Color = FACTION_COL.get(String(sd.get("faction", "neutral")), Color.WHITE)
+		draw_circle(wp, 2.5, scol)
+
+	# Stations as labelled squares.
+	for st2 in stations:
+		var std: Dictionary = st2
+		var sp: Vector2 = (Vector2(float(std.get("x", 0.0)), float(std.get("z", 0.0))) - Vector2(cx, cz)) * scale + center
+		var fcol: Color = FACTION_COL.get(String(std.get("faction", "neutral")), Color.WHITE)
+		var hs: float = 6.0
+		draw_rect(Rect2(sp - Vector2(hs, hs), Vector2(hs * 2.0, hs * 2.0)), fcol, true)
+		draw_rect(Rect2(sp - Vector2(hs, hs), Vector2(hs * 2.0, hs * 2.0)), fcol.darkened(0.3), false, 1.0)
+		_txt(sp + Vector2(10, 4), String(std.get("name", "")), Color(0.85, 0.95, 1.0), 12)
+
+	# Player as a heading arrow (triangle).
+	if not pl.is_empty():
+		var pp: Vector2 = (Vector2(float(pl.get("x", 0.0)), float(pl.get("z", 0.0))) - Vector2(cx, cz)) * scale + center
+		var fwd: Vector2 = Vector2(float(pl.get("fx", 0.0)), float(pl.get("fz", 1.0)))
+		if fwd.length() < 0.001:
+			fwd = Vector2(0, 1)
+		fwd = fwd.normalized()
+		var side: Vector2 = Vector2(-fwd.y, fwd.x)
+		var pcol: Color = FACTION_COL.get("player", Color(0.4, 1.0, 0.62))
+		var tri: PackedVector2Array = PackedVector2Array([
+			pp + fwd * 11.0,
+			pp - fwd * 7.0 + side * 7.0,
+			pp - fwd * 7.0 - side * 7.0,
+		])
+		draw_colored_polygon(tri, pcol)
+		draw_line(pp, pp + fwd * 11.0, pcol.lightened(0.3), 1.0)
+
+	# Distance scale bar (100 world units), drawn bottom-left of the panel.
+	var bar_world: float = 100.0
+	var bar_px: float = bar_world * scale
+	var bar_y: float = origin.y + size - 24.0
+	var bar_x: float = origin.x + 24.0
+	draw_line(Vector2(bar_x, bar_y), Vector2(bar_x + bar_px, bar_y), C_DIM, 2.0)
+	draw_line(Vector2(bar_x, bar_y - 4), Vector2(bar_x, bar_y + 4), C_DIM, 2.0)
+	draw_line(Vector2(bar_x + bar_px, bar_y - 4), Vector2(bar_x + bar_px, bar_y + 4), C_DIM, 2.0)
+	_txt(Vector2(bar_x, bar_y - 8), "%d u" % int(bar_world), C_DIM, 11)
 
 func _draw_fleet_menu(vp: Vector2) -> void:
 	# Centered fleet order menu: lists the six orders with their number keys and highlights

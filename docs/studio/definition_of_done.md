@@ -132,7 +132,20 @@
   service (`H`) is shipped — restores hull/shield/energy across the manned, player-owned
   fleet at any friendly station, charges proportional credits with partial work on a tight
   budget, and refuses at hostile stations. A fuller multi-tab market/dock screen is still TODO.
-- [ ] Multiple stations / a small system map with travel and respawning threats.
+- [x] Multiple stations / a small system map with travel and respawning threats.
+  Shipped: the world now holds **four stations** spread hundreds of units apart — the neutral
+  **Halcyon** hub (still the `station` reference / primary dock) and **Aurora Station**, plus
+  the capturable hostile **Kryos Relay** and **Ironhold** — so travel between them is
+  meaningful. `M` toggles a centered top-down **system map** overlay (`hud.gd
+  _draw_system_map`): faction-coloured labelled station squares, ship dots, a player heading
+  arrow, and a distance-scale bar; it is a live overlay (flight keeps working) with transient,
+  unsaved open/closed state. Respawning threats (`_update_respawns`) warp in 2–3 fresh
+  `Raider-N` fighters at the system edge whenever live mobile hostiles drop below
+  `RESPAWN_THRESHOLD` (3) for `RESPAWN_INTERVAL` (30 s), with quiet-sector / reinforcement HUD
+  messages; hostile stations never respawn and the system is disabled in capture/demo mode.
+  Camera far plane (3000) and the starfield shell (800–1200) were widened for the larger area.
+  Covered by `tests/test_system_map.gd` (`SYSTEM_MAP_TEST_PASS`). A multi-system / inter-system
+  jump layer remains backlog.
 - [ ] Mission/objective system beyond the single seeded scenario.
 
 ### Production pipeline

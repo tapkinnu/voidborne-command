@@ -165,6 +165,23 @@ See the table in `README.md` and the authoritative `SHIP_CLASSES` dictionary in
 `scripts/game_state.gd`. Each class has distinct stats, silhouette scale, and a unique
 procedural mesh (wings, pods, turrets, bridge towers, greebles, torus station).
 
+### 4.7 System map & respawning threats
+The slice is a **small single system** with **four stations** spread hundreds of units
+apart so travel between them is meaningful: the neutral **Halcyon** recruit/shipyard hub
+(the primary dock the `station` reference and all proximity logic point at), the neutral
+**Aurora Station** trade outpost, and two capturable hostile stations, **Kryos Relay** and
+**Ironhold**. Pressing `M` toggles a centered top-down **system map** overlay (`hud.gd
+_draw_system_map`): stations as faction-coloured labelled squares, every other ship as a
+dot, the player as a heading arrow, plus a distance-scale bar. It is an overlay, not a
+pause — flight stays live, and the open/closed state is transient UI (not saved).
+
+**Respawning threats** keep the sector from going dead: `_update_respawns` watches the live
+mobile-hostile count, and once it falls below `RESPAWN_THRESHOLD` (3) a timer runs for
+`RESPAWN_INTERVAL` (30 s) before warping in 2–3 fresh hostile fighters (`Raider-N`,
+incrementing) at the edge of the system, 360–480 units from the player. Hostile **stations**
+are never respawned, and the whole system is disabled during capture/demo mode so
+screenshots stay deterministic.
+
 ## 5. HUD
 Immediate-mode `_draw` overlay: economy/fleet panel, top-center objective, target panel
 (name/faction/class/hull/shield/distance/disabled), bottom-left player bars

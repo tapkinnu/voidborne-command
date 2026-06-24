@@ -133,8 +133,21 @@ const SAVE_VERSION: int = 1
 var save_path: String = "user://voidborne_save.json"
 
 var messages: Array = []           # rolling message log (strings)
-var objective: String = "Disable & board Ironclaw, then capture hostile Kryos Relay station."
+var objective: String = "Capture hostile stations Kryos Relay and Ironhold. Defend friendly stations. Hostile reinforcements may arrive."
 var _elapsed: float = 0.0
+
+# --- System map overlay (transient UI; not saved) ---------------------------
+var system_map_open: bool = false
+
+# --- Respawning hostile threats ---------------------------------------------
+# When the live mobile-hostile count drops below RESPAWN_THRESHOLD the respawn
+# timer runs; on expiry a fresh raider wing warps in at the edge of the system.
+# Hostile stations are never respawned, and respawns are disabled in capture/demo.
+const RESPAWN_INTERVAL: float = 30.0
+const RESPAWN_THRESHOLD: int = 3
+var _respawn_timer: float = 0.0
+var _respawn_warned: bool = false   # quiet-sector notice shown once per lull
+var _raider_seq: int = 4            # initial wing is Raider-1..4; reinforcements continue the count
 
 func _ready() -> void:
 	rng.seed = 20260623
@@ -295,7 +308,7 @@ func _build_stars() -> void:
 	mm.instance_count = count
 	for i in range(count):
 		var dir: Vector3 = Vector3(rng.randf_range(-1, 1), rng.randf_range(-1, 1), rng.randf_range(-1, 1)).normalized()
-		var pos: Vector3 = dir * rng.randf_range(600.0, 900.0)
+		var pos: Vector3 = dir * rng.randf_range(800.0, 1200.0)
 		var t: Transform3D = Transform3D(Basis(), pos)
 		# Billboard-ish: face origin.
 		t = t.looking_at(Vector3.ZERO, Vector3.UP)
@@ -349,8 +362,13 @@ func _spawn_ship(p_class: String, faction: String, ship_name: String, pos: Vecto
 	return s
 
 func _build_battle() -> void:
-	# Neutral station hub (recruit / buy / capture objective).
+	# Neutral station hub (recruit / buy / capture objective). Stays the primary hub the
+	# `station` variable points to so all existing station-proximity logic keeps working.
 	station = _spawn_ship("station", "neutral", "Halcyon", Vector3(0, 0, -40))
+
+	# Second neutral outpost across the system — a travel destination with the same
+	# repair/refit service as Halcyon (station-finding funcs pick the nearest one).
+	_spawn_ship("station", "neutral", "Aurora Station", Vector3(400, 0, -200))
 
 	# Player flagship (corvette) and starting wing.
 	player = _spawn_ship("corvette", "player", "Captain", Vector3(0, 4, 80))
@@ -375,15 +393,19 @@ func _build_battle() -> void:
 	# A hostile capital to show the largest mobile silhouette class in the battle.
 	_spawn_ship("capital", "hostile", "Dread Maw", Vector3(60, 10, -200))
 
-	# Capturable hostile station/outpost. The neutral Halcyon station remains the
-	# recruit/shipyard hub; this relay proves the station capture path in live combat.
-	var relay: Node3D = _spawn_ship("station", "hostile", "Kryos Relay", Vector3(-95, -10, -185))
+	# Capturable hostile stations across the system. The neutral Halcyon station remains
+	# the recruit/shipyard hub; these relays prove the station capture path in live combat
+	# and give the multi-station map two hostile objectives to travel between.
+	var relay: Node3D = _spawn_ship("station", "hostile", "Kryos Relay", Vector3(-300, -10, -350))
 	relay.ai_state = "guard"
+	var ironhold: Node3D = _spawn_ship("station", "hostile", "Ironhold", Vector3(500, 20, -500))
+	ironhold.ai_state = "guard"
 
-	# Third-person chase camera.
+	# Third-person chase camera. Far plane is generous so distant stations stay visible
+	# across the enlarged system map.
 	space_camera = Camera3D.new()
 	space_camera.fov = 68.0
-	space_camera.far = 2000.0
+	space_camera.far = 3000.0
 	add_child(space_camera)
 	_update_camera(0.001, true)
 	space_camera.current = true
@@ -453,6 +475,7 @@ func _process_space(delta: float) -> void:
 	_update_shield_impacts(delta)
 	_update_debris(delta)
 	_update_boarding(delta)
+	_update_respawns(delta)
 	_update_camera(delta, false)
 	_handle_station_actions()
 
@@ -1615,6 +1638,8 @@ func _handle_station_actions() -> void:
 		_toggle_settings()
 	if Input.is_action_just_pressed("cycle_scheme"):
 		_cycle_control_scheme()
+	if Input.is_action_just_pressed("system_map"):
+		_toggle_system_map()
 	if Input.is_action_just_pressed("toggle_deck"):
 		_set_deck_mode(not deck_mode)
 		return
@@ -1634,6 +1659,93 @@ func _handle_station_actions() -> void:
 	if Input.is_action_just_pressed("fleet_attack"):
 		fleet_menu_open = false
 		_order_fleet_attack()
+
+# ---------------------------------------------------------------------------
+# SYSTEM MAP OVERLAY
+# ---------------------------------------------------------------------------
+func _toggle_system_map() -> void:
+	# Transient top-down overlay of the whole system. It is an overlay, not a pause:
+	# flight controls keep working while it is open.
+	system_map_open = not system_map_open
+	_msg("System map %s." % ("OPEN" if system_map_open else "closed"))
+	if audio: audio.play("ui_recruit")
+
+func _build_system_map() -> Dictionary:
+	# Top-down (X/Z) snapshot for the HUD overlay: every station as a labelled marker,
+	# every other live ship as a faction-coloured dot, and the player's position/heading.
+	var stations: Array = []
+	var dots: Array = []
+	for s in ships:
+		if not is_instance_valid(s) or s.destroyed:
+			continue
+		var entry: Dictionary = {
+			"x": s.global_position.x,
+			"z": s.global_position.z,
+			"faction": String(s.faction),
+		}
+		if s.ship_class == "station":
+			entry["name"] = String(s.ship_name)
+			stations.append(entry)
+		elif not s.is_player:
+			dots.append(entry)
+	var pf: Vector3 = Vector3.FORWARD
+	var pp: Vector3 = Vector3.ZERO
+	if is_instance_valid(player):
+		pf = -player.global_transform.basis.z
+		pp = player.global_position
+	return {
+		"stations": stations,
+		"ships": dots,
+		"player": {"x": pp.x, "z": pp.z, "fx": pf.x, "fz": pf.z},
+	}
+
+# ---------------------------------------------------------------------------
+# RESPAWNING HOSTILE THREATS
+# ---------------------------------------------------------------------------
+func _count_live_hostiles() -> int:
+	# Live mobile hostiles only (stations and destroyed wrecks excluded).
+	var n: int = 0
+	for s in ships:
+		if not is_instance_valid(s) or s.destroyed:
+			continue
+		if s.faction == "hostile" and s.ship_class != "station":
+			n += 1
+	return n
+
+func _update_respawns(delta: float) -> void:
+	# Keep the sector lively: once mobile hostiles thin out, a fresh raider wing warps in
+	# after RESPAWN_INTERVAL. Disabled during capture/demo so screenshots stay deterministic.
+	if auto_demo:
+		return
+	if _count_live_hostiles() >= RESPAWN_THRESHOLD:
+		_respawn_timer = 0.0
+		_respawn_warned = false
+		return
+	if not _respawn_warned:
+		_msg("Sector quiet — hostile reinforcements may arrive.")
+		_respawn_warned = true
+	_respawn_timer += delta
+	if _respawn_timer >= RESPAWN_INTERVAL:
+		_respawn_timer = 0.0
+		_respawn_warned = false
+		_spawn_reinforcements()
+
+func _spawn_reinforcements() -> void:
+	# Spawn 2-3 hostile fighters far from the player, at the edge of the system.
+	var n: int = rng.randi_range(2, 3)
+	var base: Vector3 = player.global_position if is_instance_valid(player) else Vector3.ZERO
+	for i in range(n):
+		_raider_seq += 1
+		var dir: Vector3 = Vector3(
+			rng.randf_range(-1.0, 1.0),
+			rng.randf_range(-0.18, 0.18),
+			rng.randf_range(-1.0, 1.0)
+		).normalized()
+		var pos: Vector3 = base + dir * rng.randf_range(360.0, 480.0)
+		var s: Node3D = _spawn_ship("fighter", "hostile", "Raider-%d" % _raider_seq, pos)
+		s.ai_state = "engage"
+	_msg("Hostile reinforcements detected — %d raiders incoming." % n)
+	if audio: audio.play("ui_deny")
 
 func _shipyard_class() -> String:
 	return String(SHIPYARD_CLASSES[shipyard_index % SHIPYARD_CLASSES.size()])
@@ -2396,6 +2508,9 @@ func _update_hud() -> void:
 	d["mouse_aim"] = mouse_aim
 	d["control_scheme"] = control_scheme
 	d["settings_open"] = settings_open
+	d["system_map_open"] = system_map_open
+	if system_map_open:
+		d["system_map"] = _build_system_map()
 
 	if deck_mode:
 		var st: Dictionary = deck.status()
@@ -2467,7 +2582,7 @@ func _context_prompt() -> String:
 	if fleet_menu_open:
 		return "FLEET ORDERS: [1]Follow [2]Hold [3]Escort [4]Defend [5]Dock [6]Attack  [F/Esc close]"
 	if is_instance_valid(station) and _pdist(station) < 70.0:
-		return "STATION: [G] %s %dcr  [Y] buy  [R] crew  [M] marine  [H] repair  [C] deck  [V]save [L]load" % [_shipyard_class().to_upper(), _shipyard_cost()]
+		return "STATION: [G] %s %dcr  [Y] buy  [R] crew  [N] marine  [H] repair  [C] deck  [M] map  [V]save [L]load" % [_shipyard_class().to_upper(), _shipyard_cost()]
 	var svc: Node3D = _service_station()
 	if svc != null:
 		return "DOCKED %s: [H] repair/refit  [Tab] target  [F] order  [V]save [L]load" % svc.ship_name
@@ -2479,7 +2594,7 @@ func _context_prompt() -> String:
 		order_label = "ATTACK %s" % fleet_attack_target.ship_name
 	elif fleet_order == "defend" and is_instance_valid(fleet_defend_target):
 		order_label = "DEFEND %s" % fleet_defend_target.ship_name
-	return "[Tab] target  [T] attack  [Z] sub:%s  [F] fleet orders  [C] deck  [V]save [L]load  (order: %s)" % [sub_label, order_label]
+	return "[Tab] target  [T] attack  [Z] sub:%s  [F] fleet orders  [C] deck  [M] map  [V]save [L]load  (order: %s)" % [sub_label, order_label]
 
 func _build_radar() -> Array:
 	var blips: Array = []
@@ -2506,3 +2621,7 @@ func _build_radar() -> Array:
 # Public hook used by the capture autoload to force the crew deck view for a screenshot.
 func force_deck(on: bool) -> void:
 	_set_deck_mode(on)
+
+# Public hook to force the system-map overlay on/off (used by capture / smoke checks).
+func force_system_map(on: bool) -> void:
+	system_map_open = on

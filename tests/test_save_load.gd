@@ -69,7 +69,9 @@ func _initialize() -> void:
 	if doomed_hostile == null:
 		_fail("seed scenario missing hostile fighter to destroy")
 
+	var captured_station_name: String = ""
 	if not failed:
+		captured_station_name = String(hostile_station.ship_name)
 		game.set("crew_pool", int(hostile_station.get("crew_needed")))
 		game.set("marine_pool", 6)
 		hostile_station.set("disabled", true)
@@ -183,7 +185,7 @@ func _initialize() -> void:
 
 	# Captured station stays player-owned.
 	if not failed:
-		var rs: Node = _find(main, "Kryos Relay")
+		var rs: Node = _find(main, captured_station_name)
 		if rs == null:
 			_fail("captured station missing after load")
 		elif String(rs.faction) != "player":

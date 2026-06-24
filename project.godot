@@ -95,6 +95,10 @@ recruit_crew={
 }
 recruit_marine={
 "deadzone": 0.5,
+"events": [{"type":"key","keycode":78,"unicode":110}]
+}
+system_map={
+"deadzone": 0.5,
 "events": [{"type":"key","keycode":77,"unicode":109}]
 }
 buy_ship={

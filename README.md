@@ -51,6 +51,7 @@ Screenshots are written to `artifacts/screenshots/` (plus a `contact_sheet.jpg`)
 | `` ` `` (backtick) | Toggle **mouse-aim flight** — captures the cursor; mouse X→yaw, mouse Y→pitch (additive over keyboard) |
 | `F1` | Toggle the **settings overlay** (shows mouse-aim state and control scheme) |
 | `F2` | **Cycle control scheme**: Auto → Keyboard+Mouse → Gamepad → Auto |
+| `M` | Toggle the **system map** overlay — top-down view of all stations, fleet, and threats (flight stays live) |
 
 ### Gamepad (when connected)
 | Control | Action |
@@ -71,7 +72,7 @@ In **Auto** mode both keyboard+mouse and gamepad work simultaneously. **Keyboard
 | Key | Action |
 | --- | --- |
 | `R` | Recruit crew (120 cr) |
-| `M` | Recruit marine (180 cr) |
+| `N` | Recruit marine (180 cr) |
 | `G` | Cycle the station shipyard offer (fighter / corvette / frigate / capital) |
 | `Y` | Buy the selected shipyard class (auto-mans if crew available) |
 | `H` | **Repair / refit**: restore hull, shields, and energy across your flagship and manned fleet (cost scales with damage; partial work if short on credits) |
@@ -102,9 +103,14 @@ you have captured or purchased additional ships).
 ## The loop in one paragraph
 
 You start in a corvette with a small fighter wing near a neutral station and a hostile
-formation (fighter wing, corvette, frigate, capital, and a hostile relay station). `Tab`
+formation (fighter wing, corvette, frigate, capital, and a hostile relay station). The system
+spans **four stations** — the neutral **Halcyon** recruit/shipyard hub and **Aurora Station**
+trade outpost, plus the capturable hostile **Kryos Relay** and **Ironhold** — spread hundreds
+of units apart, so travelling between them takes real time. Press `M` for a top-down **system
+map** to navigate. The sector also **respawns threats**: once mobile hostiles thin out, a
+fresh raider wing warps in from the edge of the system, so the battle never simply ends. `Tab`
 cycles combat hostiles first so the neutral shipyard hub does not steal target lock.
-Whittle a hostile ship or the hostile **Kryos Relay** station to the **disable** threshold
+Whittle a hostile ship or a hostile station (**Kryos Relay** / **Ironhold**) to the **disable** threshold
 (~22%), close within boarding range, and press `B` — your marines breach and fight the
 target's **defending garrison** in a resolved **squad action**. Each round both sides take
 casualties (scaled by their strength and a seeded roll); boarding **succeeds** when the
