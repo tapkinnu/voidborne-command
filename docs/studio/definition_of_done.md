@@ -78,7 +78,18 @@
   Covered by `tests/test_combat_vfx.gd` (`COMBAT_VFX_TEST_PASS`).
 
 ### Crew & command depth
-- [ ] Named crew with roles, skills, morale; station assignments affect ship stats.
+- [x] Named crew with roles, skills, morale; station assignments affect ship stats.
+  Shipped: `Game.crew_roster` array of named individuals (name, role, skill 1..10,
+  morale 0..1, assigned flag). Three roles (pilot, engineer, gunner) each modify
+  different ship stats when assigned: pilots boost speed/turn, engineers boost
+  accel, gunners boost weapon damage/fire rate. Crew are recruited as named
+  individuals at the station, assigned to ships via the existing man/crew path
+  (F key, buy ship, boarding capture), and freed back to the pool when their ship
+  is destroyed. The crew deck shows each crew member's name, role abbreviation,
+  and skill level on a Label3D above their humanoid. The HUD economy panel shows
+  available crew counts by role (P/E/G). Roster round-trips through save/load
+  (backward-compatible: old saves rebuild a default roster). Covered by
+  `tests/test_named_crew.gd` (`NAMED_CREW_TEST_PASS`).
 - [x] Boarding as a resolved squad action (attacker vs defender marines, casualties).
   Shipped: ships carry a class-based `marine_garrison` (halved on disable); boarding runs
   fixed 0.5s rounds where attacker and defender marines exchange casualties (`0.15` rate ×
@@ -114,8 +125,8 @@
 - [ ] Settings menu (resolution, volume, graphics) and pause.
 
 ### Known limitations (current slice)
-- Crew/marines are abstract pools surfaced as humanoids on the deck, not persistent
-  individuals with stats.
+- Crew are named individuals with roles, skills, and morale; marines are still
+  abstract pool counts surfaced as humanoids on the deck.
 - Boarding resolves as a per-round attacker-vs-defender casualty exchange (with a class-based
   defender garrison), but the marines themselves are still abstract counts, not individuals.
 - Fleet AI is a ring-formation / hold-position / attack-target command set; richer

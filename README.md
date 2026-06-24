@@ -162,6 +162,15 @@ gates every turret (OFFLINE = no fire, DAMAGED = half rate).
 
 (Full tables in `scripts/game_state.gd` and `docs/GDD.md`.)
 
+### Named crew
+
+Crew are no longer just numbers — each crew member has a name, a role (pilot,
+engineer, or gunner), a skill level (1–10), and morale. When assigned to a ship,
+their skills directly modify its combat stats: pilots boost speed and turn rate,
+engineers boost acceleration, and gunners boost weapon damage and fire rate.
+Recruit crew at the station, then step onto the **crew deck** to see each
+crew member's name, role, and skill displayed above their humanoid avatar.
+
 ## Project layout
 
 ```

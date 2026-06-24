@@ -78,7 +78,11 @@ func _draw() -> void:
 	draw_rect(Rect2(Vector2(8, 8), Vector2(250, panel_h)), C_BG, true)
 	_txt(Vector2(16, 28), "VOIDBORNE COMMAND", C_LINE, 14)
 	_txt(Vector2(16, 48), "Credits: %d" % int(data.get("credits", 0)), Color(1, 0.85, 0.4), 13)
-	_txt(Vector2(16, 64), "Crew: %d   Marines: %d" % [int(data.get("crew_pool", 0)), int(data.get("marine_pool", 0))], C_DIM, 13)
+	var role_str: String = String(data.get("crew_roles", ""))
+	if role_str != "":
+		_txt(Vector2(16, 64), "Crew: %d %s   Marines: %d" % [int(data.get("crew_pool", 0)), role_str, int(data.get("marine_pool", 0))], C_DIM, 13)
+	else:
+		_txt(Vector2(16, 64), "Crew: %d   Marines: %d" % [int(data.get("crew_pool", 0)), int(data.get("marine_pool", 0))], C_DIM, 13)
 	_txt(Vector2(16, 80), "Fleet: %d   Captured: %d" % [int(data.get("fleet_count", 0)), int(data.get("captured", 0))], C_DIM, 13)
 	var order_txt: String = String(data.get("fleet_order", "follow")).to_upper()
 	var order_col: Color = Color(0.56, 1.0, 0.82)

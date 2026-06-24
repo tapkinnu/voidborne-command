@@ -187,24 +187,52 @@ func build(p_rng: RandomNumberGenerator) -> void:
 	refresh_roster()
 
 func refresh_roster() -> void:
-	# Rebuild crew/marine humanoids from current Game pools (capped for visibility).
 	for c in crew_nodes:
 		if is_instance_valid(c["node"]):
 			c["node"].queue_free()
 	crew_nodes.clear()
-	var n_crew: int = clampi(Game.crew_pool, 0, 6)
+	var avail: Array = Game.available_crew()
 	var n_mar: int = clampi(Game.marine_pool, 0, 6)
-	var total: int = max(1, n_crew + n_mar)
+	var total: int = max(1, avail.size() + n_mar)
 	var idx: int = 0
-	for i in range(n_crew):
-		_spawn_crew("crew", idx, total)
+	for c in avail:
+		_spawn_crew_detail(c, idx, total)
 		idx += 1
 	for i in range(n_mar):
-		_spawn_crew("marine", idx, total)
+		_spawn_crew_marine(idx, total)
 		idx += 1
 
-func _spawn_crew(role: String, idx: int, total: int) -> void:
-	var col: Color = Color(0.42, 0.72, 1.0) if role == "crew" else Color(1.0, 0.5, 0.35)
+func _spawn_crew_detail(crew_dict: Dictionary, idx: int, total: int) -> void:
+	var role: String = String(crew_dict.get("role", ""))
+	var col: Color = Color(0.42, 0.72, 1.0)   # pilot blue
+	match role:
+		"engineer": col = Color(0.3, 0.85, 0.4)   # green
+		"gunner": col = Color(1.0, 0.55, 0.15)     # orange
+	var hh: Node3D = _build_humanoid(col)
+	hh.scale = Vector3(1.28, 1.28, 1.28)
+	var ang: float = float(idx) / float(total) * TAU
+	var home: Vector3 = Vector3(sin(ang) * 7.0, 0, -2.0 + cos(ang) * 4.0)
+	hh.position = home
+	add_child(hh)
+	# Label3D above the humanoid
+	var label: Label3D = Label3D.new()
+	label.text = "%s [%s] S%d" % [String(crew_dict.get("name", "?")), Game.ROLE_ABBR.get(role, "?"), int(crew_dict.get("skill", 1))]
+	label.font_size = 48
+	label.pixel_size = 0.01
+	label.no_depth_test = true
+	label.position = Vector3(0, 2.4, 0)
+	label.modulate = Color(1, 1, 1)
+	hh.add_child(label)
+	crew_nodes.append({
+		"node": hh,
+		"name": String(crew_dict.get("name", "Crew")),
+		"role": role,
+		"following": false,
+		"home": home,
+	})
+
+func _spawn_crew_marine(idx: int, total: int) -> void:
+	var col: Color = Color(1.0, 0.5, 0.35)
 	var hh: Node3D = _build_humanoid(col)
 	hh.scale = Vector3(1.28, 1.28, 1.28)
 	var ang: float = float(idx) / float(total) * TAU
@@ -214,7 +242,7 @@ func _spawn_crew(role: String, idx: int, total: int) -> void:
 	crew_nodes.append({
 		"node": hh,
 		"name": Game.random_name(rng),
-		"role": role,
+		"role": "marine",
 		"following": false,
 		"home": home,
 	})

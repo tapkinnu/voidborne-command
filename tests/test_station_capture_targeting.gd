@@ -67,6 +67,10 @@ func _initialize() -> void:
 			_fail("Game autoload missing in test tree")
 		else:
 			var needed: int = int(hostile_station.get("crew_needed"))
+			# Populate crew roster to match crew_pool.
+			var trng: RandomNumberGenerator = RandomNumberGenerator.new()
+			trng.randomize()
+			game.call("rebuild_default_roster", trng, needed)
 			game.set("crew_pool", needed)
 			game.set("marine_pool", 6)
 			var before_captured: int = int(game.get("captured_count"))

@@ -902,6 +902,10 @@ func _destroy_ship(s: Node3D) -> void:
 		_msg("%s destroyed — salvage +%d cr." % [s.ship_name, reward])
 	else:
 		_msg("%s destroyed." % s.ship_name)
+	if s.has_meta("assigned_crew"):
+		var assigned_crew: Array = s.get_meta("assigned_crew", [])
+		Game.unassign_crew(assigned_crew)
+		s.remove_meta("assigned_crew")
 	if s == target:
 		target = null
 	if boarding_target == s:
@@ -1386,8 +1390,10 @@ func _complete_capture(s: Node3D) -> void:
 		_msg("Boarding prize secured: +%d cr capture bounty." % reward)
 	# Try to man it from the crew pool; otherwise it is captured-but-unmanned.
 	if Game.crew_pool >= s.crew_needed:
-		Game.crew_pool -= s.crew_needed
-		s.crew_assigned = s.crew_needed
+		var assigned_crew: Array = Game.assign_best_crew(s.crew_needed)
+		s.set_meta("assigned_crew", assigned_crew)
+		s.apply_crew_bonuses(assigned_crew)
+		s.crew_assigned = assigned_crew.size()
 		s.manned = true
 		s.ai_state = "follow"
 		_msg("%s CAPTURED and manned — joins your fleet!" % s.ship_name)
@@ -1455,8 +1461,9 @@ func _recruit(kind: String, near_station: bool) -> void:
 		return
 	Game.credits -= cost
 	if kind == "crew":
-		Game.crew_pool += 1
-		_msg("Recruited crew (%d available). Cost %d." % [Game.crew_pool, cost])
+		var new_crew: Dictionary = Game.recruit_crew_member(rng)
+		var role_abbr: String = String(Game.ROLE_ABBR.get(new_crew.get("role", ""), "?"))
+		_msg("Recruited %s [%s] S%d (%d available). Cost %d." % [new_crew.get("name", "Crew"), role_abbr, int(new_crew.get("skill", 1)), Game.crew_pool, cost])
 	else:
 		Game.marine_pool += 1
 		_msg("Recruited marine (%d available). Cost %d." % [Game.marine_pool, cost])
@@ -1481,11 +1488,13 @@ func _buy_ship(near_station: bool) -> void:
 	var s: Node3D = _spawn_ship(buy_class, "player", "%s-%d" % [buy_class.capitalize(), Game.purchased_count], pos)
 	var need: int = s.crew_needed
 	if Game.crew_pool >= need:
-		Game.crew_pool -= need
-		s.crew_assigned = need
+		var assigned_crew: Array = Game.assign_best_crew(need)
+		s.set_meta("assigned_crew", assigned_crew)
+		s.apply_crew_bonuses(assigned_crew)
+		s.crew_assigned = assigned_crew.size()
 		s.manned = true
 		s.ai_state = "follow"
-		_msg("Bought %s and assigned %d crew — manned, joins fleet." % [buy_class, need])
+		_msg("Bought %s and assigned %d crew — manned, joins fleet." % [buy_class, assigned_crew.size()])
 	else:
 		s.manned = false
 		s.crew_assigned = 0
@@ -1639,8 +1648,10 @@ func _toggle_fleet_follow() -> void:
 		if not is_instance_valid(s) or s.faction != "player" or s.is_player:
 			continue
 		if not s.manned and Game.crew_pool >= s.crew_needed:
-			Game.crew_pool -= s.crew_needed
-			s.crew_assigned = s.crew_needed
+			var assigned_crew: Array = Game.assign_best_crew(s.crew_needed)
+			s.set_meta("assigned_crew", assigned_crew)
+			s.apply_crew_bonuses(assigned_crew)
+			s.crew_assigned = assigned_crew.size()
 			s.manned = true
 			s.ai_state = fleet_order if fleet_order != "attack" else "follow"
 			changed += 1
@@ -1724,6 +1735,7 @@ func _build_save_dict() -> Dictionary:
 			"marine_pool": Game.marine_pool,
 			"captured_count": Game.captured_count,
 			"purchased_count": Game.purchased_count,
+			"crew_roster": Game.roster_to_save(),
 		},
 		"shipyard_index": shipyard_index,
 		"fleet_order": fleet_order,
@@ -1890,6 +1902,13 @@ func _apply_save(parsed: Dictionary) -> void:
 	Game.captured_count = int(econ["captured_count"])
 	Game.purchased_count = int(econ["purchased_count"])
 	shipyard_index = int(parsed.get("shipyard_index", 0))
+
+	if econ.has("crew_roster"):
+		Game.roster_from_save(econ["crew_roster"])
+	else:
+		var rebuild_rng: RandomNumberGenerator = RandomNumberGenerator.new()
+		rebuild_rng.randomize()
+		Game.rebuild_default_roster(rebuild_rng, int(econ.get("crew_pool", 0)))
 
 	var used_names: Dictionary = {}
 	for entry in parsed["ships"]:
@@ -2064,6 +2083,17 @@ func _update_hud() -> void:
 	d["credits"] = Game.credits
 	d["crew_pool"] = Game.crew_pool
 	d["marine_pool"] = Game.marine_pool
+	var avail: Array = Game.available_crew()
+	var p_count: int = 0
+	var e_count: int = 0
+	var g_count: int = 0
+	for c in avail:
+		var role: String = String(c.get("role", ""))
+		match role:
+			"pilot": p_count += 1
+			"engineer": e_count += 1
+			"gunner": g_count += 1
+	d["crew_roles"] = "(P%d E%d G%d)" % [p_count, e_count, g_count]
 	d["fleet_count"] = _count_fleet()
 	d["fleet_order"] = fleet_order
 	if fleet_order == "attack" and is_instance_valid(fleet_attack_target):

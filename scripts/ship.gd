@@ -25,9 +25,15 @@ var max_speed: float = 40.0
 var accel: float = 20.0
 var turn_rate: float = 2.0
 
+var base_max_speed: float = 40.0
+var base_accel: float = 20.0
+var base_turn_rate: float = 2.0
+
 var weapon_type: String = "cannon"
 var weapon_dmg: float = 7.0
 var fire_rate: float = 0.2
+var base_weapon_dmg: float = 7.0
+var base_fire_rate: float = 0.2
 var weapon_range: float = 220.0
 var weapon_cd: float = 0.0
 
@@ -102,9 +108,38 @@ func setup(p_class: String, p_faction: String, p_name: String) -> void:
 	crew_needed = int(info.get("crew_needed", 1))
 	crew_assigned = crew_needed
 	manned = true
+	base_max_speed = max_speed
+	base_accel = accel
+	base_turn_rate = turn_rate
+	base_weapon_dmg = weapon_dmg
+	base_fire_rate = fire_rate
 	marine_garrison = int(info.get("garrison", 0))
 	class_color = info.get("color", Color.WHITE)
 	_build_mesh()
+
+func apply_crew_bonuses(crew_list: Array) -> void:
+	var pilot_bonus: float = 0.0
+	var engineer_bonus: float = 0.0
+	var gunner_bonus: float = 0.0
+	var gunner_rate_bonus: float = 0.0
+	for c in crew_list:
+		if typeof(c) != TYPE_DICTIONARY:
+			continue
+		var role: String = String(c.get("role", ""))
+		var skill: float = float(c.get("skill", 1))
+		match role:
+			"pilot":
+				pilot_bonus += skill * 0.03
+			"engineer":
+				engineer_bonus += skill * 0.03
+			"gunner":
+				gunner_bonus += skill * 0.03
+				gunner_rate_bonus += skill * 0.02
+	max_speed = base_max_speed * (1.0 + pilot_bonus)
+	turn_rate = base_turn_rate * (1.0 + pilot_bonus)
+	accel = base_accel * (1.0 + engineer_bonus)
+	weapon_dmg = base_weapon_dmg * (1.0 + gunner_bonus)
+	fire_rate = max(0.1, base_fire_rate * (1.0 - gunner_rate_bonus))
 
 func radius() -> float:
 	return float(Game.class_info(ship_class).get("scale", 1.0)) * 3.0

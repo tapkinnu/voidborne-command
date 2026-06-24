@@ -8,6 +8,15 @@ var marine_pool: int = 6    # available marines for boarding / assignment
 var captured_count: int = 0
 var purchased_count: int = 0
 
+# Named crew roster: each entry is an individual with a role, skill and morale.
+# crew_pool tracks the COUNT of unassigned crew; crew_roster holds their detail. The
+# invariant crew_pool == available_crew().size() is maintained by the helpers below.
+# Each entry: { name:String, role:String, skill:int(1..10), morale:float(0..1), assigned:bool }
+var crew_roster: Array = []
+
+const CREW_ROLES: Array = ["pilot", "engineer", "gunner"]
+const ROLE_ABBR: Dictionary = {"pilot": "PLT", "engineer": "ENG", "gunner": "GUN"}
+
 # Ship class definitions. Values are gameplay-tuned, deterministic, and read with
 # explicit typing wherever they feed math, per project constraints.
 const SHIP_CLASSES: Dictionary = {
@@ -122,9 +131,120 @@ func random_name(rng: RandomNumberGenerator) -> String:
 	var n: int = rng.randi_range(10, 99)
 	return "%s-%d" % [FIRST_NAMES[i], n]
 
+# --- Named crew roster helpers ---------------------------------------------
+func _make_crew_member(rng: RandomNumberGenerator) -> Dictionary:
+	# A fresh, unassigned crew member with a random role, mid skill and good morale.
+	var role: String = String(CREW_ROLES[rng.randi_range(0, CREW_ROLES.size() - 1)])
+	return {
+		"name": random_name(rng),
+		"role": role,
+		"skill": rng.randi_range(3, 7),
+		"morale": rng.randf_range(0.7, 1.0),
+		"assigned": false,
+	}
+
+func recruit_crew_member(rng: RandomNumberGenerator) -> Dictionary:
+	# Create a new crew member, add to the roster, and bump the available count.
+	var c: Dictionary = _make_crew_member(rng)
+	crew_roster.append(c)
+	crew_pool += 1
+	return c
+
+func available_crew() -> Array:
+	var out: Array = []
+	for c in crew_roster:
+		var cd: Dictionary = c
+		if not bool(cd.get("assigned", false)):
+			out.append(cd)
+	return out
+
+func assign_best_crew(count: int, preferred_role: String = "") -> Array:
+	# Mark up to `count` available crew as assigned and return them. Prefers matching
+	# role first, then highest skill. Decrements crew_pool by the number actually taken.
+	var pool: Array = available_crew()
+	pool.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var a_match: int = 1 if String(a.get("role", "")) == preferred_role else 0
+		var b_match: int = 1 if String(b.get("role", "")) == preferred_role else 0
+		if a_match != b_match:
+			return a_match > b_match
+		return int(a.get("skill", 0)) > int(b.get("skill", 0))
+	)
+	var taken: Array = []
+	for c in pool:
+		if taken.size() >= count:
+			break
+		var cd: Dictionary = c
+		cd["assigned"] = true
+		taken.append(cd)
+	crew_pool = max(0, crew_pool - taken.size())
+	return taken
+
+func unassign_crew(crew_list: Array) -> void:
+	# Return assigned crew to the available pool.
+	for c in crew_list:
+		if typeof(c) != TYPE_DICTIONARY:
+			continue
+		var cd: Dictionary = c
+		if bool(cd.get("assigned", false)):
+			cd["assigned"] = false
+			crew_pool += 1
+
+func crew_role_counts() -> Dictionary:
+	# Count AVAILABLE (unassigned) crew by role, for the HUD summary line.
+	var counts: Dictionary = {"pilot": 0, "engineer": 0, "gunner": 0}
+	for c in available_crew():
+		var cd: Dictionary = c
+		var r: String = String(cd.get("role", ""))
+		if counts.has(r):
+			counts[r] = int(counts[r]) + 1
+	return counts
+
+func roster_to_save() -> Array:
+	# Serialise the full roster (assigned crew included) for the save file.
+	var out: Array = []
+	for c in crew_roster:
+		var cd: Dictionary = c
+		out.append({
+			"name": String(cd.get("name", "")),
+			"role": String(cd.get("role", "pilot")),
+			"skill": int(cd.get("skill", 1)),
+			"morale": float(cd.get("morale", 1.0)),
+			"assigned": bool(cd.get("assigned", false)),
+		})
+	return out
+
+func roster_from_save(data: Array) -> void:
+	crew_roster.clear()
+	for entry in data:
+		if typeof(entry) != TYPE_DICTIONARY:
+			continue
+		var ed: Dictionary = entry
+		crew_roster.append({
+			"name": String(ed.get("name", "Crew")),
+			"role": String(ed.get("role", "pilot")),
+			"skill": clampi(int(ed.get("skill", 1)), 1, 10),
+			"morale": clampf(float(ed.get("morale", 1.0)), 0.0, 1.0),
+			"assigned": bool(ed.get("assigned", false)),
+		})
+
+func rebuild_default_roster(rng: RandomNumberGenerator, count: int) -> void:
+	# Backward-compatible fallback for old saves with no roster: synthesise `count`
+	# unassigned crew so crew_pool == available_crew().size() still holds.
+	crew_roster.clear()
+	for i in range(max(0, count)):
+		var c: Dictionary = _make_crew_member(rng)
+		c["assigned"] = false
+		crew_roster.append(c)
+
 func reset() -> void:
 	credits = 4200
 	crew_pool = 3
 	marine_pool = 6
 	captured_count = 0
 	purchased_count = 0
+	# Seed the starting roster of 3 unassigned crew matching crew_pool.
+	var rng: RandomNumberGenerator = RandomNumberGenerator.new()
+	rng.randomize()
+	crew_roster.clear()
+	for i in range(crew_pool):
+		crew_roster.append(_make_crew_member(rng))
