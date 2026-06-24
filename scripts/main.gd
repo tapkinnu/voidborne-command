@@ -254,6 +254,14 @@ const STAR_SYSTEMS: Array = [
 # Index of the active star system; round-tripped through the save. system_count is exposed
 # as a read-only property so tests/HUD can read it via Object.get().
 var current_system_index: int = 0
+
+# Per-system record of which hostile station names the player has captured.
+# Keyed by system index (int) → Array of station name Strings. When a system is
+# rebuilt (jump or load), stations whose names appear here spawn as player-faction
+# instead of hostile. Round-tripped through save/load (backward-compatible: old
+# saves default to empty — no captured stations).
+var captured_station_names: Dictionary = {}
+
 var system_count: int:
 	get:
 		return STAR_SYSTEMS.size()
@@ -875,13 +883,27 @@ func _build_system_battle(sys_index: int, spawn_wing: bool = true) -> void:
 		if hai != "":
 			hs.ai_state = hai
 
-	# Capturable hostile stations last (matches original spawn order).
+	# Capturable hostile stations last (matches original spawn order). Stations the
+	# player has already captured in this system spawn as player-faction instead.
+	var cap_names: Array = []
+	if captured_station_names.has(idx):
+		cap_names = captured_station_names[idx]
 	for st2 in sys.get("stations", []):
 		var sd2: Dictionary = st2
 		if String(sd2.get("faction", "neutral")) != "hostile":
 			continue
-		var hst: Node3D = _spawn_ship("station", "hostile", String(sd2.get("name", "Relay")), sd2.get("pos", Vector3.ZERO))
-		hst.ai_state = String(sd2.get("ai", "guard"))
+		var st_name: String = String(sd2.get("name", "Relay"))
+		var st_faction: String = "hostile"
+		if cap_names.has(st_name):
+			st_faction = "player"
+		var hst: Node3D = _spawn_ship("station", st_faction, st_name, sd2.get("pos", Vector3.ZERO))
+		if st_faction == "hostile":
+			hst.ai_state = String(sd2.get("ai", "guard"))
+		else:
+			# Captured stations don't attack; they are player-owned service hubs.
+			hst.ai_state = "guard"
+			hst.manned = false
+			hst.crew_assigned = 0
 
 # ---------------------------------------------------------------------------
 # INTER-SYSTEM JUMP
@@ -1813,6 +1835,15 @@ func _destroy_ship(s: Node3D) -> void:
 	for other in ships:
 		if is_instance_valid(other) and other.target == s:
 			other.target = null
+	if s.ship_class == "station" and s.faction == "player":
+		var sys_key: int = current_system_index
+		if captured_station_names.has(sys_key):
+			var names: Array = captured_station_names[sys_key]
+			var sn: String = String(s.ship_name)
+			if names.has(sn):
+				names.erase(sn)
+				if names.is_empty():
+					captured_station_names.erase(sys_key)
 	ships.erase(s)
 	s.queue_free()
 
@@ -2281,6 +2312,15 @@ func _complete_capture(s: Node3D) -> void:
 	var attackers_lost: int = max(0, boarding_initial_attacker - boarding_attacker_strength)
 	var defenders_lost: int = max(0, boarding_initial_defender - boarding_defender_strength)
 	s.set_faction("player")
+	# Record the captured station so it survives future jumps/teardowns of this system.
+	if s.ship_class == "station":
+		var sys_key: int = current_system_index
+		if not captured_station_names.has(sys_key):
+			captured_station_names[sys_key] = []
+		var names: Array = captured_station_names[sys_key]
+		var sn: String = String(s.ship_name)
+		if not names.has(sn):
+			names.append(sn)
 	s.disabled = false
 	s.hull = max(s.hull, s.max_hull * 0.4)
 	# Captured asset starts ungarrisoned; the surviving boarders become the new marine pool.
@@ -3071,6 +3111,7 @@ func _build_save_dict() -> Dictionary:
 		"target": tgt_name,
 		"ships": ship_list,
 		"current_system_index": current_system_index,
+		"captured_station_names": captured_station_names,
 		"missions": _missions_to_save(),
 		"current_mission_index": current_mission_index,
 		"destroyed_hostile_count": _destroyed_hostile_count,
@@ -3273,6 +3314,19 @@ func _apply_save(parsed: Dictionary) -> void:
 	current_system_index = int(parsed.get("current_system_index", 0))
 	if current_system_index < 0 or current_system_index >= STAR_SYSTEMS.size():
 		current_system_index = 0
+
+	# Restore the per-system captured-station record (backward-compatible: old saves
+	# without this field default to empty — no captured stations).
+	captured_station_names = {}
+	if parsed.has("captured_station_names") and typeof(parsed["captured_station_names"]) == TYPE_DICTIONARY:
+		var csn: Dictionary = parsed["captured_station_names"]
+		for key in csn.keys():
+			var sys_idx: int = int(key)
+			var names_arr: Array = csn[key]
+			var clean: Array = []
+			for nm in names_arr:
+				clean.append(String(nm))
+			captured_station_names[sys_idx] = clean
 
 	var econ: Dictionary = parsed["economy"]
 	Game.credits = int(econ["credits"])
