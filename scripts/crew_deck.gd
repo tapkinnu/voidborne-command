@@ -315,7 +315,6 @@ func refresh_roster() -> void:
 			c["node"].queue_free()
 	crew_nodes.clear()
 	var avail: Array = Game.available_crew()
-	var n_mar: int = clampi(Game.marine_pool, 0, 6)
 	var idx: int = 0
 	var total: int = 0
 	match current_room_index:
@@ -346,11 +345,14 @@ func refresh_roster() -> void:
 				_spawn_crew_detail(c, idx, total)
 				idx += 1
 		2:
-			total = max(1, n_mar)
-			for i in range(n_mar):
-				_spawn_crew_marine(idx, total)
-				idx += 1
-			if n_mar == 0:
+			var marines: Array = Game.available_marines()
+			total = max(1, marines.size())
+			var mi: int = 0
+			for m in marines:
+				_spawn_crew_marine_named(m, mi, total)
+				mi += 1
+			if marines.is_empty():
+				# No available marines — show the crew instead so the room isn't empty.
 				idx = 0
 				total = max(1, avail.size())
 				for c in avail:
@@ -386,7 +388,7 @@ func _spawn_crew_detail(crew_dict: Dictionary, idx: int, total: int) -> void:
 		"home": home,
 	})
 
-func _spawn_crew_marine(idx: int, total: int) -> void:
+func _spawn_crew_marine_named(marine_dict: Dictionary, idx: int, total: int) -> void:
 	var col: Color = Color(1.0, 0.5, 0.35)
 	var hh: Node3D = _build_humanoid(col)
 	hh.scale = Vector3(1.28, 1.28, 1.28)
@@ -395,9 +397,19 @@ func _spawn_crew_marine(idx: int, total: int) -> void:
 	var home: Vector3 = Vector3(cx + sin(ang) * 3.0, 0, cos(ang) * 4.0)
 	hh.position = home
 	_crew_container.add_child(hh)
+	var mname: String = String(marine_dict.get("name", "Marine"))
+	var skill: int = int(marine_dict.get("skill", 1))
+	var label: Label3D = Label3D.new()
+	label.text = "%s [MAR] S%d" % [mname, skill]
+	label.font_size = 48
+	label.pixel_size = 0.01
+	label.no_depth_test = true
+	label.position = Vector3(0, 2.4, 0)
+	label.modulate = Color(1, 1, 1)
+	hh.add_child(label)
 	crew_nodes.append({
 		"node": hh,
-		"name": Game.random_name(rng),
+		"name": mname,
 		"role": "marine",
 		"following": false,
 		"home": home,

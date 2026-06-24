@@ -109,6 +109,7 @@ var boarding_target: Node3D = null
 var boarding_progress: float = 0.0        # 0..1 capture nearness for the HUD bar
 var boarding_attacker_strength: int = 0
 var boarding_defender_strength: int = 0
+var boarding_drawn_marines: Array = []    # named marines committed to the current boarding
 var boarding_initial_attacker: int = 0
 var boarding_initial_defender: int = 0
 var boarding_round_timer: float = 0.0     # accumulates game time toward the next round
@@ -2227,7 +2228,8 @@ func _try_start_boarding() -> void:
 	boarding_progress = 0.0
 	boarding_round_timer = 0.0
 	boarding_round_count = 0
-	boarding_attacker_strength = Game.marine_pool
+	boarding_drawn_marines = Game.draw_boarding_marines(Game.marine_pool)
+	boarding_attacker_strength = boarding_drawn_marines.size()
 	boarding_defender_strength = int(target.marine_garrison)
 	boarding_initial_attacker = boarding_attacker_strength
 	boarding_initial_defender = boarding_defender_strength
@@ -2291,13 +2293,24 @@ func _fail_boarding() -> void:
 	var lost: int = boarding_initial_attacker
 	var holders: int = boarding_defender_strength
 	var nm: String = boarding_target.ship_name if is_instance_valid(boarding_target) else "target"
-	Game.marine_pool = 0
+	# Drawn marines are already marked assigned and excluded from the pool.
+	# They are now permanently lost — remove them from the roster entirely.
+	for m in boarding_drawn_marines:
+		if typeof(m) == TYPE_DICTIONARY:
+			Game.marine_roster.erase(m)
+	boarding_drawn_marines = []
 	boarding_failed = true
 	_msg("BOARDING FAILED — all %d marines lost. %s holds with %d defenders." % [lost, nm, holders])
 	if audio: audio.play("boarding_fail")
 	_cancel_boarding()
 
 func _cancel_boarding() -> void:
+	# Aborting without a resolution (target destroyed / drifted away): the committed
+	# marines fall back to the available pool. After a fail/capture this list is already
+	# empty, so this is a no-op in those paths.
+	if not boarding_drawn_marines.is_empty():
+		Game.restore_boarding_marines(boarding_drawn_marines)
+		boarding_drawn_marines = []
 	boarding_active = false
 	boarding_target = null
 	boarding_progress = 0.0
@@ -2325,7 +2338,19 @@ func _complete_capture(s: Node3D) -> void:
 	s.hull = max(s.hull, s.max_hull * 0.4)
 	# Captured asset starts ungarrisoned; the surviving boarders become the new marine pool.
 	s.marine_garrison = 0
-	Game.marine_pool = max(0, boarding_attacker_strength)
+	# Squad casualties: only the surviving boarders (boarding_attacker_strength) return
+	# to the available pool; the fallen are removed from the roster entirely.
+	var survivors_count: int = max(0, boarding_attacker_strength)
+	var boarding_survivors: Array = []
+	for m in boarding_drawn_marines:
+		if typeof(m) != TYPE_DICTIONARY:
+			continue
+		if boarding_survivors.size() < survivors_count:
+			boarding_survivors.append(m)
+		else:
+			Game.marine_roster.erase(m)
+	Game.restore_boarding_marines(boarding_survivors)
+	boarding_drawn_marines = []
 	Game.captured_count += 1
 	_msg("Boarding won: %d attackers lost, %d defenders lost." % [attackers_lost, defenders_lost])
 	if reward > 0:
@@ -2744,8 +2769,8 @@ func _recruit(kind: String, near_station: bool) -> void:
 		var role_abbr: String = String(Game.ROLE_ABBR.get(new_crew.get("role", ""), "?"))
 		_msg("Recruited %s [%s] S%d (%d available). Cost %d." % [new_crew.get("name", "Crew"), role_abbr, int(new_crew.get("skill", 1)), Game.crew_pool, cost])
 	else:
-		Game.marine_pool += 1
-		_msg("Recruited marine (%d available). Cost %d." % [Game.marine_pool, cost])
+		var new_marine: Dictionary = Game.recruit_marine_member(rng)
+		_msg("Recruited marine %s S%d (%d available). Cost %d." % [new_marine.get("name", "Marine"), int(new_marine.get("skill", 1)), Game.marine_pool, cost])
 	if deck and deck.has_method("refresh_roster"):
 		deck.refresh_roster()
 	if audio: audio.play("ui_recruit")
@@ -3103,6 +3128,7 @@ func _build_save_dict() -> Dictionary:
 			"captured_count": Game.captured_count,
 			"purchased_count": Game.purchased_count,
 			"crew_roster": Game.roster_to_save(),
+			"marine_roster": Game.marine_roster_to_save(),
 		},
 		"shipyard_index": shipyard_index,
 		"fleet_order": fleet_order,
@@ -3342,6 +3368,13 @@ func _apply_save(parsed: Dictionary) -> void:
 		var rebuild_rng: RandomNumberGenerator = RandomNumberGenerator.new()
 		rebuild_rng.randomize()
 		Game.rebuild_default_roster(rebuild_rng, int(econ.get("crew_pool", 0)))
+
+	if econ.has("marine_roster"):
+		Game.marine_roster_from_save(econ["marine_roster"])
+	else:
+		var rebuild_mrng: RandomNumberGenerator = RandomNumberGenerator.new()
+		rebuild_mrng.randomize()
+		Game.rebuild_default_marine_roster(rebuild_mrng, int(econ.get("marine_pool", 0)))
 
 	var used_names: Dictionary = {}
 	for entry in parsed["ships"]:
