@@ -17,7 +17,7 @@ import json
 import sys
 
 GAME_ID = "voidborne_command"
-CURRENT_VERSION = 1
+CURRENT_VERSION = 2
 SHIP_CLASSES = {"fighter", "corvette", "frigate", "capital", "station"}
 ECONOMY_KEYS = ("credits", "crew_pool", "marine_pool", "captured_count", "purchased_count")
 SHIP_REQUIRED = ("ship_name", "ship_class", "faction")

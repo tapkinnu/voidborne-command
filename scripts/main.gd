@@ -160,6 +160,24 @@ const AUTOSAVE_INTERVAL: float = 60.0
 var autosave_path: String = "user://voidborne_autosave.json"
 var _autosave_timer: float = 0.0
 
+# --- Multi-slot named saves -------------------------------------------------
+# Named slots reuse the SAME _build_save_dict()/_validate_save()/_apply_save() pipeline
+# and on-disk format as the manual quick-save; only the file path differs. A small
+# slots_meta.json sidecar caches per-slot summary info (name/credits/fleet/system/time)
+# so the menu can render without parsing every full slot file. save_slot_dir is a script
+# variable so tests can redirect it to a scratch directory.
+const MAX_SAVE_SLOTS: int = 6
+var save_slot_dir: String = "user://saves/"
+# Preset labels cycled by the [R] rename key (no full keyboard text entry).
+const SLOT_NAME_PRESETS: Array = ["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Vanguard", "Reserve"]
+
+# Save/load menu overlay state. Mirrors the settings/dock-screen overlay pattern: while
+# save_menu_open is true _process_space() freezes and _input() routes every key to the menu.
+var save_menu_open: bool = false
+var save_menu_cursor: int = 0          # 0-indexed selected row (0..MAX_SAVE_SLOTS-1)
+var save_menu_mode: String = "save"    # "save" or "load"
+var save_menu_confirm_delete: bool = false
+
 var messages: Array = []           # rolling message log (strings)
 var objective: String = "Capture hostile stations Kryos Relay and Ironhold. Defend friendly stations. Hostile reinforcements may arrive."
 var _elapsed: float = 0.0
@@ -335,6 +353,14 @@ func _input(event: InputEvent) -> void:
 			if ke.keycode == KEY_F1:
 				_toggle_settings()
 				return
+			# F5 always toggles the save/load slot menu (open or close).
+			if ke.keycode == KEY_F5:
+				_toggle_save_menu()
+				return
+			# While the save/load menu is open, every key drives the menu.
+			if save_menu_open:
+				_handle_save_menu_key(ke.keycode)
+				return
 			# While the settings menu is open, every key drives the menu.
 			if settings_open:
 				_handle_settings_menu_key(ke.keycode)
@@ -410,6 +436,272 @@ func _handle_fleet_menu_key(keycode: int) -> void:
 			fleet_menu_open = false
 			_msg("Fleet order menu closed.")
 			if audio: audio.play("ui_recruit")
+
+# ---------------------------------------------------------------------------
+# SAVE / LOAD SLOT MENU OVERLAY
+# ---------------------------------------------------------------------------
+func _toggle_save_menu() -> void:
+	# Opens/closes the F5 save-load overlay. On open the cursor resets to slot 1 and the
+	# mode defaults to "save". While open, _process_space() freezes the sim and _input()
+	# routes every key to _handle_save_menu_key (same pattern as the settings/dock screen).
+	save_menu_open = not save_menu_open
+	save_menu_confirm_delete = false
+	if save_menu_open:
+		save_menu_cursor = 0
+		save_menu_mode = "save"
+		_msg("Save/Load menu opened.")
+	else:
+		_msg("Save/Load menu closed.")
+	if audio: audio.play("ui_recruit")
+
+func _handle_save_menu_key(keycode: int) -> void:
+	# A pending delete confirmation intercepts Enter (confirm) and Esc (cancel) first.
+	if save_menu_confirm_delete:
+		match keycode:
+			KEY_ENTER, KEY_KP_ENTER:
+				var del_slot: int = save_menu_cursor + 1
+				if not delete_slot(del_slot):
+					_msg("Slot %d already empty." % del_slot)
+					if audio: audio.play("ui_deny")
+				save_menu_confirm_delete = false
+				return
+			KEY_ESCAPE:
+				save_menu_confirm_delete = false
+				_msg("Delete cancelled.")
+				return
+			_:
+				return
+	match keycode:
+		KEY_UP:
+			save_menu_cursor = (save_menu_cursor - 1 + MAX_SAVE_SLOTS) % MAX_SAVE_SLOTS
+		KEY_DOWN:
+			save_menu_cursor = (save_menu_cursor + 1) % MAX_SAVE_SLOTS
+		KEY_S:
+			save_menu_mode = "save"
+			_msg("Mode: SAVE.")
+		KEY_D:
+			save_menu_mode = "load"
+			_msg("Mode: LOAD.")
+		KEY_ENTER, KEY_KP_ENTER:
+			var slot: int = save_menu_cursor + 1
+			if save_menu_mode == "save":
+				save_to_slot(slot, _slot_label(slot))
+			else:
+				if not load_from_slot(slot):
+					if audio: audio.play("ui_deny")
+		KEY_DELETE, KEY_X:
+			if slot_exists(save_menu_cursor + 1):
+				save_menu_confirm_delete = true
+				_msg("Confirm delete of slot %d?" % (save_menu_cursor + 1))
+			else:
+				_msg("Slot %d is empty." % (save_menu_cursor + 1))
+				if audio: audio.play("ui_deny")
+		KEY_R:
+			_cycle_slot_name(save_menu_cursor + 1)
+		KEY_F5, KEY_ESCAPE:
+			_toggle_save_menu()
+
+func _slot_label(slot_index: int) -> String:
+	# Current label for a slot from meta, falling back to the default "Slot N".
+	var metas: Array = get_slot_meta()
+	var idx: int = slot_index - 1
+	if idx >= 0 and idx < metas.size():
+		var m: Dictionary = metas[idx]
+		var nm: String = String(m.get("name", ""))
+		if nm != "":
+			return nm
+	return "Slot %d" % slot_index
+
+func _cycle_slot_name(slot_index: int) -> void:
+	# Advances a slot's label to the next preset name and persists it in the meta sidecar.
+	var metas: Array = get_slot_meta()
+	var idx: int = slot_index - 1
+	if idx < 0 or idx >= metas.size():
+		return
+	var m: Dictionary = metas[idx]
+	var cur: String = String(m.get("name", ""))
+	var next_i: int = 0
+	var found: int = SLOT_NAME_PRESETS.find(cur)
+	if found >= 0:
+		next_i = (found + 1) % SLOT_NAME_PRESETS.size()
+	m["name"] = String(SLOT_NAME_PRESETS[next_i])
+	metas[idx] = m
+	_write_slot_meta(metas)
+	_msg("Slot %d renamed to %s." % [slot_index, String(m["name"])])
+	if audio: audio.play("ui_recruit")
+
+# ---------------------------------------------------------------------------
+# SAVE SLOT FILE MANAGEMENT
+# ---------------------------------------------------------------------------
+func slot_path(slot_index: int) -> String:
+	# Full path for a 1-indexed slot file (no range check; callers validate the index).
+	return save_slot_dir.path_join("slot_%d.json" % slot_index)
+
+func _slot_meta_path() -> String:
+	return save_slot_dir.path_join("slots_meta.json")
+
+func slot_exists(slot_index: int) -> bool:
+	if slot_index < 1 or slot_index > MAX_SAVE_SLOTS:
+		return false
+	return FileAccess.file_exists(slot_path(slot_index))
+
+func save_to_slot(slot_index: int, slot_name: String) -> bool:
+	if slot_index < 1 or slot_index > MAX_SAVE_SLOTS:
+		_msg("Invalid save slot %d." % slot_index)
+		if audio: audio.play("ui_deny")
+		return false
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(save_slot_dir))
+	var data: Dictionary = _build_save_dict()
+	var f: FileAccess = FileAccess.open(slot_path(slot_index), FileAccess.WRITE)
+	if f == null:
+		_msg("Save failed: cannot open %s" % slot_path(slot_index))
+		if audio: audio.play("ui_deny")
+		return false
+	f.store_string(JSON.stringify(data, "\t"))
+	f.close()
+	var nm: String = slot_name if slot_name != "" else "Slot %d" % slot_index
+	# Update the meta sidecar for this slot only, preserving the others.
+	var metas: Array = _read_slot_meta()
+	metas[slot_index - 1] = {
+		"index": slot_index,
+		"name": nm,
+		"exists": true,
+		"credits": int(Game.credits),
+		"fleet": _count_fleet(),
+		"system": system_name(current_system_index),
+		"timestamp": Time.get_datetime_string_from_system(false, true),
+	}
+	_write_slot_meta(metas)
+	_msg("Saved to slot %d: %s" % [slot_index, nm])
+	if audio: audio.play("ui_buy")
+	return true
+
+func load_from_slot(slot_index: int) -> bool:
+	if slot_index < 1 or slot_index > MAX_SAVE_SLOTS:
+		_msg("Invalid save slot %d." % slot_index)
+		if audio: audio.play("ui_deny")
+		return false
+	if not FileAccess.file_exists(slot_path(slot_index)):
+		_msg("Slot %d is empty." % slot_index)
+		if audio: audio.play("ui_deny")
+		return false
+	var f: FileAccess = FileAccess.open(slot_path(slot_index), FileAccess.READ)
+	if f == null:
+		_msg("Load failed: cannot open slot %d." % slot_index)
+		if audio: audio.play("ui_deny")
+		return false
+	var text: String = f.get_as_text()
+	f.close()
+	var parsed: Variant = JSON.parse_string(text)
+	var reason: String = _validate_save(parsed)
+	if reason != "":
+		_msg("Slot %d rejected: %s" % [slot_index, reason])
+		if audio: audio.play("ui_deny")
+		return false
+	_apply_save(parsed)
+	_msg("Loaded slot %d: %s" % [slot_index, _slot_label(slot_index)])
+	if audio: audio.play("ui_buy")
+	return true
+
+func delete_slot(slot_index: int) -> bool:
+	if slot_index < 1 or slot_index > MAX_SAVE_SLOTS:
+		return false
+	if not FileAccess.file_exists(slot_path(slot_index)):
+		return false
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(slot_path(slot_index)))
+	var metas: Array = _read_slot_meta()
+	metas[slot_index - 1] = _empty_slot_meta(slot_index)
+	_write_slot_meta(metas)
+	_msg("Deleted slot %d." % slot_index)
+	if audio: audio.play("ui_recruit")
+	return true
+
+func get_slot_meta() -> Array:
+	# Public accessor: the 6-entry metadata array, rebuilt from disk if missing/corrupt.
+	return _read_slot_meta()
+
+func _empty_slot_meta(slot_index: int) -> Dictionary:
+	return {
+		"index": slot_index,
+		"name": "Slot %d" % slot_index,
+		"exists": false,
+		"credits": 0,
+		"fleet": 0,
+		"system": "",
+		"timestamp": "",
+	}
+
+func _read_slot_meta() -> Array:
+	# Reads slots_meta.json and validates it is an Array of MAX_SAVE_SLOTS Dictionaries.
+	# Any deviation (missing file, corrupt JSON, wrong size/shape) triggers a full rebuild
+	# by scanning the slot files so the menu always has a complete, consistent array.
+	var path: String = _slot_meta_path()
+	if not FileAccess.file_exists(path):
+		return _rebuild_slot_meta()
+	var f: FileAccess = FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return _rebuild_slot_meta()
+	var text: String = f.get_as_text()
+	f.close()
+	var parsed: Variant = JSON.parse_string(text)
+	if typeof(parsed) != TYPE_ARRAY:
+		return _rebuild_slot_meta()
+	var arr: Array = parsed
+	if arr.size() != MAX_SAVE_SLOTS:
+		return _rebuild_slot_meta()
+	for entry in arr:
+		if typeof(entry) != TYPE_DICTIONARY:
+			return _rebuild_slot_meta()
+	return arr
+
+func _write_slot_meta(metas: Array) -> void:
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(save_slot_dir))
+	var f: FileAccess = FileAccess.open(_slot_meta_path(), FileAccess.WRITE)
+	if f == null:
+		return
+	f.store_string(JSON.stringify(metas, "\t"))
+	f.close()
+
+func _rebuild_slot_meta() -> Array:
+	# Scans slot_1.json..slot_N.json, extracting credits/fleet/system from each present
+	# file. Names default to "Slot N" (the player label is only kept in the meta sidecar,
+	# so a rebuild after the sidecar is lost falls back to defaults).
+	var metas: Array = []
+	for i in range(1, MAX_SAVE_SLOTS + 1):
+		if not FileAccess.file_exists(slot_path(i)):
+			metas.append(_empty_slot_meta(i))
+			continue
+		var f: FileAccess = FileAccess.open(slot_path(i), FileAccess.READ)
+		if f == null:
+			metas.append(_empty_slot_meta(i))
+			continue
+		var text: String = f.get_as_text()
+		f.close()
+		var parsed: Variant = JSON.parse_string(text)
+		if typeof(parsed) != TYPE_DICTIONARY:
+			metas.append(_empty_slot_meta(i))
+			continue
+		var d: Dictionary = parsed
+		var econ: Dictionary = d.get("economy", {}) if typeof(d.get("economy", {})) == TYPE_DICTIONARY else {}
+		var sys_idx: int = int(d.get("current_system_index", 0))
+		var ship_count: int = 0
+		var ships_v: Variant = d.get("ships", [])
+		if typeof(ships_v) == TYPE_ARRAY:
+			for sv in (ships_v as Array):
+				if typeof(sv) == TYPE_DICTIONARY:
+					var sd: Dictionary = sv
+					if String(sd.get("faction", "")) == "player" and not bool(sd.get("is_player", false)) and not bool(sd.get("destroyed", false)):
+						ship_count += 1
+		metas.append({
+			"index": i,
+			"name": "Slot %d" % i,
+			"exists": true,
+			"credits": int(econ.get("credits", 0)),
+			"fleet": ship_count,
+			"system": system_name(sys_idx),
+			"timestamp": "",
+		})
+	return metas
 
 # ---------------------------------------------------------------------------
 # STATION MARKET / DOCK SCREEN OVERLAY
@@ -1127,7 +1419,7 @@ func _process_space(delta: float) -> void:
 	# (called by _process after this returns) so the pause overlay stays on screen. We use
 	# this boolean rather than get_tree().paused so timers and the capture autoload survive.
 	# The station market / dock screen freezes the sim the same way while it is open.
-	if paused or dock_screen_open:
+	if paused or dock_screen_open or save_menu_open:
 		return
 	# Tick audio-trigger cooldowns and raise the low-hull klaxon when the player is critical.
 	_overheat_cd = max(0.0, _overheat_cd - delta)
@@ -3611,6 +3903,13 @@ func _update_hud() -> void:
 	d["dock_screen_station"] = String(dock_svc.ship_name) if dock_svc != null else ""
 	if dock_screen_open:
 		d["dock_screen"] = _build_dock_screen()
+	# Save/load slot menu overlay (rendered on top of the rest of the HUD when open).
+	d["save_menu_open"] = save_menu_open
+	d["save_menu_cursor"] = save_menu_cursor
+	d["save_menu_mode"] = save_menu_mode
+	d["save_menu_confirm_delete"] = save_menu_confirm_delete
+	if save_menu_open:
+		d["save_slots"] = get_slot_meta()
 
 	if deck_mode:
 		var st: Dictionary = deck.status()

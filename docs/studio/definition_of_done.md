@@ -126,7 +126,19 @@
   destroyed/cleared hostiles. Saves are rejected (without clobbering live state) when corrupt,
   wrong `game_id`, missing required sections, or a future `version`. Covered by
   `tests/test_save_load.gd` and the producer-side `tools/verify_save_load.py` (wired into
-  `validate_build.sh`). Multi-slot/named saves and cross-system persistence remain backlog.
+  `validate_build.sh`).
+- [x] Multi-slot named-save persistence. Shipped: an in-game **save/load slot menu** (`F5`)
+  managing six named slots at `user://saves/slot_1.json`…`slot_6.json` (`save_slot_dir` is
+  overridable for tests). Each slot reuses the exact `_build_save_dict()`/`_validate_save()`/
+  `_apply_save()` pipeline and `SAVE_VERSION` as quick-save — a slot save is just a quick-save
+  written to its own file, never touching the `V`/`L` manual slot or the autosave slot. A
+  `slots_meta.json` sidecar caches each slot's label/credits/fleet/system/timestamp for the
+  menu and self-heals (rebuilds by scanning slot files) if missing or corrupt. The menu
+  supports save/load/rename/delete (with delete confirmation) and freezes flight/AI/combat
+  while open. Public slot API (`save_to_slot`/`load_from_slot`/`delete_slot`/`slot_exists`/
+  `get_slot_meta`/`slot_path`) is covered by `tests/test_save_slots.gd`. Also fixed the
+  producer-side verifier (`tools/verify_save_load.py`) `CURRENT_VERSION` to match the engine's
+  `SAVE_VERSION = 2`.
 - [x] Station shipyard can cycle multiple buyable classes (fighter/corvette/frigate/capital).
 - [x] Station docking UI: repair/refit and a fuller market screen. Repair/refit dock
   service (`H`) restores hull/shield/energy across the manned, player-owned fleet at any
@@ -257,5 +269,6 @@
   state (including the active system index) can be quick-saved/loaded (`V`/`L`) to one
   versioned slot. A non-destructive **autosave** now writes to a separate slot
   (`user://voidborne_autosave.json`) every 60 s during active space gameplay and on jump/capture
-  milestones, but multi-slot named-save persistence remains backlog. Captured stations now
-  persist across jumps (a per-system `captured_station_names` record survives teardown/rebuild).
+  milestones, and an `F5` **save/load slot menu** adds six named slots under `user://saves/`.
+  Captured stations now persist across jumps (a per-system `captured_station_names` record
+  survives teardown/rebuild).

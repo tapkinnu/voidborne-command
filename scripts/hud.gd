@@ -201,6 +201,9 @@ func _draw() -> void:
 	# Station market / dock screen sits on top of everything when open (J key).
 	if bool(data.get("dock_screen_open", false)):
 		_draw_dock_screen(vp)
+	# Save/load slot menu sits on top of the HUD when open (F5 key).
+	if bool(data.get("save_menu_open", false)):
+		_draw_save_menu(vp)
 
 func _draw_system_map(vp: Vector2) -> void:
 	# Centered top-down map of the system: stations as labelled squares, other ships as
@@ -426,6 +429,56 @@ func _draw_settings_overlay(vp: Vector2) -> void:
 			_txt(Vector2(vx, row_y), String(entry[1]), label_col, 13)
 		row_y += 26.0
 	_txt(Vector2(x + 16, y + h - 18.0), "↑↓ select   ←→ change   F1/Esc close", Color(0.62, 0.82, 0.94, 0.85), 12)
+
+func _draw_save_menu(vp: Vector2) -> void:
+	# Centered save/load slot panel. main.gd feeds the 6-entry slot meta array, the cursor
+	# row, the mode ("save"/"load"), and a pending-delete flag; navigation happens in
+	# main._input. The highlighted row gets a '►' marker and a bright color.
+	var w: float = 500.0
+	var h: float = 400.0
+	var x: float = vp.x * 0.5 - w * 0.5
+	var y: float = vp.y * 0.5 - h * 0.5
+	draw_rect(Rect2(Vector2(x, y), Vector2(w, h)), Color(0.0, 0.04, 0.07, 0.94), true)
+	draw_rect(Rect2(Vector2(x, y), Vector2(w, h)), C_LINE, false, 1.5)
+	_txt(Vector2(x + 16, y + 26), "SAVE / LOAD  (F5/Esc to close)", C_LINE, 15)
+
+	var mode: String = String(data.get("save_menu_mode", "save"))
+	var cursor: int = int(data.get("save_menu_cursor", 0))
+	var confirm: bool = bool(data.get("save_menu_confirm_delete", false))
+	var slots: Array = data.get("save_slots", [])
+	var bright: Color = Color(1.0, 0.95, 0.5)
+	var dim: Color = Color(0.6, 0.78, 0.9)
+	var empty_col: Color = Color(0.5, 0.55, 0.62)
+
+	var mode_label: String = "MODE: SAVE (S to save, Enter to write)" if mode == "save" else "MODE: LOAD (D to load, Enter to read)"
+	_txt(Vector2(x + 16, y + 50), mode_label, bright, 13)
+
+	var row_y: float = y + 84.0
+	for i in range(slots.size()):
+		var entry: Dictionary = slots[i]
+		var selected: bool = i == cursor
+		var marker: String = "►" if selected else " "
+		var exists: bool = bool(entry.get("exists", false))
+		var label: String = ""
+		if exists:
+			label = "%s [%d] %s — %d cr  fleet %d  %s  %s" % [
+				marker,
+				int(entry.get("index", i + 1)),
+				String(entry.get("name", "Slot %d" % (i + 1))),
+				int(entry.get("credits", 0)),
+				int(entry.get("fleet", 0)),
+				String(entry.get("system", "")),
+				String(entry.get("timestamp", "")),
+			]
+		else:
+			label = "%s [%d] %s — --- empty ---" % [marker, int(entry.get("index", i + 1)), String(entry.get("name", "Slot %d" % (i + 1)))]
+		var row_col: Color = bright if selected else (dim if exists else empty_col)
+		_txt(Vector2(x + 18, row_y), label, row_col, 13)
+		row_y += 30.0
+
+	if confirm:
+		_txt(Vector2(x + 16, y + h - 44.0), "PRESS ENTER TO CONFIRM DELETE / Esc to cancel", Color(1.0, 0.4, 0.34), 13)
+	_txt(Vector2(x + 16, y + h - 18.0), "↑↓ select   S=Save   D=Load   Enter=Confirm   X=Delete   F5/Esc=Close", Color(0.62, 0.82, 0.94, 0.85), 11)
 
 func _draw_dock_screen(vp: Vector2) -> void:
 	# Centered multi-tab station market. main.gd feeds the active tab/cursor and a structured

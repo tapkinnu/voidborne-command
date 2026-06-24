@@ -51,6 +51,7 @@ Screenshots are written to `artifacts/screenshots/` (plus a `contact_sheet.jpg`)
 | `T` | Order your manned fleet to **attack / focus-fire** the current target (same as menu `[6]`) |
 | `B` | Board a **disabled** target with marines |
 | `V` / `L` | **Quick save / quick load** the current battle (versioned `user://voidborne_save.json`) |
+| `F5` | Open the **save/load slot menu** — 6 named slots (`user://saves/slot_N.json`) with an in-game overlay to save, load, rename, or delete |
 | (auto) | **Autosave** every 60 s of active flight + on jump/capture (separate `user://voidborne_autosave.json`) |
 | `Z` | **Cycle subsystem focus** on the current target: none → engines → weapons → shields → none |
 | `` ` `` (backtick) | Toggle **mouse-aim flight** — captures the cursor; mouse X→yaw, mouse Y→pitch (additive over keyboard) |
@@ -90,6 +91,23 @@ The settings overlay shows six rows: **Resolution** (1280×720 / 1600×900 / 192
 and MSAA), **Pause**, **Mouse Aim**, and **Control Scheme**. While the menu is open,
 flight input is ignored. Settings are display preferences — they are not saved to the
 save file.
+
+### Save / load slot menu (F5)
+| Key | Action |
+| --- | --- |
+| `F5` / `Esc` | Open / close the save/load overlay |
+| `↑` / `↓` | Move the cursor between the six slots |
+| `S` / `D` | Switch to **Save** mode / **Load** mode |
+| `Enter` | Confirm: write the selected slot (Save) or read it (Load) |
+| `R` | Rename the selected slot (cycles a preset list of labels) |
+| `X` / `Del` | Delete the selected slot (asks for `Enter` to confirm) |
+
+The slot menu manages **six named saves** in `user://saves/slot_1.json` … `slot_6.json`.
+Each slot reuses the exact same save format and version as quick-save, so a slot save is
+just a quick-save written to its own file — the `V`/`L` quick-save slot and the autosave
+slot are never touched. A small `user://saves/slots_meta.json` sidecar caches each slot's
+label, credits, fleet size, system, and timestamp for the menu; if it is lost or corrupt
+it is rebuilt by scanning the slot files. While the menu is open, flight/AI/combat freeze.
 
 ### Command & economy (fly near the STATION)
 | Key | Action |
