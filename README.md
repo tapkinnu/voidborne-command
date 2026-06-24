@@ -86,7 +86,14 @@ Repair/refit works at the neutral **Halcyon** hub *and* at any station you have 
 | `A` / `D` / `W` / `S` | Walk the captain |
 | `F` | Order the nearest crew/marine to follow / stop |
 | `C` | Return to the bridge |
+| `R` | Cycle to the next owned ship's deck |
 | `V` / `L` | Quick save / quick load (a load returns you to the bridge) |
+
+The crew deck has three rooms — **Bridge** (pilots/engineers at command consoles),
+**Crew Quarters** (gunners at bunks), and **Marine Barracks** (marines at weapon racks).
+Walk through the door gaps at the room boundaries to move between rooms. The HUD shows
+the current ship and room. Press `R` to step onto a different owned ship's deck (when
+you have captured or purchased additional ships).
 
 ---
 
