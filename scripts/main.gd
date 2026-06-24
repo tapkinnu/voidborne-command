@@ -136,6 +136,17 @@ var messages: Array = []           # rolling message log (strings)
 var objective: String = "Capture hostile stations Kryos Relay and Ironhold. Defend friendly stations. Hostile reinforcements may arrive."
 var _elapsed: float = 0.0
 
+# --- Mission / objective system ---------------------------------------------
+# missions is a list of mission Dictionaries (see _init_missions). current_mission_index
+# points at the mission whose first incomplete objective feeds the top-center objective
+# string. Completion is checked every frame in _check_missions(); rewards are paid once.
+var missions: Array = []
+var current_mission_index: int = 0
+var _destroyed_hostile_count: int = 0   # cumulative mobile hostiles destroyed (mission tracking)
+var _purchased_frigate: bool = false    # set true once the player buys a frigate at the shipyard
+var _mission_check_accum: float = 0.0   # throttle accumulator for periodic mission evaluation
+const MISSION_CHECK_INTERVAL: float = 0.5
+
 # --- System map overlay (transient UI; not saved) ---------------------------
 var system_map_open: bool = false
 
@@ -156,6 +167,7 @@ func _ready() -> void:
 	_build_environment()
 	_build_stars()
 	_build_battle()
+	_init_missions()
 	if auto_demo:
 		_stage_capture_demo()
 	_build_hud()
@@ -476,6 +488,11 @@ func _process_space(delta: float) -> void:
 	_update_debris(delta)
 	_update_boarding(delta)
 	_update_respawns(delta)
+	# Mission completion is evaluated on a throttle (cheap, but no need to run every frame).
+	_mission_check_accum += delta
+	if _mission_check_accum >= MISSION_CHECK_INTERVAL:
+		_mission_check_accum = 0.0
+		_check_missions()
 	_update_camera(delta, false)
 	_handle_station_actions()
 
@@ -1116,6 +1133,8 @@ func _destroy_ship(s: Node3D) -> void:
 	if audio:
 		audio.play("explosion")
 	if s.faction == "hostile":
+		if s.ship_class != "station":
+			_destroyed_hostile_count += 1   # mission tracking: cumulative mobile hostiles destroyed
 		var reward: int = _destroy_salvage_reward(s)
 		Game.credits += reward
 		_msg("%s destroyed — salvage +%d cr." % [s.ship_name, reward])
@@ -1640,6 +1659,8 @@ func _handle_station_actions() -> void:
 		_cycle_control_scheme()
 	if Input.is_action_just_pressed("system_map"):
 		_toggle_system_map()
+	if Input.is_action_just_pressed("cycle_mission"):
+		_cycle_mission()
 	if Input.is_action_just_pressed("toggle_deck"):
 		_set_deck_mode(not deck_mode)
 		return
@@ -1698,6 +1719,231 @@ func _build_system_map() -> Dictionary:
 		"ships": dots,
 		"player": {"x": pp.x, "z": pp.z, "fx": pf.x, "fz": pf.z},
 	}
+
+# ---------------------------------------------------------------------------
+# MISSION / OBJECTIVE SYSTEM
+# ---------------------------------------------------------------------------
+func _init_missions() -> void:
+	# Static mission definitions. Each mission's objectives carry a "check" tag and an
+	# "arg" the per-frame _check_missions() evaluator uses to mark them done. current_mission
+	# index is clamped onto the first active mission and the objective string is seeded.
+	missions = [
+		{
+			"id": "capture_kryos",
+			"title": "Capture Kryos Relay",
+			"desc": "Disable and board the hostile Kryos Relay station.",
+			"reward": 3000,
+			"state": "active",
+			"objectives": [
+				{"text": "Capture Kryos Relay", "check": "capture_station", "arg": "Kryos Relay", "done": false},
+			],
+		},
+		{
+			"id": "capture_ironhold",
+			"title": "Capture Ironhold",
+			"desc": "Disable and board the hostile Ironhold station.",
+			"reward": 5000,
+			"state": "active",
+			"objectives": [
+				{"text": "Capture Ironhold", "check": "capture_station", "arg": "Ironhold", "done": false},
+			],
+		},
+		{
+			"id": "destroy_raiders",
+			"title": "Break the Raiders",
+			"desc": "Destroy 5 hostile mobile ships.",
+			"reward": 1500,
+			"state": "active",
+			"objectives": [
+				{"text": "Destroy 5 hostile ships", "check": "destroy_count", "arg": 5, "done": false},
+			],
+		},
+		{
+			"id": "buy_frigate",
+			"title": "Commission a Frigate",
+			"desc": "Buy a frigate at the shipyard.",
+			"reward": 800,
+			"state": "active",
+			"objectives": [
+				{"text": "Buy a frigate", "check": "buy_frigate", "arg": "", "done": false},
+			],
+		},
+		{
+			"id": "fleet_of_three",
+			"title": "Build a Fleet",
+			"desc": "Command 3 manned fleet ships at once.",
+			"reward": 2000,
+			"state": "active",
+			"objectives": [
+				{"text": "Command 3 fleet ships", "check": "fleet_of_three", "arg": 3, "done": false},
+			],
+		},
+	]
+	current_mission_index = _first_active_mission_index()
+	objective = _current_objective_text()
+
+func _first_active_mission_index() -> int:
+	for i in range(missions.size()):
+		var m: Dictionary = missions[i]
+		if String(m.get("state", "")) == "active":
+			return i
+	return 0
+
+func _current_objective_text() -> String:
+	# "[<title>] <first incomplete objective text>" for the active mission, or a fallback
+	# when every mission is complete/failed.
+	if missions.is_empty():
+		return objective
+	if current_mission_index < 0 or current_mission_index >= missions.size():
+		return "All missions complete."
+	var m: Dictionary = missions[current_mission_index]
+	if String(m.get("state", "")) != "active":
+		return "All missions complete."
+	var title: String = String(m.get("title", "Mission"))
+	var objs: Array = m.get("objectives", [])
+	for o in objs:
+		var od: Dictionary = o
+		if not bool(od.get("done", false)):
+			return "[%s] %s" % [title, String(od.get("text", ""))]
+	return "[%s] (complete)" % title
+
+func _cycle_mission() -> void:
+	# Advance to the next active mission (wrapping), skipping complete/failed ones.
+	var count: int = missions.size()
+	if count == 0:
+		_msg("No missions available.")
+		return
+	var found: int = -1
+	for step in range(1, count + 1):
+		var idx: int = (current_mission_index + step) % count
+		var m: Dictionary = missions[idx]
+		if String(m.get("state", "")) == "active":
+			found = idx
+			break
+	if found == -1:
+		_msg("All missions complete.")
+		objective = _current_objective_text()
+		return
+	current_mission_index = found
+	var cm: Dictionary = missions[current_mission_index]
+	objective = _current_objective_text()
+	_msg("Mission: %s — %s" % [String(cm.get("title", "")), String(cm.get("desc", ""))])
+	if audio: audio.play("ui_recruit")
+
+func _check_missions() -> void:
+	# Evaluate each active mission's un-done objectives; complete + pay missions whose
+	# objectives are all satisfied. Cheap: iterates the small mission/ship lists.
+	for mi in range(missions.size()):
+		var m: Dictionary = missions[mi]
+		if String(m.get("state", "")) != "active":
+			continue
+		var objs: Array = m.get("objectives", [])
+		var all_done: bool = true
+		for o in objs:
+			var od: Dictionary = o
+			if not bool(od.get("done", false)):
+				if _evaluate_objective(od):
+					od["done"] = true
+				else:
+					all_done = false
+		if all_done and not objs.is_empty():
+			m["state"] = "complete"
+			var reward: int = int(m.get("reward", 0))
+			Game.credits += reward
+			_msg("MISSION COMPLETE: %s  +%d cr." % [String(m.get("title", "")), reward])
+			if audio: audio.play("ui_buy")
+			# If this was the tracked mission, advance the pointer to the next active one.
+			if mi == current_mission_index:
+				var nxt: int = _first_active_mission_index()
+				if String(missions[nxt].get("state", "")) == "active":
+					current_mission_index = nxt
+	objective = _current_objective_text()
+
+func _evaluate_objective(od: Dictionary) -> bool:
+	# Returns true when the objective's win condition currently holds.
+	var check: String = String(od.get("check", ""))
+	match check:
+		"capture_station":
+			var nm: String = String(od.get("arg", ""))
+			for s in ships:
+				if is_instance_valid(s) and not s.destroyed and String(s.ship_name) == nm \
+						and String(s.ship_class) == "station" and String(s.faction) == "player":
+					return true
+			return false
+		"destroy_count":
+			return _destroyed_hostile_count >= int(od.get("arg", 0))
+		"buy_frigate":
+			return _purchased_frigate and Game.purchased_count > 0
+		"fleet_of_three":
+			return _count_fleet() >= int(od.get("arg", 3))
+	return false
+
+func _build_mission_hud() -> Dictionary:
+	# Current mission snapshot for the HUD panel; empty when no active mission remains.
+	if missions.is_empty():
+		return {}
+	if current_mission_index < 0 or current_mission_index >= missions.size():
+		return {}
+	var m: Dictionary = missions[current_mission_index]
+	var objs_out: Array = []
+	for o in m.get("objectives", []):
+		var od: Dictionary = o
+		objs_out.append({"text": String(od.get("text", "")), "done": bool(od.get("done", false))})
+	return {
+		"title": String(m.get("title", "")),
+		"desc": String(m.get("desc", "")),
+		"state": String(m.get("state", "active")),
+		"reward": int(m.get("reward", 0)),
+		"objectives": objs_out,
+	}
+
+func _missions_to_save() -> Array:
+	# Only the mutable state travels in the save; static definitions are rebuilt on load.
+	var out: Array = []
+	for m in missions:
+		var md: Dictionary = m
+		var done_flags: Array = []
+		for o in md.get("objectives", []):
+			var od: Dictionary = o
+			done_flags.append(bool(od.get("done", false)))
+		out.append({
+			"id": String(md.get("id", "")),
+			"state": String(md.get("state", "active")),
+			"objectives_done": done_flags,
+		})
+	return out
+
+func _missions_from_save(parsed: Dictionary) -> void:
+	# Restore mission states from a save. Missing/old saves leave the freshly-initialised
+	# active missions untouched (backward compatible).
+	if not parsed.has("missions"):
+		return
+	var saved: Array = parsed.get("missions", [])
+	var by_id: Dictionary = {}
+	for entry in saved:
+		if typeof(entry) != TYPE_DICTIONARY:
+			continue
+		var ed: Dictionary = entry
+		by_id[String(ed.get("id", ""))] = ed
+	for m in missions:
+		var md: Dictionary = m
+		var mid: String = String(md.get("id", ""))
+		if not by_id.has(mid):
+			continue
+		var sd: Dictionary = by_id[mid]
+		md["state"] = String(sd.get("state", "active"))
+		var done_flags: Array = sd.get("objectives_done", [])
+		var objs: Array = md.get("objectives", [])
+		for i in range(objs.size()):
+			if i < done_flags.size():
+				var od: Dictionary = objs[i]
+				od["done"] = bool(done_flags[i])
+	_destroyed_hostile_count = int(parsed.get("destroyed_hostile_count", _destroyed_hostile_count))
+	_purchased_frigate = bool(parsed.get("purchased_frigate", _purchased_frigate))
+	current_mission_index = int(parsed.get("current_mission_index", _first_active_mission_index()))
+	if current_mission_index < 0 or current_mission_index >= missions.size():
+		current_mission_index = _first_active_mission_index()
+	objective = _current_objective_text()
 
 # ---------------------------------------------------------------------------
 # RESPAWNING HOSTILE THREATS
@@ -1797,6 +2043,8 @@ func _buy_ship(near_station: bool) -> void:
 		return
 	Game.credits -= cost
 	Game.purchased_count += 1
+	if buy_class == "frigate":
+		_purchased_frigate = true   # mission tracking: buy_frigate objective
 	var pos: Vector3 = station.global_position + Vector3(rng.randf_range(-14, 14), 6, 18)
 	var s: Node3D = _spawn_ship(buy_class, "player", "%s-%d" % [buy_class.capitalize(), Game.purchased_count], pos)
 	var need: int = s.crew_needed
@@ -2125,6 +2373,10 @@ func _build_save_dict() -> Dictionary:
 		"fleet_defend_target": def_name,
 		"target": tgt_name,
 		"ships": ship_list,
+		"missions": _missions_to_save(),
+		"current_mission_index": current_mission_index,
+		"destroyed_hostile_count": _destroyed_hostile_count,
+		"purchased_frigate": _purchased_frigate,
 	}
 
 func _ship_to_dict(s: Node3D) -> Dictionary:
@@ -2219,6 +2471,9 @@ func _validate_save(parsed: Variant) -> String:
 			return "missing economy.%s" % key
 	if typeof(d.get("ships")) != TYPE_ARRAY:
 		return "missing ships section"
+	# Missions are optional (backward compatible). If present, must be an Array.
+	if d.has("missions") and typeof(d["missions"]) != TYPE_ARRAY:
+		return "missions not an array"
 	var ships_arr: Array = d["ships"]
 	var player_count: int = 0
 	for entry in ships_arr:
@@ -2332,6 +2587,9 @@ func _apply_save(parsed: Dictionary) -> void:
 		target = saved_target
 	else:
 		target = _nearest_hostile()
+
+	# Restore mission progress (backward compatible: old saves leave defaults intact).
+	_missions_from_save(parsed)
 
 	if is_instance_valid(player):
 		_update_camera(0.001, true)
@@ -2503,6 +2761,7 @@ func _update_hud() -> void:
 	d["shipyard_class"] = _shipyard_class()
 	d["shipyard_cost"] = _shipyard_cost()
 	d["objective"] = objective
+	d["mission"] = _build_mission_hud()
 	d["messages"] = messages.duplicate()
 	d["capture_demo"] = auto_demo
 	d["mouse_aim"] = mouse_aim

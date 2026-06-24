@@ -156,6 +156,9 @@ func _draw() -> void:
 			status += "  *DISABLED - BOARD [B]*"
 		_txt(Vector2(tx + 12, 124), status, Color(1, 0.9, 0.5), 12)
 
+	# Mission panel (top-right, below the target panel)
+	_draw_mission_panel(vp)
+
 	# Radar (bottom-right circle)
 	_draw_radar(vp)
 
@@ -275,6 +278,40 @@ func _draw_system_map(vp: Vector2) -> void:
 	draw_line(Vector2(bar_x, bar_y - 4), Vector2(bar_x, bar_y + 4), C_DIM, 2.0)
 	draw_line(Vector2(bar_x + bar_px, bar_y - 4), Vector2(bar_x + bar_px, bar_y + 4), C_DIM, 2.0)
 	_txt(Vector2(bar_x, bar_y - 8), "%d u" % int(bar_world), C_DIM, 11)
+
+func _draw_mission_panel(vp: Vector2) -> void:
+	# Compact current-mission tracker under the target panel (top-right): title + reward,
+	# a state badge, and each objective with a [x]/[ ] checkbox.
+	var m: Dictionary = data.get("mission", {})
+	if m.is_empty():
+		return
+	var objs: Array = m.get("objectives", [])
+	var w: float = 220.0
+	var x: float = vp.x - w - 8.0
+	var y: float = 140.0
+	var h: float = 50.0 + float(objs.size()) * 16.0
+	draw_rect(Rect2(Vector2(x, y), Vector2(w, h)), C_BG, true)
+	draw_rect(Rect2(Vector2(x, y), Vector2(w, h)), C_LINE, false, 1.0)
+	_txt(Vector2(x + 10, y + 18), "MISSION  +%d cr" % int(m.get("reward", 0)), C_LINE, 12)
+	# State badge.
+	var state: String = String(m.get("state", "active"))
+	var badge: String = "ACTIVE"
+	var badge_col: Color = Color(0.45, 1.0, 0.6)
+	match state:
+		"complete":
+			badge = "COMPLETE"
+			badge_col = Color(1.0, 0.85, 0.35)
+		"failed":
+			badge = "FAILED"
+			badge_col = Color(1.0, 0.4, 0.34)
+	_txt(Vector2(x + w - 78.0, y + 18), badge, badge_col, 11)
+	_txt(Vector2(x + 10, y + 34), String(m.get("title", "")), C_DIM, 12)
+	for i in range(objs.size()):
+		var od: Dictionary = objs[i]
+		var done: bool = bool(od.get("done", false))
+		var box: String = "[x]" if done else "[ ]"
+		var col: Color = Color(0.45, 1.0, 0.6) if done else C_DIM.darkened(0.15)
+		_txt(Vector2(x + 10, y + 50.0 + float(i) * 16.0), "%s %s" % [box, String(od.get("text", ""))], col, 11)
 
 func _draw_fleet_menu(vp: Vector2) -> void:
 	# Centered fleet order menu: lists the six orders with their number keys and highlights

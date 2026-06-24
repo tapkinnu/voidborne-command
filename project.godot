@@ -153,3 +153,7 @@ deck_next_ship={
 "deadzone": 0.5,
 "events": [{"type":"key","keycode":82,"unicode":114}]
 }
+cycle_mission={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":79,"unicode":111}]
+}

@@ -146,7 +146,13 @@
   Camera far plane (3000) and the starfield shell (800–1200) were widened for the larger area.
   Covered by `tests/test_system_map.gd` (`SYSTEM_MAP_TEST_PASS`). A multi-system / inter-system
   jump layer remains backlog.
-- [ ] Mission/objective system beyond the single seeded scenario.
+- [x] Mission/objective system beyond the single seeded scenario. `main.gd _init_missions`
+      defines five trackable missions (capture Kryos Relay / Ironhold, destroy 5 raiders, buy a
+      frigate, command a 3-ship fleet) with credit rewards; `O` cycles the tracked mission,
+      `_check_missions` evaluates and pays them on a throttle, the HUD shows a top-right mission
+      panel, and mission state persists through quick save/load (old saves stay compatible).
+      Covered by `tests/test_mission_system.gd` (`MISSION_SYSTEM_TEST_PASS`). Branching/chained
+      mission scripting and a mission-giver UI remain backlog.
 
 ### Production pipeline
 - [ ] Real (or higher-fidelity procedural) art + an authored audio pass.

@@ -182,6 +182,27 @@ incrementing) at the edge of the system, 360–480 units from the player. Hostil
 are never respawned, and the whole system is disabled during capture/demo mode so
 screenshots stay deterministic.
 
+### 4.8 Mission system
+The slice ships a set of named **missions** (`main.gd _init_missions`), each a Dictionary with
+an `id`, `title`, `desc`, `reward`, a `state` (`active` / `complete` / `failed`), and a list of
+`objectives` carrying a `check` tag the per-frame evaluator reads. The five starting missions are:
+**Capture Kryos Relay** (3000 cr), **Capture Ironhold** (5000 cr), **Break the Raiders** —
+destroy 5 hostile mobile ships, cumulative (1500 cr), **Commission a Frigate** — buy a frigate
+at the shipyard (800 cr), and **Build a Fleet** — command 3 manned fleet ships at once (2000 cr).
+
+Pressing `O` (`_cycle_mission`) advances the tracked mission through the open ones, wrapping and
+skipping completed/failed entries; the **top-center objective string** is derived from the tracked
+mission as `"[<title>] <first incomplete objective>"` (`_current_objective_text`). `_check_missions`
+runs on a half-second throttle: for each active mission it marks satisfied objectives done
+(`_evaluate_objective` — station capture by faction flip, a cumulative `_destroyed_hostile_count`
+counter incremented in `_destroy_ship`, a `_purchased_frigate` flag set in `_buy_ship`, and a live
+`_count_fleet()` check). When every objective is done the mission flips to `complete`, pays its
+reward into `Game.credits`, logs `MISSION COMPLETE`, and plays `ui_buy`. The HUD draws a compact
+top-right **mission panel** (`hud.gd _draw_mission_panel`) showing the title, reward, a state badge,
+and each objective with a `[x]`/`[ ]` checkbox. Mission state (per-mission `state`, objective done
+flags, the tracking counters, and the current index) is **persisted** in the quick save and restored
+on load; old saves without a `missions` key load fine and keep the default active missions.
+
 ## 5. HUD
 Immediate-mode `_draw` overlay: economy/fleet panel, top-center objective, target panel
 (name/faction/class/hull/shield/distance/disabled), bottom-left player bars

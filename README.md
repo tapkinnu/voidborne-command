@@ -52,6 +52,7 @@ Screenshots are written to `artifacts/screenshots/` (plus a `contact_sheet.jpg`)
 | `F1` | Toggle the **settings overlay** (shows mouse-aim state and control scheme) |
 | `F2` | **Cycle control scheme**: Auto → Keyboard+Mouse → Gamepad → Auto |
 | `M` | Toggle the **system map** overlay — top-down view of all stations, fleet, and threats (flight stays live) |
+| `O` | **Cycle active missions** — switches the tracked objective through the open missions; HUD panel and top-center objective follow the selection |
 
 ### Gamepad (when connected)
 | Control | Action |
