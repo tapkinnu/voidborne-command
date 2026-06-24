@@ -385,6 +385,10 @@ func _process_deck(delta: float) -> void:
 	deck.process_deck(delta, iv, follow_pressed)
 	if follow_pressed and audio:
 		audio.play("ui_recruit")
+	if Input.is_action_just_pressed("deck_next_ship"):
+		deck.cycle_ship()
+		if audio:
+			audio.play("ui_recruit")
 
 func _process_space(delta: float) -> void:
 	if is_instance_valid(player) and not player.destroyed:
@@ -1685,12 +1689,24 @@ func _toggle_fleet_follow() -> void:
 		_msg("Fleet order: FOLLOW formation on the flagship.")
 	if audio: audio.play("ui_recruit")
 
+func _owned_ship_list() -> Array:
+	var list: Array = []
+	if is_instance_valid(player) and not player.destroyed:
+		list.append({"name": player.ship_name, "class": player.ship_class})
+	for s in ships:
+		if not is_instance_valid(s) or s.destroyed or s.is_player:
+			continue
+		if s.faction == "player":
+			list.append({"name": s.ship_name, "class": s.ship_class})
+	return list
+
 func _set_deck_mode(on: bool) -> void:
 	deck_mode = on
 	deck.set_active(on)
 	if on:
+		deck.set_ship_list(_owned_ship_list())
 		deck.refresh_roster()
-		_msg("Entered CREW DECK. WASD move, F order follow, C exit.")
+		_msg("Entered CREW DECK. WASD move, F order follow, C exit, R next ship.")
 	else:
 		space_camera.current = true
 		_msg("Returned to the bridge.")
@@ -2119,6 +2135,8 @@ func _update_hud() -> void:
 			d["prompt"] = "Near %s — [F] %s" % [nm, "STOP follow" if bool(st.get("nearest_following", false)) else "order FOLLOW"]
 		else:
 			d["prompt"] = "Walk up to a crew/marine, then [F]. Following: %d" % int(st.get("follow_count", 0))
+		d["deck_room"] = deck.current_room_name()
+		d["deck_ship"] = deck.current_ship_label()
 		hud.set_data(d)
 		return
 

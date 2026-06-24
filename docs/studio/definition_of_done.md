@@ -96,7 +96,14 @@
   seeded `0.7–1.3` roll), capturing when defenders hit 0 and failing — losing all marines —
   if attackers hit 0 first. HUD shows `ATK/DEF` and capture nearness; garrison saves/loads.
   Regression: `tests/test_boarding_squad.gd` (`BOARDING_SQUAD_TEST_PASS`).
-- [ ] Deck navigation across multiple rooms / multiple owned ships.
+- [x] Deck navigation across multiple rooms / multiple owned ships. Shipped: 3 named rooms
+  (Bridge, Crew Quarters, Marine Barracks) with distinct colors and greeble layouts;
+  door-trigger walk transitions at room boundaries; R key cycles owned ships; HUD shows
+  "DECK: Class [ShipName]" and "Room: RoomName" labels; crew are distributed per room
+  (pilots/engineers on Bridge, gunners in Quarters, marines in Barracks); `cycle_ship()`
+  and `goto_room()` API for tests; `set_ship_list()` wired into deck entry; backward
+  compatible: single-ship behaviour unchanged. Covered by `tests/test_deck_navigation.gd`
+  (`DECK_NAV_TEST_PASS`).
 - [ ] Order menu (escort, attack-my-target, dock) for fleet ships beyond the current follow/hold toggle.
 
 ### Economy & world

@@ -1,16 +1,29 @@
 extends Node3D
 # CrewDeck: walkable ship-interior view with procedural humanoid crew/marines.
-# Captain (player avatar) can approach a crew member and order them to follow.
-# No class_name. Toggled active by main.gd.
+# Supports multiple rooms (Bridge, Crew Quarters, Marine Barracks) and
+# multiple owned ships. No class_name.
 
 var active: bool = false
 var camera: Camera3D
 var captain: Node3D
-var crew_nodes: Array = []      # Array of dicts {node, name, role, following, home}
+var crew_nodes: Array = []
 var move_speed: float = 6.0
 var rng: RandomNumberGenerator
 var _nearest_idx: int = -1
 var _follow_count: int = 0
+
+# Room system
+var current_room_index: int = 0
+var _room_container: Node3D
+var _crew_container: Node3D
+const ROOM_NAMES: Array = ["Bridge", "Crew Quarters", "Marine Barracks"]
+const ROOM_W: float = 10.0
+const ROOM_D: float = 18.0
+const ROOM_CENTERS: Array = [-10.0, 0.0, 10.0]
+
+# Ship system
+var current_ship_index: int = 0
+var ship_list: Array = []
 
 func _build_humanoid(col: Color) -> Node3D:
 	var h: Node3D = Node3D.new()
@@ -20,7 +33,6 @@ func _build_humanoid(col: Color) -> Node3D:
 	mat.roughness = 0.7
 	var skin: StandardMaterial3D = StandardMaterial3D.new()
 	skin.albedo_color = Color(0.85, 0.7, 0.6)
-	# torso
 	var torso: MeshInstance3D = MeshInstance3D.new()
 	torso.name = "Torso"
 	var tm: CapsuleMesh = CapsuleMesh.new()
@@ -30,7 +42,6 @@ func _build_humanoid(col: Color) -> Node3D:
 	torso.material_override = mat
 	torso.position = Vector3(0, 0.95, 0)
 	h.add_child(torso)
-	# head
 	var head: MeshInstance3D = MeshInstance3D.new()
 	head.name = "Head"
 	var hm: SphereMesh = SphereMesh.new()
@@ -40,7 +51,6 @@ func _build_humanoid(col: Color) -> Node3D:
 	head.material_override = skin
 	head.position = Vector3(0, 1.68, 0)
 	h.add_child(head)
-	# bright face visor so the humanoid reads as a character from the capture camera
 	var visor: MeshInstance3D = MeshInstance3D.new()
 	visor.name = "Visor"
 	var vm: BoxMesh = BoxMesh.new()
@@ -54,7 +64,6 @@ func _build_humanoid(col: Color) -> Node3D:
 	visor.material_override = vmat
 	visor.position = Vector3(0, 1.70, -0.20)
 	h.add_child(visor)
-	# legs
 	for spec in [["LeftLeg", -0.17], ["RightLeg", 0.17]]:
 		var sx: float = float(spec[1])
 		var leg: MeshInstance3D = MeshInstance3D.new()
@@ -74,7 +83,6 @@ func _build_humanoid(col: Color) -> Node3D:
 		boot.material_override = mat
 		boot.position = Vector3(sx, 0.05, -0.10)
 		h.add_child(boot)
-	# arms
 	for spec2 in [["LeftArm", -0.42, 11.0], ["RightArm", 0.42, -11.0]]:
 		var sx2: float = float(spec2[1])
 		var arm: MeshInstance3D = MeshInstance3D.new()
@@ -87,7 +95,6 @@ func _build_humanoid(col: Color) -> Node3D:
 		arm.position = Vector3(sx2, 0.98, -0.02)
 		arm.rotation_degrees.z = float(spec2[2])
 		h.add_child(arm)
-	# small backpack/oxygen block gives the silhouette a readable front/back cue.
 	var pack: MeshInstance3D = MeshInstance3D.new()
 	pack.name = "LifeSupportPack"
 	var pm: BoxMesh = BoxMesh.new()
@@ -100,68 +107,15 @@ func _build_humanoid(col: Color) -> Node3D:
 
 func build(p_rng: RandomNumberGenerator) -> void:
 	rng = p_rng
-	# Room: floor + walls + ceiling lights
-	var floor_mi: MeshInstance3D = MeshInstance3D.new()
-	var fm: BoxMesh = BoxMesh.new()
-	fm.size = Vector3(30, 0.4, 22)
-	floor_mi.mesh = fm
-	var fmat: StandardMaterial3D = StandardMaterial3D.new()
-	fmat.albedo_color = Color(0.12, 0.14, 0.18)
-	fmat.metallic = 0.3
-	fmat.roughness = 0.6
-	floor_mi.material_override = fmat
-	floor_mi.position = Vector3(0, -0.2, 0)
-	add_child(floor_mi)
-
-	var wmat: StandardMaterial3D = StandardMaterial3D.new()
-	wmat.albedo_color = Color(0.16, 0.2, 0.26)
-	wmat.metallic = 0.4
-	wmat.roughness = 0.5
-	var walls := [
-		[Vector3(30, 4, 0.4), Vector3(0, 1.8, -11)],
-		[Vector3(30, 4, 0.4), Vector3(0, 1.8, 11)],
-		[Vector3(0.4, 4, 22), Vector3(-15, 1.8, 0)],
-		[Vector3(0.4, 4, 22), Vector3(15, 1.8, 0)],
-	]
-	for w in walls:
-		var wmi: MeshInstance3D = MeshInstance3D.new()
-		var wbm: BoxMesh = BoxMesh.new()
-		wbm.size = w[0]
-		wmi.mesh = wbm
-		wmi.material_override = wmat
-		wmi.position = w[1]
-		add_child(wmi)
-
-	# Console greebles for interior flavor
-	var cmat: StandardMaterial3D = StandardMaterial3D.new()
-	cmat.albedo_color = Color(0.1, 0.3, 0.4)
-	cmat.emission_enabled = true
-	cmat.emission = Color(0.2, 0.8, 1.0)
-	cmat.emission_energy_multiplier = 1.2
-	for cx in [-12, -6, 6, 12]:
-		var con: MeshInstance3D = MeshInstance3D.new()
-		var cbm: BoxMesh = BoxMesh.new()
-		cbm.size = Vector3(1.6, 1.0, 0.8)
-		con.mesh = cbm
-		con.material_override = cmat
-		con.position = Vector3(cx, 0.5, -10.0)
-		add_child(con)
-
-	# Lighting
-	var sun: DirectionalLight3D = DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-70, -30, 0)
-	sun.light_energy = 0.8
-	add_child(sun)
-	var lamp: OmniLight3D = OmniLight3D.new()
-	lamp.position = Vector3(0, 3.5, 0)
-	lamp.omni_range = 24
-	lamp.light_energy = 1.5
-	add_child(lamp)
-
-	# Captain avatar
+	_room_container = Node3D.new()
+	_room_container.name = "RoomGeometry"
+	add_child(_room_container)
+	_crew_container = Node3D.new()
+	_crew_container.name = "CrewContainer"
+	add_child(_crew_container)
 	captain = _build_humanoid(Color(0.4, 1.0, 0.6))
 	captain.scale = Vector3(1.35, 1.35, 1.35)
-	captain.position = Vector3(0, 0, 6)
+	captain.position = Vector3(float(ROOM_CENTERS[0]), 0, 6)
 	add_child(captain)
 	var beacon: MeshInstance3D = MeshInstance3D.new()
 	var bm: SphereMesh = SphereMesh.new()
@@ -176,15 +130,184 @@ func build(p_rng: RandomNumberGenerator) -> void:
 	beacon.material_override = bmat
 	beacon.position = Vector3(0, 2.0, 0)
 	captain.add_child(beacon)
-
-	# Camera (angled third-person)
 	camera = Camera3D.new()
 	camera.position = Vector3(0, 6, 13)
 	camera.rotation_degrees = Vector3(-19, 0, 0)
 	camera.fov = 58.0
 	add_child(camera)
+	_build_current_room()
 
+func _build_current_room() -> void:
+	_clear_room()
+	_build_room_geometry(current_room_index)
 	refresh_roster()
+
+func _clear_room() -> void:
+	for c in _room_container.get_children():
+		c.queue_free()
+	for c in _crew_container.get_children():
+		c.queue_free()
+	crew_nodes.clear()
+	_nearest_idx = -1
+	_follow_count = 0
+
+func _build_room_geometry(idx: int) -> void:
+	var cx: float = float(ROOM_CENTERS[idx])
+	var hw: float = ROOM_W * 0.5
+	var hd: float = ROOM_D * 0.5
+	var floor_mi: MeshInstance3D = MeshInstance3D.new()
+	var fm: BoxMesh = BoxMesh.new()
+	fm.size = Vector3(ROOM_W, 0.4, ROOM_D)
+	floor_mi.mesh = fm
+	var fmat: StandardMaterial3D = StandardMaterial3D.new()
+	var floor_colors: Array = [
+		Color(0.10, 0.14, 0.20),
+		Color(0.18, 0.15, 0.12),
+		Color(0.16, 0.10, 0.10),
+	]
+	fmat.albedo_color = Color(floor_colors[idx])
+	fmat.metallic = 0.3
+	fmat.roughness = 0.6
+	floor_mi.material_override = fmat
+	floor_mi.position = Vector3(cx, -0.2, 0)
+	_room_container.add_child(floor_mi)
+
+	var wall_colors: Array = [
+		Color(0.15, 0.22, 0.30),
+		Color(0.30, 0.22, 0.14),
+		Color(0.30, 0.14, 0.14),
+	]
+	var wcol: Color = Color(wall_colors[idx])
+	var wmat: StandardMaterial3D = StandardMaterial3D.new()
+	wmat.albedo_color = wcol
+	wmat.metallic = 0.4
+	wmat.roughness = 0.5
+
+	for zpos in [-hd, hd]:
+		var wmi: MeshInstance3D = MeshInstance3D.new()
+		var wbm: BoxMesh = BoxMesh.new()
+		wbm.size = Vector3(ROOM_W, 4, 0.4)
+		wmi.mesh = wbm
+		wmi.material_override = wmat
+		wmi.position = Vector3(cx, 1.8, zpos)
+		_room_container.add_child(wmi)
+
+	var is_leftmost: bool = idx == 0
+	var is_rightmost: bool = idx == ROOM_NAMES.size() - 1
+	if is_leftmost:
+		var wmi: MeshInstance3D = MeshInstance3D.new()
+		var wbm: BoxMesh = BoxMesh.new()
+		wbm.size = Vector3(0.4, 4, ROOM_D)
+		wmi.mesh = wbm
+		wmi.material_override = wmat
+		wmi.position = Vector3(cx - hw, 1.8, 0)
+		_room_container.add_child(wmi)
+	else:
+		var door_gap: float = 1.6
+		var side_h: float = (ROOM_D - door_gap) * 0.5
+		var df1: MeshInstance3D = MeshInstance3D.new()
+		var dfm1: BoxMesh = BoxMesh.new()
+		dfm1.size = Vector3(0.4, 4, side_h)
+		df1.mesh = dfm1
+		df1.material_override = wmat
+		df1.position = Vector3(cx - hw, 1.8, -(hd + side_h) * 0.5)
+		_room_container.add_child(df1)
+		var df2: MeshInstance3D = MeshInstance3D.new()
+		var dfm2: BoxMesh = BoxMesh.new()
+		dfm2.size = Vector3(0.4, 4, side_h)
+		df2.mesh = dfm2
+		df2.material_override = wmat
+		df2.position = Vector3(cx - hw, 1.8, (hd + side_h) * 0.5)
+		_room_container.add_child(df2)
+
+	if is_rightmost:
+		var wmi: MeshInstance3D = MeshInstance3D.new()
+		var wbm: BoxMesh = BoxMesh.new()
+		wbm.size = Vector3(0.4, 4, ROOM_D)
+		wmi.mesh = wbm
+		wmi.material_override = wmat
+		wmi.position = Vector3(cx + hw, 1.8, 0)
+		_room_container.add_child(wmi)
+	else:
+		var door_gap: float = 1.6
+		var side_h: float = (ROOM_D - door_gap) * 0.5
+		var df1: MeshInstance3D = MeshInstance3D.new()
+		var dfm1: BoxMesh = BoxMesh.new()
+		dfm1.size = Vector3(0.4, 4, side_h)
+		df1.mesh = dfm1
+		df1.material_override = wmat
+		df1.position = Vector3(cx + hw, 1.8, -(hd + side_h) * 0.5)
+		_room_container.add_child(df1)
+		var df2: MeshInstance3D = MeshInstance3D.new()
+		var dfm2: BoxMesh = BoxMesh.new()
+		dfm2.size = Vector3(0.4, 4, side_h)
+		df2.mesh = dfm2
+		df2.material_override = wmat
+		df2.position = Vector3(cx + hw, 1.8, (hd + side_h) * 0.5)
+		_room_container.add_child(df2)
+
+	var gmat: StandardMaterial3D = StandardMaterial3D.new()
+	gmat.emission_enabled = true
+	gmat.emission_energy_multiplier = 1.2
+	match idx:
+		0:
+			gmat.albedo_color = Color(0.1, 0.3, 0.4)
+			gmat.emission = Color(0.2, 0.8, 1.0)
+			for xoff in [-3, -1, 1, 3]:
+				var con: MeshInstance3D = MeshInstance3D.new()
+				var cbm: BoxMesh = BoxMesh.new()
+				cbm.size = Vector3(1.4, 0.8, 0.8)
+				con.mesh = cbm
+				con.material_override = gmat
+				con.position = Vector3(cx + xoff, 0.4, -hd + 1.0)
+				_room_container.add_child(con)
+				var con2: MeshInstance3D = MeshInstance3D.new()
+				var cbm2: BoxMesh = BoxMesh.new()
+				cbm2.size = Vector3(1.4, 0.8, 0.8)
+				con2.mesh = cbm2
+				con2.material_override = gmat
+				con2.position = Vector3(cx + xoff, 0.4, hd - 1.0)
+				_room_container.add_child(con2)
+		1:
+			gmat.albedo_color = Color(0.3, 0.25, 0.15)
+			gmat.emission = Color(0.3, 0.2, 0.1)
+			for xoff in [-3, 3]:
+				var bunk: MeshInstance3D = MeshInstance3D.new()
+				var bbm: BoxMesh = BoxMesh.new()
+				bbm.size = Vector3(2.0, 0.6, 0.8)
+				bunk.mesh = bbm
+				bunk.material_override = gmat
+				bunk.position = Vector3(cx + xoff, 0.3, -hd + 2.0)
+				_room_container.add_child(bunk)
+				var bunk2: MeshInstance3D = MeshInstance3D.new()
+				var bbm2: BoxMesh = BoxMesh.new()
+				bbm2.size = Vector3(2.0, 0.6, 0.8)
+				bunk2.mesh = bbm2
+				bunk2.material_override = gmat
+				bunk2.position = Vector3(cx + xoff, 1.2, -hd + 2.0)
+				_room_container.add_child(bunk2)
+		2:
+			gmat.albedo_color = Color(0.4, 0.15, 0.15)
+			gmat.emission = Color(0.6, 0.2, 0.2)
+			for xoff in [-3, 3]:
+				for zoff in [-4, 0, 4]:
+					var rack: MeshInstance3D = MeshInstance3D.new()
+					var rbm: BoxMesh = BoxMesh.new()
+					rbm.size = Vector3(0.5, 2.4, 0.5)
+					rack.mesh = rbm
+					rack.material_override = gmat
+					rack.position = Vector3(cx + xoff, 1.2, zoff)
+					_room_container.add_child(rack)
+
+	var sun: DirectionalLight3D = DirectionalLight3D.new()
+	sun.rotation_degrees = Vector3(-70, -30, 0)
+	sun.light_energy = 0.8
+	_room_container.add_child(sun)
+	var lamp: OmniLight3D = OmniLight3D.new()
+	lamp.position = Vector3(cx, 3.5, 0)
+	lamp.omni_range = 18
+	lamp.light_energy = 1.5
+	_room_container.add_child(lamp)
 
 func refresh_roster() -> void:
 	for c in crew_nodes:
@@ -193,28 +316,60 @@ func refresh_roster() -> void:
 	crew_nodes.clear()
 	var avail: Array = Game.available_crew()
 	var n_mar: int = clampi(Game.marine_pool, 0, 6)
-	var total: int = max(1, avail.size() + n_mar)
 	var idx: int = 0
-	for c in avail:
-		_spawn_crew_detail(c, idx, total)
-		idx += 1
-	for i in range(n_mar):
-		_spawn_crew_marine(idx, total)
-		idx += 1
+	var total: int = 0
+	match current_room_index:
+		0:
+			var bridge_crew: Array = []
+			for c in avail:
+				var role: String = String(c.get("role", ""))
+				if role == "pilot" or role == "engineer":
+					bridge_crew.append(c)
+			total = max(1, bridge_crew.size())
+			for c in bridge_crew:
+				_spawn_crew_detail(c, idx, total)
+				idx += 1
+			if bridge_crew.is_empty():
+				for c in avail:
+					_spawn_crew_detail(c, idx, total)
+					idx += 1
+		1:
+			var quarters_crew: Array = []
+			for c in avail:
+				var role: String = String(c.get("role", ""))
+				if role == "gunner":
+					quarters_crew.append(c)
+			if quarters_crew.is_empty():
+				quarters_crew = avail.duplicate()
+			total = max(1, quarters_crew.size())
+			for c in quarters_crew:
+				_spawn_crew_detail(c, idx, total)
+				idx += 1
+		2:
+			total = max(1, n_mar)
+			for i in range(n_mar):
+				_spawn_crew_marine(idx, total)
+				idx += 1
+			if n_mar == 0:
+				idx = 0
+				total = max(1, avail.size())
+				for c in avail:
+					_spawn_crew_detail(c, idx, total)
+					idx += 1
 
 func _spawn_crew_detail(crew_dict: Dictionary, idx: int, total: int) -> void:
 	var role: String = String(crew_dict.get("role", ""))
-	var col: Color = Color(0.42, 0.72, 1.0)   # pilot blue
+	var col: Color = Color(0.42, 0.72, 1.0)
 	match role:
-		"engineer": col = Color(0.3, 0.85, 0.4)   # green
-		"gunner": col = Color(1.0, 0.55, 0.15)     # orange
+		"engineer": col = Color(0.3, 0.85, 0.4)
+		"gunner": col = Color(1.0, 0.55, 0.15)
 	var hh: Node3D = _build_humanoid(col)
 	hh.scale = Vector3(1.28, 1.28, 1.28)
+	var cx: float = float(ROOM_CENTERS[current_room_index])
 	var ang: float = float(idx) / float(total) * TAU
-	var home: Vector3 = Vector3(sin(ang) * 7.0, 0, -2.0 + cos(ang) * 4.0)
+	var home: Vector3 = Vector3(cx + sin(ang) * 3.0, 0, cos(ang) * 4.0)
 	hh.position = home
-	add_child(hh)
-	# Label3D above the humanoid
+	_crew_container.add_child(hh)
 	var label: Label3D = Label3D.new()
 	label.text = "%s [%s] S%d" % [String(crew_dict.get("name", "?")), Game.ROLE_ABBR.get(role, "?"), int(crew_dict.get("skill", 1))]
 	label.font_size = 48
@@ -235,10 +390,11 @@ func _spawn_crew_marine(idx: int, total: int) -> void:
 	var col: Color = Color(1.0, 0.5, 0.35)
 	var hh: Node3D = _build_humanoid(col)
 	hh.scale = Vector3(1.28, 1.28, 1.28)
+	var cx: float = float(ROOM_CENTERS[current_room_index])
 	var ang: float = float(idx) / float(total) * TAU
-	var home: Vector3 = Vector3(sin(ang) * 7.0, 0, -2.0 + cos(ang) * 4.0)
+	var home: Vector3 = Vector3(cx + sin(ang) * 3.0, 0, cos(ang) * 4.0)
 	hh.position = home
-	add_child(hh)
+	_crew_container.add_child(hh)
 	crew_nodes.append({
 		"node": hh,
 		"name": Game.random_name(rng),
@@ -246,6 +402,39 @@ func _spawn_crew_marine(idx: int, total: int) -> void:
 		"following": false,
 		"home": home,
 	})
+
+func set_ship_list(owned_ships: Array) -> void:
+	ship_list = owned_ships.duplicate()
+	if current_ship_index >= ship_list.size():
+		current_ship_index = 0
+
+func cycle_ship() -> void:
+	if ship_list.size() <= 1:
+		return
+	current_ship_index = (current_ship_index + 1) % ship_list.size()
+	current_room_index = 0
+	_build_current_room()
+	captain.position = Vector3(float(ROOM_CENTERS[0]), 0, 6)
+
+func goto_room(idx: int) -> void:
+	if idx < 0 or idx >= ROOM_NAMES.size():
+		return
+	if idx == current_room_index:
+		return
+	current_room_index = idx
+	_build_current_room()
+	captain.position = Vector3(float(ROOM_CENTERS[idx]), 0, 6)
+
+func current_room_name() -> String:
+	return String(ROOM_NAMES[current_room_index % ROOM_NAMES.size()])
+
+func current_ship_label() -> String:
+	if ship_list.is_empty():
+		return "Corvette [Flagship]"
+	var sd: Dictionary = ship_list[current_ship_index % ship_list.size()]
+	var cls: String = String(sd.get("class", "Corvette"))
+	var nm: String = String(sd.get("name", "Flagship"))
+	return "%s [%s]" % [cls.capitalize(), nm]
 
 func set_active(a: bool) -> void:
 	active = a
@@ -256,15 +445,30 @@ func set_active(a: bool) -> void:
 func process_deck(delta: float, input_vec: Vector2, follow_pressed: bool) -> void:
 	if not active or captain == null:
 		return
-	# Move captain on XZ plane
+	var cx: float = float(ROOM_CENTERS[current_room_index])
+	var hw: float = ROOM_W * 0.5
+	var hd: float = ROOM_D * 0.5
 	var move: Vector3 = Vector3(input_vec.x, 0, input_vec.y) * move_speed * delta
-	captain.position += move
-	captain.position.x = clamp(captain.position.x, -14, 14)
-	captain.position.z = clamp(captain.position.z, -10, 10)
+	var new_pos: Vector3 = captain.position + move
+	var room_changed: bool = false
+	if current_room_index > 0 and new_pos.x < cx - hw:
+		current_room_index -= 1
+		new_pos.x = float(ROOM_CENTERS[current_room_index]) + hw - 0.5
+		new_pos.z = clamp(new_pos.z, -hd, hd)
+		room_changed = true
+	elif current_room_index < ROOM_NAMES.size() - 1 and new_pos.x > cx + hw:
+		current_room_index += 1
+		new_pos.x = float(ROOM_CENTERS[current_room_index]) - hw + 0.5
+		new_pos.z = clamp(new_pos.z, -hd, hd)
+		room_changed = true
+	else:
+		new_pos.x = clamp(new_pos.x, cx - hw, cx + hw)
+		new_pos.z = clamp(new_pos.z, -hd, hd)
+	if room_changed:
+		_build_current_room()
+	captain.position = new_pos
 	if move.length() > 0.01:
 		captain.rotation.y = atan2(move.x, move.z)
-
-	# Find nearest crew
 	_nearest_idx = -1
 	var best: float = 3.0
 	for i in range(crew_nodes.size()):
@@ -275,11 +479,8 @@ func process_deck(delta: float, input_vec: Vector2, follow_pressed: bool) -> voi
 		if d < best:
 			best = d
 			_nearest_idx = i
-
 	if follow_pressed and _nearest_idx >= 0:
 		crew_nodes[_nearest_idx]["following"] = not crew_nodes[_nearest_idx]["following"]
-
-	# Update follow / idle motion
 	_follow_count = 0
 	for i in range(crew_nodes.size()):
 		var c2: Dictionary = crew_nodes[i]

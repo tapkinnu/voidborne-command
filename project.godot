@@ -145,3 +145,7 @@ cycle_scheme={
 "deadzone": 0.5,
 "events": [{"type":"key","keycode":4194333}]
 }
+deck_next_ship={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":82,"unicode":114}]
+}
