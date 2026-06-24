@@ -71,10 +71,14 @@ var class_color: Color = Color.WHITE
 var _hull_mat: StandardMaterial3D
 var _accent_mat: StandardMaterial3D
 var _engine_mat: StandardMaterial3D
+var _running_light_mat: StandardMaterial3D  # shared emissive mat for this ship's running lights
+var _exhaust_mat: StandardMaterial3D        # transparent blue-white engine plume mat
 var _shield_mesh: MeshInstance3D
 var _shield_mat: StandardMaterial3D
 var _shield_flash: float = 0.0
 var _engine_nodes: Array = []
+var _exhaust_nodes: Array = []      # MeshInstance3D exhaust cones, scaled/faded with throttle
+static var _light_accum: float = 0.0  # shared pulse phase for running-light emission
 var muzzles: Array = []             # Array[Vector3] local-space muzzle offsets
 
 # Independent turret mounts. Each entry is a Dictionary:
@@ -181,11 +185,64 @@ func _add_cyl(parent: Node3D, radius_top: float, radius_bottom: float, height: f
 	parent.add_child(mi)
 	return mi
 
+func _running_light_color() -> Color:
+	if faction == "player" or faction == "ally":
+		return Color(0.30, 1.00, 0.42)
+	if faction == "hostile":
+		return Color(1.00, 0.32, 0.26)
+	return Color(1.00, 1.00, 1.00)
+
+func _add_light(parent: Node3D, pos: Vector3) -> MeshInstance3D:
+	# Small emissive navigation sphere using the ship's shared running-light material.
+	var mi: MeshInstance3D = MeshInstance3D.new()
+	var sm: SphereMesh = SphereMesh.new()
+	sm.radius = 0.1
+	sm.height = 0.2
+	mi.mesh = sm
+	mi.material_override = _running_light_mat
+	mi.position = pos
+	parent.add_child(mi)
+	return mi
+
+func _add_exhaust(parent: Node3D, pos: Vector3, base_len: float) -> MeshInstance3D:
+	# Tapered cylinder (narrow tip → wide base) rotated to point backward (+Z) behind an engine.
+	var mi: MeshInstance3D = MeshInstance3D.new()
+	var cm: CylinderMesh = CylinderMesh.new()
+	cm.top_radius = 0.05
+	cm.bottom_radius = 0.3
+	cm.height = base_len
+	mi.mesh = cm
+	mi.material_override = _exhaust_mat
+	mi.position = pos
+	mi.rotation.x = PI / 2.0   # mesh +Y (narrow top) maps to +Z, base toward the engine
+	parent.add_child(mi)
+	_exhaust_nodes.append(mi)
+	return mi
+
 func _build_mesh() -> void:
 	var hull_col: Color = _faction_color()
 	_hull_mat = _make_mat(hull_col, 0.0)
 	var accent_mat: StandardMaterial3D = _make_mat(hull_col, 1.6)
 	_engine_mat = _make_mat(Color(1.0, 0.65, 0.25), 4.0)
+
+	# Shared running-light material (faction-tinted, unshaded emissive). Pulsed in tick_visuals.
+	var rl_col: Color = _running_light_color()
+	_running_light_mat = StandardMaterial3D.new()
+	_running_light_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_running_light_mat.albedo_color = rl_col
+	_running_light_mat.emission_enabled = true
+	_running_light_mat.emission = rl_col
+	_running_light_mat.emission_energy_multiplier = 1.4
+
+	# Engine exhaust plume material (transparent blue-white, double-sided).
+	_exhaust_mat = StandardMaterial3D.new()
+	_exhaust_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_exhaust_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_exhaust_mat.albedo_color = Color(0.5, 0.7, 1.0, 0.35)
+	_exhaust_mat.emission_enabled = true
+	_exhaust_mat.emission = Color(0.6, 0.8, 1.0)
+	_exhaust_mat.emission_energy_multiplier = 3.0
+	_exhaust_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 
 	var root: Node3D = Node3D.new()
 	root.name = "Hull"
@@ -201,6 +258,18 @@ func _build_mesh() -> void:
 			_add_box(root, Vector3(0.5, 0.45, 0.8), Vector3(0, 0.25, -1.0), accent_mat) # cockpit
 			_engine_nodes.append(_add_box(root, Vector3(0.5, 0.4, 0.5), Vector3(0, 0, 1.6), _engine_mat))
 			muzzles = [Vector3(0.9, 0, -1.6), Vector3(-0.9, 0, -1.6)]
+			# Greebles: wing panels + cockpit antenna.
+			_add_box(root, Vector3(0.2, 0.08, 0.4), Vector3(1.2, 0.05, 0.4), accent_mat)
+			_add_box(root, Vector3(0.2, 0.08, 0.4), Vector3(-1.2, 0.05, 0.4), accent_mat)
+			_add_box(root, Vector3(0.15, 0.1, 0.3), Vector3(0, 0.3, -0.2), accent_mat)
+			_add_cyl(root, 0.02, 0.04, 0.5, Vector3(0, 0.5, -0.6), accent_mat)
+			# Running lights: wingtips, nose, engine.
+			_add_light(root, Vector3(1.6, 0.05, 0.5))
+			_add_light(root, Vector3(-1.6, 0.05, 0.5))
+			_add_light(root, Vector3(0.2, 0.0, -1.5))
+			_add_light(root, Vector3(-0.2, 0.0, -1.5))
+			_add_light(root, Vector3(0.25, 0.0, 1.5))
+			_add_light(root, Vector3(-0.25, 0.0, 1.5))
 		"corvette":
 			_add_box(root, Vector3(1.4, 1.0, 5.0), Vector3(0, 0, 0), _hull_mat)
 			_add_box(root, Vector3(2.6, 0.3, 1.6), Vector3(0, 0.2, 0.6), _hull_mat)
@@ -210,6 +279,21 @@ func _build_mesh() -> void:
 			_engine_nodes.append(_add_box(root, Vector3(0.5, 0.5, 0.5), Vector3(0.5, 0, 2.6), _engine_mat))
 			_engine_nodes.append(_add_box(root, Vector3(0.5, 0.5, 0.5), Vector3(-0.5, 0, 2.6), _engine_mat))
 			muzzles = [Vector3(0.7, 0, -2.6), Vector3(-0.7, 0, -2.6)]
+			# Greebles: hull panel strips + dorsal antennas.
+			_add_box(root, Vector3(0.15, 0.15, 1.5), Vector3(0.75, 0.1, 0), accent_mat)
+			_add_box(root, Vector3(0.15, 0.15, 1.5), Vector3(-0.75, 0.1, 0), accent_mat)
+			_add_box(root, Vector3(0.12, 0.12, 1.0), Vector3(0.75, 0.1, 1.5), accent_mat)
+			_add_box(root, Vector3(0.12, 0.12, 1.0), Vector3(-0.75, 0.1, 1.5), accent_mat)
+			_add_box(root, Vector3(0.5, 0.1, 0.4), Vector3(0, 0.6, 0.5), accent_mat)
+			_add_cyl(root, 0.03, 0.05, 0.6, Vector3(0.2, 0.85, -1.6), accent_mat)
+			_add_cyl(root, 0.03, 0.05, 0.6, Vector3(-0.2, 0.85, -1.6), accent_mat)
+			# Running lights: flanks, nose, engines.
+			_add_light(root, Vector3(1.3, 0.2, 0.6))
+			_add_light(root, Vector3(-1.3, 0.2, 0.6))
+			_add_light(root, Vector3(0.3, 0.3, -2.4))
+			_add_light(root, Vector3(-0.3, 0.3, -2.4))
+			_add_light(root, Vector3(0.5, 0.0, 2.7))
+			_add_light(root, Vector3(-0.5, 0.0, 2.7))
 		"frigate":
 			_add_box(root, Vector3(2.4, 1.6, 7.0), Vector3(0, 0, 0), _hull_mat)
 			_add_box(root, Vector3(1.2, 1.0, 2.0), Vector3(1.6, 0, 1.0), _hull_mat)    # side pods
@@ -222,6 +306,25 @@ func _build_mesh() -> void:
 			_engine_nodes.append(_add_box(root, Vector3(0.7, 0.7, 0.6), Vector3(0.8, 0, 3.6), _engine_mat))
 			_engine_nodes.append(_add_box(root, Vector3(0.7, 0.7, 0.6), Vector3(-0.8, 0, 3.6), _engine_mat))
 			muzzles = [Vector3(1.0, 0.4, -3.6), Vector3(-1.0, 0.4, -3.6), Vector3(0, 1.1, -2.2)]
+			# Greebles: hull + pod panels.
+			_add_box(root, Vector3(0.2, 0.2, 2.0), Vector3(1.25, 0.2, 0), accent_mat)
+			_add_box(root, Vector3(0.2, 0.2, 2.0), Vector3(-1.25, 0.2, 0), accent_mat)
+			_add_box(root, Vector3(0.15, 0.15, 1.0), Vector3(1.7, 0.3, 1.0), accent_mat)
+			_add_box(root, Vector3(0.15, 0.15, 1.0), Vector3(-1.7, 0.3, 1.0), accent_mat)
+			_add_box(root, Vector3(0.3, 0.15, 0.6), Vector3(0, 0.85, 0.5), accent_mat)
+			_add_box(root, Vector3(0.3, 0.15, 0.6), Vector3(0, 0.85, -0.5), accent_mat)
+			# Vent cylinders underneath (equal radii — not exhaust plumes).
+			_add_cyl(root, 0.12, 0.12, 0.3, Vector3(0.6, -0.85, 0.5), accent_mat)
+			_add_cyl(root, 0.12, 0.12, 0.3, Vector3(-0.6, -0.85, 0.5), accent_mat)
+			_add_cyl(root, 0.12, 0.12, 0.3, Vector3(0.6, -0.85, -0.5), accent_mat)
+			_add_cyl(root, 0.12, 0.12, 0.3, Vector3(-0.6, -0.85, -0.5), accent_mat)
+			# Running lights: pods, bridge, engines.
+			_add_light(root, Vector3(2.2, 0.0, 1.0))
+			_add_light(root, Vector3(-2.2, 0.0, 1.0))
+			_add_light(root, Vector3(0.4, 0.9, -2.4))
+			_add_light(root, Vector3(-0.4, 0.9, -2.4))
+			_add_light(root, Vector3(0.8, 0.0, 3.7))
+			_add_light(root, Vector3(-0.8, 0.0, 3.7))
 		"capital":
 			_add_box(root, Vector3(3.6, 2.4, 12.0), Vector3(0, 0, 0), _hull_mat)
 			_add_box(root, Vector3(2.0, 1.2, 4.0), Vector3(0, 1.6, -1.0), _hull_mat)
@@ -236,6 +339,23 @@ func _build_mesh() -> void:
 			_engine_nodes.append(_add_box(root, Vector3(0.9, 0.9, 0.6), Vector3(1.0, 0, 6.6), _engine_mat))
 			_engine_nodes.append(_add_box(root, Vector3(0.9, 0.9, 0.6), Vector3(-1.0, 0, 6.6), _engine_mat))
 			muzzles = [Vector3(1.6, 0.6, -6.0), Vector3(-1.6, 0.6, -6.0), Vector3(0, 2.0, -5.0)]
+			# Greebles: hull panels along both flanks.
+			for gz in [-4.0, -2.0, 0.0, 2.0, 4.0]:
+				_add_box(root, Vector3(0.25, 0.25, 1.2), Vector3(1.85, 0.4, gz), accent_mat)
+				_add_box(root, Vector3(0.25, 0.25, 1.2), Vector3(-1.85, 0.4, gz), accent_mat)
+			# Bridge-tower antenna array.
+			for ai in range(5):
+				_add_cyl(root, 0.04, 0.06, 0.8, Vector3(-0.4 + float(ai) * 0.2, 3.0, -3.0), accent_mat)
+			# Belly vent cylinders (equal radii — not exhaust plumes).
+			_add_cyl(root, 0.2, 0.2, 0.4, Vector3(0.8, -1.3, 2.0), accent_mat)
+			_add_cyl(root, 0.2, 0.2, 0.4, Vector3(-0.8, -1.3, 2.0), accent_mat)
+			# Running lights: flanks, nose, engines.
+			_add_light(root, Vector3(1.9, 0.5, -5.0))
+			_add_light(root, Vector3(-1.9, 0.5, -5.0))
+			_add_light(root, Vector3(0.3, 1.0, -6.0))
+			_add_light(root, Vector3(-0.3, 1.0, -6.0))
+			_add_light(root, Vector3(1.0, 0.0, 6.5))
+			_add_light(root, Vector3(-1.0, 0.0, 6.5))
 		"station":
 			var t: MeshInstance3D = MeshInstance3D.new()
 			var torus: TorusMesh = TorusMesh.new()
@@ -257,9 +377,24 @@ func _build_mesh() -> void:
 			for sp_pos in st_positions:
 				var st_t: MeshInstance3D = _add_cyl(root, 0.5, 0.5, 1.0, sp_pos, accent_mat)
 				_register_turret(st_t, sp_pos, deg_to_rad(170.0), 1.5, fire_rate)
+			# Greebles: ring-edge sensor blocks + hub strakes.
+			for si in range(6):
+				var sang: float = float(si) * TAU / 6.0
+				_add_box(root, Vector3(0.4, 0.4, 0.4), Vector3(cos(sang) * 5.0, 0, sin(sang) * 5.0), accent_mat)
+			_add_box(root, Vector3(1.8, 0.2, 0.2), Vector3(0, 1.2, 0), accent_mat)
+			_add_box(root, Vector3(0.2, 0.2, 1.8), Vector3(0, -1.2, 0), accent_mat)
+			# Running lights around the ring.
+			for li in range(6):
+				var lang: float = float(li) * TAU / 6.0
+				_add_light(root, Vector3(cos(lang) * 5.0, 0.3, sin(lang) * 5.0))
 		_:
 			_add_box(root, Vector3(1, 1, 2), Vector3.ZERO, _hull_mat)
 			muzzles = [Vector3(0, 0, -1.5)]
+
+	# Engine exhaust plume behind each engine node (none for engineless stations).
+	for en in _engine_nodes:
+		var ep: Vector3 = en.position
+		_add_exhaust(root, Vector3(ep.x, ep.y, ep.z + 0.8), 1.2)
 
 	# Shield bubble (hidden until hit).
 	_shield_mesh = MeshInstance3D.new()
@@ -396,6 +531,21 @@ func tick_visuals(delta: float) -> void:
 	var a: float = clamp(_shield_flash, 0.0, 0.35)
 	if _shield_mat:
 		_shield_mat.albedo_color = Color(0.4, 0.7, 1.0, a)
+	# Running lights pulse slowly between 0.8 and 2.0 energy on a shared phase.
+	_light_accum += delta
+	if _running_light_mat:
+		_running_light_mat.emission_energy_multiplier = 1.4 + sin(_light_accum * 2.0) * 0.6
+	# Engine exhaust grows and brightens with throttle; near-invisible when disabled.
+	var ex_len: float = 0.5 + throttle * 1.5
+	var ex_alpha: float = 0.3 + throttle * 0.4
+	if disabled:
+		ex_len = 0.3
+		ex_alpha = 0.05
+	if _exhaust_mat:
+		_exhaust_mat.albedo_color = Color(0.5, 0.7, 1.0, ex_alpha)
+	for ex in _exhaust_nodes:
+		if is_instance_valid(ex):
+			ex.scale = Vector3(1.0, ex_len, 1.0)  # mesh-local Y == plume length (post-rotation Z)
 
 # --- Independent turret subsystems -----------------------------------------
 func _register_turret(node: MeshInstance3D, pos: Vector3, arc_half: float, muzzle_fwd: float, base_cd: float) -> void:

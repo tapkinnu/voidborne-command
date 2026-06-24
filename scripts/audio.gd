@@ -28,11 +28,16 @@ const SOUNDS: Dictionary = {
 	"ui_buy":    {"freq0": 660.0, "freq1": 990.0, "dur": 0.18, "wave": "sine",   "vol": 0.35},
 	"ui_deny":   {"freq0": 220.0, "freq1": 160.0, "dur": 0.16, "wave": "square", "vol": 0.30},
 	"thruster":  {"freq0": 70.0,  "freq1": 70.0,  "dur": 0.30, "wave": "noise",  "vol": 0.18},
+	"ambient":   {"freq0": 55.0,  "freq1": 55.0,  "dur": 4.00, "wave": "sine",   "vol": 0.08},
+	"weapon_overheat": {"freq0": 300.0, "freq1": 150.0, "dur": 0.30, "wave": "saw",    "vol": 0.25},
+	"hull_alarm":      {"freq0": 880.0, "freq1": 440.0, "dur": 0.40, "wave": "square", "vol": 0.30},
+	"engine_hit":      {"freq0": 200.0, "freq1": 80.0,  "dur": 0.15, "wave": "noise",  "vol": 0.35},
 }
 
 var _streams: Dictionary = {}      # trigger -> AudioStreamWAV
-var _voices: Array = []            # pool of AudioStreamPlayer
+var _voices: Array = []            # pool of AudioStreamPlayer (one-shot SFX)
 var _voice_idx: int = 0
+var _ambient_player: AudioStreamPlayer = null   # dedicated looping drone (never in the voice pool)
 var enabled: bool = true
 
 func _ready() -> void:
@@ -43,6 +48,15 @@ func _ready() -> void:
 		p.bus = "Master"
 		add_child(p)
 		_voices.append(p)
+	# Dedicated ambient drone player, looping its stream so it never re-triggers the voice pool.
+	var amb: AudioStreamWAV = _streams["ambient"]
+	amb.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	amb.loop_begin = 0
+	amb.loop_end = amb.data.size() / 2   # loop_end is in sample frames (16-bit mono => 2 bytes/frame)
+	_ambient_player = AudioStreamPlayer.new()
+	_ambient_player.bus = "Master"
+	_ambient_player.stream = amb
+	add_child(_ambient_player)
 
 func _build_stream(spec: Dictionary) -> AudioStreamWAV:
 	var dur: float = float(spec.get("dur", 0.2))
@@ -90,8 +104,13 @@ func _build_stream(spec: Dictionary) -> AudioStreamWAV:
 	return wav
 
 # Public trigger: play a named SFX. main.gd routes every gameplay event through here.
+# The "ambient" trigger is special-cased onto the dedicated looping player rather than the
+# one-shot voice pool, so the background drone never steals a voice from gameplay SFX.
 func play(trigger: String, pitch: float = 1.0) -> void:
 	if not enabled:
+		return
+	if trigger == "ambient":
+		start_ambient()
 		return
 	if not _streams.has(trigger):
 		return
@@ -100,3 +119,24 @@ func play(trigger: String, pitch: float = 1.0) -> void:
 	p.stream = _streams[trigger]
 	p.pitch_scale = clamp(pitch, 0.5, 2.0)
 	p.play()
+
+# Start (or resume) the looping ambient drone on its dedicated player.
+func start_ambient() -> void:
+	if not enabled or _ambient_player == null:
+		return
+	if not _ambient_player.playing:
+		_ambient_player.play()
+
+# Set the ambient drone volume (0..1 linear). Independent of the SFX voice pool.
+func set_ambient_volume(vol: float) -> void:
+	if _ambient_player == null:
+		return
+	_ambient_player.volume_db = linear_to_db(clamp(vol, 0.0001, 1.0))
+
+# Stop the ambient drone and every voice player (cleanup / quit).
+func stop_all() -> void:
+	if _ambient_player != null:
+		_ambient_player.stop()
+	for p in _voices:
+		if p != null:
+			p.stop()

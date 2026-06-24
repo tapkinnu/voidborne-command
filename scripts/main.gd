@@ -154,6 +154,9 @@ var save_path: String = "user://voidborne_save.json"
 var messages: Array = []           # rolling message log (strings)
 var objective: String = "Capture hostile stations Kryos Relay and Ironhold. Defend friendly stations. Hostile reinforcements may arrive."
 var _elapsed: float = 0.0
+var _nebula_nodes: Array = []           # large nebula cloud MeshInstance3Ds, slowly rotated in _process
+var _hull_alarm_cd: float = 0.0         # cooldown so the low-hull klaxon does not spam each frame
+var _overheat_cd: float = 0.0           # cooldown so the empty-energy weapon click does not spam
 
 # --- Mission / objective system ---------------------------------------------
 # missions is a list of mission Dictionaries (see _init_missions). current_mission_index
@@ -201,6 +204,8 @@ func _ready() -> void:
 	audio = AudioScript.new()
 	audio.name = "Audio"
 	add_child(audio)
+	# Start the looping low-frequency ambient drone (routed to its own dedicated player).
+	audio.play("ambient")
 	_msg("Voidborne Command online. WASD/QE fly, Space fire, Tab target.")
 	_msg("Fly to the STATION (neutral) to recruit crew/marines and buy ships.")
 	_msg("` mouse-aim   F1 settings   F2 control scheme.")
@@ -474,7 +479,8 @@ func _build_stars() -> void:
 	var qm: QuadMesh = QuadMesh.new()
 	qm.size = Vector2(2.2, 2.2)
 	mm.mesh = qm
-	var count: int = 900
+	var count: int = 1500
+	var near_count: int = 65   # brighter, larger foreground stars (last `near_count` instances)
 	mm.instance_count = count
 	for i in range(count):
 		var dir: Vector3 = Vector3(rng.randf_range(-1, 1), rng.randf_range(-1, 1), rng.randf_range(-1, 1)).normalized()
@@ -482,13 +488,24 @@ func _build_stars() -> void:
 		var t: Transform3D = Transform3D(Basis(), pos)
 		# Billboard-ish: face origin.
 		t = t.looking_at(Vector3.ZERO, Vector3.UP)
-		var s: float = rng.randf_range(0.4, 1.8)
+		var is_near: bool = i >= count - near_count
+		var s: float = rng.randf_range(2.0, 3.5) if is_near else rng.randf_range(0.4, 1.8)
 		t = t.scaled_local(Vector3(s, s, s))
 		mm.set_instance_transform(i, t)
+		# Color-temperature variation: most white-blue, some yellow-orange, a few red.
 		var b: float = rng.randf_range(0.5, 1.0)
-		var tint: Color = Color(b, b, b * rng.randf_range(0.85, 1.0))
-		if rng.randf() < 0.15:
-			tint = Color(b * 0.8, b * 0.85, b)
+		var roll: float = rng.randf()
+		var tint: Color
+		if roll < 0.18:
+			tint = Color(b, b * 0.78, b * 0.55)          # yellow-orange
+		elif roll < 0.26:
+			tint = Color(b, b * 0.5, b * 0.42)           # red
+		elif roll < 0.46:
+			tint = Color(b * 0.75, b * 0.85, b)          # blue-white
+		else:
+			tint = Color(b, b, b * rng.randf_range(0.88, 1.0))  # white
+		if is_near:
+			tint = tint.lightened(0.15)
 		mm.set_instance_color(i, tint)
 	var mmi: MultiMeshInstance3D = MultiMeshInstance3D.new()
 	mmi.multimesh = mm
@@ -503,12 +520,20 @@ func _build_stars() -> void:
 	mmi.material_override = smat
 	add_child(mmi)
 
-	# Two faint nebula clouds (large unshaded transparent spheres).
-	for nb in [[Vector3(-300, 120, -400), Color(0.25, 0.1, 0.4, 0.10)], [Vector3(350, -80, -300), Color(0.1, 0.25, 0.4, 0.09)]]:
+	# Layered nebula clouds (large unshaded transparent spheres, different hues/positions).
+	# Each [position, color, radius]. Tracked in _nebula_nodes for a slow drift rotation.
+	var clouds: Array = [
+		[Vector3(-320, 130, -430), Color(0.30, 0.10, 0.45, 0.11), 230.0],  # deep purple
+		[Vector3(360, -90, -320), Color(0.08, 0.28, 0.40, 0.10), 210.0],   # teal
+		[Vector3(120, 180, -520), Color(0.42, 0.22, 0.08, 0.09), 250.0],   # warm orange
+		[Vector3(-150, -160, -300), Color(0.16, 0.10, 0.34, 0.08), 200.0], # dim violet
+	]
+	for nb in clouds:
 		var neb: MeshInstance3D = MeshInstance3D.new()
 		var sm: SphereMesh = SphereMesh.new()
-		sm.radius = 180.0
-		sm.height = 360.0
+		var nr: float = float(nb[2])
+		sm.radius = nr
+		sm.height = nr * 2.0
 		neb.mesh = sm
 		var nmat: StandardMaterial3D = StandardMaterial3D.new()
 		nmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -518,6 +543,24 @@ func _build_stars() -> void:
 		neb.mesh.surface_set_material(0, nmat)
 		neb.position = nb[0]
 		add_child(neb)
+		_nebula_nodes.append(neb)
+
+	# Faint distant galaxy band: a large flattened sphere with a low-alpha milky tint.
+	var galaxy: MeshInstance3D = MeshInstance3D.new()
+	var gsm: SphereMesh = SphereMesh.new()
+	gsm.radius = 600.0
+	gsm.height = 1200.0
+	galaxy.mesh = gsm
+	var gmat: StandardMaterial3D = StandardMaterial3D.new()
+	gmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	gmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	gmat.albedo_color = Color(0.55, 0.58, 0.70, 0.05)
+	gmat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	galaxy.mesh.surface_set_material(0, gmat)
+	galaxy.position = Vector3(0, -120, -900)
+	galaxy.scale = Vector3(1.0, 0.15, 1.0)
+	galaxy.rotation.z = deg_to_rad(18.0)
+	add_child(galaxy)
 
 func _spawn_ship(p_class: String, faction: String, ship_name: String, pos: Vector3, manned: bool = true) -> Node3D:
 	var s: Node3D = ShipScript.new()
@@ -609,6 +652,10 @@ func _process(delta: float) -> void:
 		for s in ships:
 			if is_instance_valid(s):
 				s.tick_visuals(delta)
+		# Slow nebula drift (~0.02 rad/s) so the backdrop feels alive.
+		for neb in _nebula_nodes:
+			if is_instance_valid(neb):
+				neb.rotation.y += 0.02 * delta
 	_update_hud()
 
 func _process_deck(delta: float) -> void:
@@ -631,6 +678,16 @@ func _process_space(delta: float) -> void:
 	# this boolean rather than get_tree().paused so timers and the capture autoload survive.
 	if paused:
 		return
+	# Tick audio-trigger cooldowns and raise the low-hull klaxon when the player is critical.
+	_overheat_cd = max(0.0, _overheat_cd - delta)
+	if is_instance_valid(player) and not player.destroyed:
+		if float(player.hull) < player.max_hull * 0.25:
+			_hull_alarm_cd -= delta
+			if _hull_alarm_cd <= 0.0 and audio:
+				audio.play("hull_alarm")
+				_hull_alarm_cd = 2.0
+		else:
+			_hull_alarm_cd = 0.0
 	if is_instance_valid(player) and not player.destroyed:
 		_player_control(delta)
 	_validate_fleet_attack()
@@ -1035,6 +1092,10 @@ func _try_fire(s: Node3D, delta: float, forced_target: Node3D = null) -> bool:
 	if s.weapon_cd > 0.0:
 		return false
 	if s.energy < 2.0:
+		# Too little energy to fire: play a short overheat/click for the player (throttled).
+		if s.is_player and audio and _overheat_cd <= 0.0:
+			audio.play("weapon_overheat")
+			_overheat_cd = 0.5
 		return false
 	# DAMAGED weapons fire at half rate (doubled cooldown).
 	s.weapon_cd = s.fire_rate * s.weapon_cd_mult()
@@ -1282,6 +1343,9 @@ func _handle_damage_events(victim: Node3D, ev: Dictionary, impact_pos: Vector3 =
 			audio.play("shield", 1.0)
 		else:
 			audio.play("hit", rng.randf_range(0.9, 1.2))
+		# Player took a hull hit (shields did not absorb it): rattle the engine/structure.
+		if is_instance_valid(victim) and victim.is_player and not bool(ev.get("shield_hit", false)):
+			audio.play("engine_hit")
 	# Localized impact VFX at the precise hit point (projectile impacts only; beams pass ZERO).
 	if impact_pos != Vector3.ZERO and is_instance_valid(victim):
 		if bool(ev.get("shield_hit", false)):
