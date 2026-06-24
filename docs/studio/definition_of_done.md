@@ -155,7 +155,22 @@
       mission scripting and a mission-giver UI remain backlog.
 
 ### Production pipeline
-- [ ] Real (or higher-fidelity procedural) art + an authored audio pass.
+- [x] Real (or higher-fidelity procedural) art + an authored audio pass. Shipped: (1)
+  ship hull greebles — small panel/antenna/vent detail meshes on every class (fighter wing panels
+  + cockpit antenna, corvette side strips + dorsal antennas, frigate hull/pod panels + belly vents,
+  capital 10 flank panels + 5-antenna bridge array + belly vents, station ring sensor blocks + hub
+  strakes); (2) faction-tinted running lights — 6 pulsing emissive SphereMesh navigation lights per
+  ship (green ally / red hostile / white neutral), oscillating 0.8↔2.0 emission via a shared
+  `_light_accum` phase; (3) engine exhaust cones — tapered CylinderMesh plumes behind each engine
+  node, transparent blue-white, scaling length `0.5 + throttle * 1.5` and alpha `0.3 + throttle * 0.4`,
+  near-invisible when disabled; (4) enriched starfield — 1500 instances (was 900) with color-
+  temperature variation (white / blue-white / yellow-orange / red) plus 65 brighter near stars;
+  (5) layered nebula — 4 colored clouds (deep purple, teal, warm orange, dim violet, radius 200–250)
+  with a slow 0.02 rad/s Y-drift, plus a faint flattened galaxy band; (6) ambient audio drone — a
+  looping 55 Hz sine on a dedicated `_ambient_player` (separate from the SFX voice pool) started
+  in `_ready`; (7) three new SFX — `weapon_overheat` (low-energy fire click, 0.5 s cooldown),
+  `hull_alarm` (player hull < 25 % klaxon, 2 s cooldown), `engine_hit` (player hull-damage rattle).
+  Covered by `tests/test_visual_fidelity.gd` (`VISUAL_FIDELITY_TEST_PASS`).
 - [x] Automated screenshot diffing in CI; perf budget tests.
   Shipped: `tools/screenshot_diff.py` compares a baseline screenshot directory against the
   current `artifacts/screenshots/` capture, computing per-pixel luma diff (configurable
