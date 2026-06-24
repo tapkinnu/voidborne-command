@@ -173,3 +173,7 @@ jump={
 "deadzone": 0.5,
 "events": [{"type":"key","keycode":75,"unicode":107}]
 }
+mission_giver={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":85,"unicode":117}]
+}

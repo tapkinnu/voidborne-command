@@ -60,6 +60,7 @@ Screenshots are written to `artifacts/screenshots/` (plus a `contact_sheet.jpg`)
 | `F2` | **Cycle control scheme**: Auto → Keyboard+Mouse → Gamepad → Auto |
 | `M` | Toggle the **system map** overlay — top-down view of all stations, fleet, and threats (flight stays live); also lists the jump gates |
 | `K` | **Jump to the next star system** — warps the player and the owned fleet to the next sector (three systems cycle); economy/crew/missions carry over; **captured stations persist** across jumps |
+| `U` | **Open mission-giver overlay** — full list of all missions (active, complete, failed, locked) with cursor navigation; `Enter` to track, `A` to abandon, `U`/`Esc` to close |
 | `O` | **Cycle active missions** — switches the tracked objective through the open missions; HUD panel and top-center objective follow the selection |
 
 ### Gamepad (when connected)

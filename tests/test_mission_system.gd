@@ -38,6 +38,8 @@ func _initialize() -> void:
 	if not failed:
 		for m in missions:
 			var md: Dictionary = m
+			if String(md.get("state", "")) == "locked":
+				continue
 			if String(md.get("state", "")) != "active":
 				_fail("mission %s did not start active" % String(md.get("id", "?")))
 

@@ -185,7 +185,9 @@
       `_check_missions` evaluates and pays them on a throttle, the HUD shows a top-right mission
       panel, and mission state persists through quick save/load (old saves stay compatible).
       Covered by `tests/test_mission_system.gd` (`MISSION_SYSTEM_TEST_PASS`). Branching/chained
-      mission scripting and a mission-giver UI remain backlog.
+      missions (`next` field, locked/unlock flow) and the mission-giver overlay (`U` key, cursor
+      navigation, accept/abandon, full mission tree) are shipped and covered by
+      `tests/test_mission_giver.gd` (`MISSION_GIVER_TEST_PASS`).
 
 ### Production pipeline
 - [x] Real (or higher-fidelity procedural) art + an authored audio pass. Shipped: (1)

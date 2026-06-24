@@ -204,6 +204,9 @@ func _draw() -> void:
 	# Save/load slot menu sits on top of the HUD when open (F5 key).
 	if bool(data.get("save_menu_open", false)):
 		_draw_save_menu(vp)
+	# Mission-giver overlay sits on top when open (U key).
+	if bool(data.get("mission_giver_open", false)):
+		_draw_mission_giver(vp)
 
 func _draw_system_map(vp: Vector2) -> void:
 	# Centered top-down map of the system: stations as labelled squares, other ships as
@@ -375,6 +378,51 @@ func _draw_fleet_menu(vp: Vector2) -> void:
 		var col: Color = Color(1.0, 0.85, 0.35) if is_current else C_DIM
 		var marker: String = ">" if is_current else " "
 		_txt(Vector2(x + 16, ry), "%s[%s] %-11s — %s" % [marker, String(row[0]), String(row[2]), String(row[3])], col, 12)
+
+func _draw_mission_giver(vp: Vector2) -> void:
+	var mission_list: Array = data.get("mission_giver_list", [])
+	if mission_list.is_empty():
+		return
+	var cursor: int = int(data.get("mission_giver_cursor", 0))
+	var w: float = 580.0
+	var h: float = 90.0 + float(mission_list.size()) * 20.0
+	var x: float = vp.x * 0.5 - w * 0.5
+	var y: float = vp.y * 0.5 - h * 0.5
+	draw_rect(Rect2(Vector2(x, y), Vector2(w, h)), Color(0.0, 0.04, 0.07, 0.94), true)
+	draw_rect(Rect2(Vector2(x, y), Vector2(w, h)), C_LINE, false, 1.5)
+	_txt(Vector2(x + 16, y + 26), "MISSIONS (U/Esc to close, \u2191\u2193 navigate, A abandon, Enter track)", C_LINE, 13)
+	var bright: Color = Color(1.0, 0.95, 0.5)
+	var dim: Color = Color(0.6, 0.78, 0.9)
+	var row_y: float = y + 52.0
+	for i in range(mission_list.size()):
+		var entry: Dictionary = mission_list[i]
+		var selected: bool = i == cursor
+		var marker: String = "\u25ba" if selected else " "
+		var state: String = String(entry.get("state", ""))
+		var badge: String = ""
+		var badge_col: Color = dim
+		match state:
+			"active":
+				badge = "ACTIVE"
+				badge_col = Color(0.45, 1.0, 0.6)
+			"complete":
+				badge = "COMPLETE"
+				badge_col = Color(1.0, 0.85, 0.35)
+			"failed":
+				badge = "FAILED"
+				badge_col = Color(1.0, 0.4, 0.34)
+			"locked":
+				badge = "LOCKED"
+				badge_col = Color(0.5, 0.55, 0.62)
+		if selected:
+			draw_rect(Rect2(Vector2(x + 2, row_y - 11), Vector2(w - 4, 18)), Color(0.1, 0.35, 0.25, 0.5), true)
+		var title: String = String(entry.get("title", ""))
+		var reward: int = int(entry.get("reward", 0))
+		_txt(Vector2(x + 16, row_y), "%s %s" % [marker, title], bright if selected else dim, 12)
+		var badge_x: float = x + w - 130.0
+		_txt(Vector2(badge_x, row_y), badge, badge_col, 11)
+		_txt(Vector2(badge_x + 62.0, row_y), "+%d cr" % reward, dim, 11)
+		row_y += 20.0
 
 func _draw_settings_overlay(vp: Vector2) -> void:
 	# Interactive settings panel. main.gd feeds the highlighted row via settings_cursor and

@@ -195,6 +195,8 @@ var _destroyed_hostile_count: int = 0   # cumulative mobile hostiles destroyed (
 var _purchased_frigate: bool = false    # set true once the player buys a frigate at the shipyard
 var _mission_check_accum: float = 0.0   # throttle accumulator for periodic mission evaluation
 const MISSION_CHECK_INTERVAL: float = 0.5
+var mission_giver_open: bool = false
+var mission_giver_cursor: int = 0
 
 # --- Multi-system / inter-system jump layer ---------------------------------
 # Each star system is a self-contained battle layout: stations (neutral hub + capturable
@@ -365,6 +367,10 @@ func _input(event: InputEvent) -> void:
 			if settings_open:
 				_handle_settings_menu_key(ke.keycode)
 				return
+			# While the mission-giver overlay is open, every key drives it.
+			if mission_giver_open:
+				_handle_mission_giver_key(ke.keycode)
+				return
 			# While the station market / dock screen is open, every key drives it and is
 			# consumed here so flight keys never leak through. J or Esc closes it.
 			if dock_screen_open:
@@ -373,6 +379,10 @@ func _input(event: InputEvent) -> void:
 			# J opens the station market when a friendly station is in docking range.
 			if ke.keycode == KEY_J:
 				_toggle_dock_screen()
+				return
+			# U opens the mission-giver overlay.
+			if ke.keycode == KEY_U:
+				_toggle_mission_giver()
 				return
 			# P pauses/resumes outside the settings menu.
 			if ke.keycode == KEY_P:
@@ -1419,7 +1429,7 @@ func _process_space(delta: float) -> void:
 	# (called by _process after this returns) so the pause overlay stays on screen. We use
 	# this boolean rather than get_tree().paused so timers and the capture autoload survive.
 	# The station market / dock screen freezes the sim the same way while it is open.
-	if paused or dock_screen_open or save_menu_open:
+	if paused or dock_screen_open or save_menu_open or mission_giver_open:
 		return
 	# Tick audio-trigger cooldowns and raise the low-hull klaxon when the player is critical.
 	_overheat_cd = max(0.0, _overheat_cd - delta)
@@ -2771,6 +2781,7 @@ func _init_missions() -> void:
 			"desc": "Disable and board the hostile Kryos Relay station.",
 			"reward": 3000,
 			"state": "active",
+			"next": "hold_kryos",
 			"objectives": [
 				{"text": "Capture Kryos Relay", "check": "capture_station", "arg": "Kryos Relay", "done": false},
 			],
@@ -2791,6 +2802,7 @@ func _init_missions() -> void:
 			"desc": "Destroy 5 hostile mobile ships.",
 			"reward": 1500,
 			"state": "active",
+			"next": "eliminate_squadron",
 			"objectives": [
 				{"text": "Destroy 5 hostile ships", "check": "destroy_count", "arg": 5, "done": false},
 			],
@@ -2813,6 +2825,26 @@ func _init_missions() -> void:
 			"state": "active",
 			"objectives": [
 				{"text": "Command 3 fleet ships", "check": "fleet_of_three", "arg": 3, "done": false},
+			],
+		},
+		{
+			"id": "eliminate_squadron",
+			"title": "Eliminate the Squadron",
+			"desc": "Destroy 10 hostile mobile ships.",
+			"reward": 3000,
+			"state": "locked",
+			"objectives": [
+				{"text": "Destroy 10 hostile ships", "check": "destroy_count", "arg": 10, "done": false},
+			],
+		},
+		{
+			"id": "hold_kryos",
+			"title": "Defend Kryos Relay",
+			"desc": "Hold Kryos Relay: keep it player-owned and stay on station.",
+			"reward": 2500,
+			"state": "locked",
+			"objectives": [
+				{"text": "Defend Kryos Relay", "check": "own_and_present", "arg": "Kryos Relay", "done": false},
 			],
 		},
 	]
@@ -2867,6 +2899,51 @@ func _cycle_mission() -> void:
 	_msg("Mission: %s — %s" % [String(cm.get("title", "")), String(cm.get("desc", ""))])
 	if audio: audio.play("ui_recruit")
 
+func _toggle_mission_giver() -> void:
+	mission_giver_open = not mission_giver_open
+	if mission_giver_open:
+		mission_giver_cursor = 0
+	if audio:
+		audio.play("ui_recruit")
+
+func _handle_mission_giver_key(keycode: int) -> void:
+	var count: int = missions.size()
+	match keycode:
+		KEY_UP:
+			if count > 0:
+				mission_giver_cursor = wrapi(mission_giver_cursor - 1, 0, count)
+		KEY_DOWN:
+			if count > 0:
+				mission_giver_cursor = wrapi(mission_giver_cursor + 1, 0, count)
+		KEY_ENTER, KEY_KP_ENTER:
+			if mission_giver_cursor >= 0 and mission_giver_cursor < count:
+				var md: Dictionary = missions[mission_giver_cursor]
+				if String(md.get("state", "")) == "active":
+					current_mission_index = mission_giver_cursor
+					_msg(String(md.get("desc", "")))
+		KEY_A:
+			if mission_giver_cursor >= 0 and mission_giver_cursor < count:
+				var md: Dictionary = missions[mission_giver_cursor]
+				if String(md.get("state", "")) == "active":
+					md["state"] = "failed"
+					_msg("Mission abandoned: %s" % String(md.get("title", "")))
+		KEY_ESCAPE, KEY_U:
+			_toggle_mission_giver()
+
+func _build_mission_giver_list() -> Array:
+	var out: Array = []
+	for i in range(missions.size()):
+		var md: Dictionary = missions[i]
+		out.append({
+			"id": String(md.get("id", "")),
+			"title": String(md.get("title", "")),
+			"state": String(md.get("state", "")),
+			"reward": int(md.get("reward", 0)),
+			"desc": String(md.get("desc", "")),
+			"index": i,
+		})
+	return out
+
 func _check_missions() -> void:
 	# Evaluate each active mission's un-done objectives; complete + pay missions whose
 	# objectives are all satisfied. Cheap: iterates the small mission/ship lists.
@@ -2889,6 +2966,16 @@ func _check_missions() -> void:
 			Game.credits += reward
 			_msg("MISSION COMPLETE: %s  +%d cr." % [String(m.get("title", "")), reward])
 			if audio: audio.play("ui_buy")
+			# Chain unlock: if this mission has a "next" field, unlock that mission.
+			if m.has("next"):
+				var next_id: String = String(m.get("next", ""))
+				for m2 in missions:
+					var md2: Dictionary = m2
+					if String(md2.get("id", "")) == next_id and String(md2.get("state", "")) == "locked":
+						md2["state"] = "active"
+						_msg("New mission available: %s" % String(md2.get("title", "")))
+						if audio: audio.play("ui_recruit")
+						break
 			# If this was the tracked mission, advance the pointer to the next active one.
 			if mi == current_mission_index:
 				var nxt: int = _first_active_mission_index()
@@ -2913,6 +3000,19 @@ func _evaluate_objective(od: Dictionary) -> bool:
 			return _purchased_frigate and Game.purchased_count > 0
 		"fleet_of_three":
 			return _count_fleet() >= int(od.get("arg", 3))
+		"destroy_count_10":
+			return _destroyed_hostile_count >= 10
+		"own_and_present":
+			var nm: String = String(od.get("arg", ""))
+			var station_owned: bool = false
+			for s in ships:
+				if is_instance_valid(s) and not s.destroyed and String(s.ship_name) == nm \
+						and String(s.ship_class) == "station" and String(s.faction) == "player":
+					station_owned = true
+					if is_instance_valid(player) and not player.destroyed \
+							and player.global_position.distance_to(s.global_position) < 200.0:
+						return true
+			return false
 	return false
 
 func _build_mission_hud() -> Dictionary:
@@ -2943,11 +3043,14 @@ func _missions_to_save() -> Array:
 		for o in md.get("objectives", []):
 			var od: Dictionary = o
 			done_flags.append(bool(od.get("done", false)))
-		out.append({
+		var entry: Dictionary = {
 			"id": String(md.get("id", "")),
 			"state": String(md.get("state", "active")),
 			"objectives_done": done_flags,
-		})
+		}
+		if md.has("next"):
+			entry["next_unlocked"] = String(md.get("state", "")) == "complete"
+		out.append(entry)
 	return out
 
 func _missions_from_save(parsed: Dictionary) -> void:
@@ -2975,6 +3078,16 @@ func _missions_from_save(parsed: Dictionary) -> void:
 			if i < done_flags.size():
 				var od: Dictionary = objs[i]
 				od["done"] = bool(done_flags[i])
+		# Restore next_unlocked: if the save says this mission already unlocked its next,
+		# find the target mission and set it active.
+		var next_unlocked: bool = bool(sd.get("next_unlocked", false))
+		if next_unlocked and md.has("next"):
+			var nid: String = String(md.get("next", ""))
+			for m2 in missions:
+				var md2: Dictionary = m2
+				if String(md2.get("id", "")) == nid and String(md2.get("state", "")) == "locked":
+					md2["state"] = "active"
+					break
 	_destroyed_hostile_count = int(parsed.get("destroyed_hostile_count", _destroyed_hostile_count))
 	_purchased_frigate = bool(parsed.get("purchased_frigate", _purchased_frigate))
 	current_mission_index = int(parsed.get("current_mission_index", _first_active_mission_index()))
@@ -3880,6 +3993,10 @@ func _update_hud() -> void:
 	d["shipyard_cost"] = _shipyard_cost()
 	d["objective"] = objective
 	d["mission"] = _build_mission_hud()
+	d["mission_giver_open"] = mission_giver_open
+	d["mission_giver_cursor"] = mission_giver_cursor
+	if mission_giver_open:
+		d["mission_giver_list"] = _build_mission_giver_list()
 	d["messages"] = messages.duplicate()
 	d["capture_demo"] = auto_demo
 	d["autosave_timer"] = _autosave_timer
