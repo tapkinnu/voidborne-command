@@ -128,10 +128,15 @@
   `tests/test_save_load.gd` and the producer-side `tools/verify_save_load.py` (wired into
   `validate_build.sh`). Multi-slot/named saves and cross-system persistence remain backlog.
 - [x] Station shipyard can cycle multiple buyable classes (fighter/corvette/frigate/capital).
-- [~] Station docking UI: repair/refit and a fuller market screen. Repair/refit dock
-  service (`H`) is shipped — restores hull/shield/energy across the manned, player-owned
-  fleet at any friendly station, charges proportional credits with partial work on a tight
-  budget, and refuses at hostile stations. A fuller multi-tab market/dock screen is still TODO.
+- [x] Station docking UI: repair/refit and a fuller market screen. Repair/refit dock
+  service (`H`) restores hull/shield/energy across the manned, player-owned fleet at any
+  friendly station, charges proportional credits with partial work on a tight budget, and
+  refuses at hostile stations. The fuller market is now shipped as a **multi-tab station
+  market/dock screen** opened with `J` at a friendly station: four tabs (SHIPYARD / CREW /
+  REPAIR / INFO) navigated with `←`/`→` (or `Tab`) and `↑`/`↓`, confirmed with `Enter`,
+  closed with `J`/`Esc`. It is a UI consolidation layer that routes every action through the
+  existing `_buy_ship` / `_recruit` / `_station_service` functions and freezes flight like
+  `paused` while open. Covered by `tests/test_dock_screen.gd` (`DOCK_SCREEN_TEST_PASS`).
 - [x] Multiple stations / a small system map with travel and respawning threats.
   Shipped: the world now holds **four stations** spread hundreds of units apart — the neutral
   **Halcyon** hub (still the `station` reference / primary dock) and **Aurora Station**, plus

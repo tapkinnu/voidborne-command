@@ -92,6 +92,7 @@ save file.
 ### Command & economy (fly near the STATION)
 | Key | Action |
 | --- | --- |
+| `J` | Open the **station market/dock screen** (multi-tab: Shipyard / Crew / Repair / Info) — only at a friendly station |
 | `R` | Recruit crew (120 cr) |
 | `N` | Recruit marine (180 cr) |
 | `G` | Cycle the station shipyard offer (fighter / corvette / frigate / capital) |
@@ -103,6 +104,8 @@ save file.
 | `C` | Toggle the **crew deck** interior view |
 
 Repair/refit works at the neutral **Halcyon** hub *and* at any station you have captured. Hostile stations refuse service until taken.
+
+Press `J` near a friendly station to open the **station market** — a multi-tab screen consolidating shipyard purchases, crew/marine recruitment, fleet repair/refit, and station info. Navigate tabs with `←`/`→` (or `Tab`), rows with `↑`/`↓`, and confirm with `Enter`. The screen freezes flight while open (the underlying single-key actions still work too).
 
 ### Crew deck (interior mode)
 | Key | Action |

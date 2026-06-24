@@ -198,6 +198,9 @@ func _draw() -> void:
 	# System map overlay sits on top of the whole HUD when toggled on (M key).
 	if bool(data.get("system_map_open", false)):
 		_draw_system_map(vp)
+	# Station market / dock screen sits on top of everything when open (J key).
+	if bool(data.get("dock_screen_open", false)):
+		_draw_dock_screen(vp)
 
 func _draw_system_map(vp: Vector2) -> void:
 	# Centered top-down map of the system: stations as labelled squares, other ships as
@@ -402,6 +405,117 @@ func _draw_settings_overlay(vp: Vector2) -> void:
 			_txt(Vector2(vx, row_y), String(entry[1]), label_col, 13)
 		row_y += 26.0
 	_txt(Vector2(x + 16, y + h - 18.0), "↑↓ select   ←→ change   F1/Esc close", Color(0.62, 0.82, 0.94, 0.85), 12)
+
+func _draw_dock_screen(vp: Vector2) -> void:
+	# Centered multi-tab station market. main.gd feeds the active tab/cursor and a structured
+	# per-tab row Dictionary (data["dock_screen"]); this renders it. The active tab is shown in
+	# the accent color with a '►' marker; the highlighted body row gets a '►' marker too.
+	var w: float = 540.0
+	var h: float = 360.0
+	var x: float = vp.x * 0.5 - w * 0.5
+	var y: float = vp.y * 0.5 - h * 0.5
+	draw_rect(Rect2(Vector2(x, y), Vector2(w, h)), Color(0.0, 0.04, 0.07, 0.94), true)
+	draw_rect(Rect2(Vector2(x, y), Vector2(w, h)), C_LINE, false, 1.5)
+
+	var station_name: String = String(data.get("dock_screen_station", ""))
+	var title: String = "STATION MARKET — %s" % station_name if station_name != "" else "STATION MARKET"
+	_txt(Vector2(x + 16, y + 26), title, C_LINE, 15)
+
+	var tab: int = int(data.get("dock_screen_tab", 0))
+	var cursor: int = int(data.get("dock_screen_cursor", 0))
+	var tab_names: Array = ["SHIPYARD", "CREW", "REPAIR", "INFO"]
+	var bright: Color = Color(1.0, 0.95, 0.5)
+	var dim: Color = Color(0.6, 0.78, 0.9)
+
+	# Tab bar.
+	var tab_y: float = y + 50.0
+	var tab_x: float = x + 16.0
+	for i in range(tab_names.size()):
+		var active: bool = i == tab
+		var tcol: Color = bright if active else dim
+		var marker: String = "►" if active else " "
+		var label: String = "%s%s" % [marker, String(tab_names[i])]
+		_txt(Vector2(tab_x, tab_y), label, tcol, 14)
+		tab_x += 130.0
+	draw_line(Vector2(x + 14, tab_y + 10.0), Vector2(x + w - 14, tab_y + 10.0), C_LINE.darkened(0.3), 1.0)
+
+	var dock: Dictionary = data.get("dock_screen", {})
+	var bx: float = x + 18.0
+	var by: float = tab_y + 36.0
+	match tab:
+		0:
+			_dock_draw_shipyard(dock, bx, by, bright, dim)
+		1:
+			_dock_draw_crew(dock, bx, by, cursor, bright, dim)
+		2:
+			_dock_draw_repair(dock, bx, by, cursor, bright, dim)
+		3:
+			_dock_draw_info(dock, bx, by, dim)
+
+	_txt(Vector2(x + 16, y + h - 18.0), "←→ tabs  ↑↓ select  Enter confirm  J/Esc close", Color(0.62, 0.82, 0.94, 0.85), 12)
+
+func _dock_draw_shipyard(dock: Dictionary, bx: float, by: float, bright: Color, dim: Color) -> void:
+	var rows: Array = dock.get("shipyard", [])
+	var cursor: int = int(data.get("dock_screen_cursor", 0))
+	_txt(Vector2(bx, by), "Buy ship  (Enter purchases the highlighted class):", dim, 12)
+	by += 24.0
+	for i in range(rows.size()):
+		var row: Dictionary = rows[i]
+		var selected: bool = i == cursor
+		var rcol: Color = bright if selected else dim
+		var marker: String = "►" if selected else " "
+		var offered: String = ">>" if bool(row.get("selected", false)) else "  "
+		var line: String = "%s%s %-9s %6d cr   H%-4d S%-4d crew %d" % [
+			marker, offered, String(row.get("display", "")),
+			int(row.get("cost", 0)), int(row.get("hull", 0)),
+			int(row.get("shield", 0)), int(row.get("crew_needed", 0)),
+		]
+		_txt(Vector2(bx, by), line, rcol, 13)
+		by += 22.0
+
+func _dock_draw_crew(dock: Dictionary, bx: float, by: float, cursor: int, bright: Color, dim: Color) -> void:
+	var crew: Dictionary = dock.get("crew", {})
+	var rows: Array = [
+		"Recruit Crew — %d cr" % int(crew.get("cost_crew", 120)),
+		"Recruit Marine — %d cr" % int(crew.get("cost_marine", 180)),
+	]
+	for i in range(rows.size()):
+		var selected: bool = i == cursor
+		var rcol: Color = bright if selected else dim
+		var marker: String = "►" if selected else " "
+		_txt(Vector2(bx, by), "%s %s" % [marker, String(rows[i])], rcol, 13)
+		by += 24.0
+	by += 8.0
+	_txt(Vector2(bx, by), "Available crew: %d %s   Marines: %d" % [
+		int(crew.get("crew_pool", 0)), String(crew.get("roles", "")), int(crew.get("marine_pool", 0))], dim, 12)
+
+func _dock_draw_repair(dock: Dictionary, bx: float, by: float, cursor: int, bright: Color, dim: Color) -> void:
+	var repair: Dictionary = dock.get("repair", {})
+	var in_range: bool = bool(repair.get("in_range", false))
+	var rcol: Color = bright if cursor == 0 else dim
+	_txt(Vector2(bx, by), "► Repair/Refit Fleet", rcol, 13)
+	by += 28.0
+	if in_range:
+		var cost: int = int(repair.get("cost", 0))
+		var cost_str: String = "nominal — no repair needed" if cost == 0 else "%d cr" % cost
+		_txt(Vector2(bx, by), "Station: %s" % String(repair.get("station", "")), dim, 12)
+		by += 18.0
+		_txt(Vector2(bx, by), "Estimated cost: %s" % cost_str, dim, 12)
+	else:
+		_txt(Vector2(bx, by), "No friendly station in range.", Color(1.0, 0.6, 0.4), 12)
+
+func _dock_draw_info(dock: Dictionary, bx: float, by: float, dim: Color) -> void:
+	var info: Dictionary = dock.get("info", {})
+	var lines: Array = [
+		"Station: %s" % String(info.get("station", "")),
+		"Faction: %s" % String(info.get("faction", "")).to_upper(),
+		"Credits: %d" % int(info.get("credits", 0)),
+		"Fleet ships: %d   Captured: %d" % [int(info.get("fleet_count", 0)), int(info.get("captured", 0))],
+		"Fleet order: %s" % String(info.get("order", "")),
+	]
+	for ln in lines:
+		_txt(Vector2(bx, by), String(ln), dim, 13)
+		by += 22.0
 
 func _draw_pause_overlay(vp: Vector2) -> void:
 	# Centered banner shown while paused and the settings menu is closed.

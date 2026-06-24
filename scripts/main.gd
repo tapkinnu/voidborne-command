@@ -172,6 +172,17 @@ const MISSION_CHECK_INTERVAL: float = 0.5
 # --- System map overlay (transient UI; not saved) ---------------------------
 var system_map_open: bool = false
 
+# --- Station market / dock screen overlay (transient UI; not saved) ----------
+# A centered multi-tab overlay opened with [J] at a friendly station. It consolidates the
+# scattered single-key station actions (shipyard/buy, crew/marine recruit, repair/refit,
+# station info) into one navigable interface. It freezes flight like `paused` while open and
+# routes every action through the existing _buy_ship/_recruit/_station_service functions.
+var dock_screen_open: bool = false
+var dock_screen_tab: int = 0          # 0=Shipyard, 1=Crew, 2=Repair, 3=Info
+var dock_screen_cursor: int = 0       # row cursor within the current tab
+const DOCK_SCREEN_TAB_COUNT: int = 4
+const DOCK_SCREEN_TAB_NAMES: Array = ["SHIPYARD", "CREW", "REPAIR", "INFO"]
+
 # --- Respawning hostile threats ---------------------------------------------
 # When the live mobile-hostile count drops below RESPAWN_THRESHOLD the respawn
 # timer runs; on expiry a fresh raider wing warps in at the edge of the system.
@@ -229,6 +240,15 @@ func _input(event: InputEvent) -> void:
 			# While the settings menu is open, every key drives the menu.
 			if settings_open:
 				_handle_settings_menu_key(ke.keycode)
+				return
+			# While the station market / dock screen is open, every key drives it and is
+			# consumed here so flight keys never leak through. J or Esc closes it.
+			if dock_screen_open:
+				_handle_dock_screen_key(ke.keycode)
+				return
+			# J opens the station market when a friendly station is in docking range.
+			if ke.keycode == KEY_J:
+				_toggle_dock_screen()
 				return
 			# P pauses/resumes outside the settings menu.
 			if ke.keycode == KEY_P:
@@ -292,6 +312,136 @@ func _handle_fleet_menu_key(keycode: int) -> void:
 			fleet_menu_open = false
 			_msg("Fleet order menu closed.")
 			if audio: audio.play("ui_recruit")
+
+# ---------------------------------------------------------------------------
+# STATION MARKET / DOCK SCREEN OVERLAY
+# ---------------------------------------------------------------------------
+func _toggle_dock_screen() -> void:
+	# Opens only when a friendly station is in docking range (closes freely). On open the
+	# tab/cursor reset to the SHIPYARD tab. While open, _process_space() early-returns so
+	# flight/AI/combat freeze (the HUD keeps drawing the overlay).
+	if not dock_screen_open:
+		if _service_station() == null:
+			_msg("No friendly station in range — dock at a station to open the market.")
+			if audio: audio.play("ui_deny")
+			return
+		dock_screen_open = true
+		dock_screen_tab = 0
+		dock_screen_cursor = 0
+		_msg("Station market opened.")
+	else:
+		dock_screen_open = false
+		_msg("Station market closed.")
+	if audio: audio.play("ui_recruit")
+
+func _dock_screen_row_count(tab: int) -> int:
+	# Rows the cursor may visit on each tab: shipyard offers, crew/marine, repair, info.
+	match tab:
+		0:
+			return SHIPYARD_CLASSES.size()
+		1:
+			return 2
+		2:
+			return 1
+		3:
+			return 1
+	return 1
+
+func _handle_dock_screen_key(keycode: int) -> void:
+	match keycode:
+		KEY_LEFT:
+			dock_screen_tab = wrapi(dock_screen_tab - 1, 0, DOCK_SCREEN_TAB_COUNT)
+			dock_screen_cursor = 0
+			if audio: audio.play("ui_recruit")
+		KEY_RIGHT, KEY_TAB:
+			dock_screen_tab = wrapi(dock_screen_tab + 1, 0, DOCK_SCREEN_TAB_COUNT)
+			dock_screen_cursor = 0
+			if audio: audio.play("ui_recruit")
+		KEY_UP:
+			dock_screen_cursor = wrapi(dock_screen_cursor - 1, 0, _dock_screen_row_count(dock_screen_tab))
+			if audio: audio.play("ui_recruit")
+		KEY_DOWN:
+			dock_screen_cursor = wrapi(dock_screen_cursor + 1, 0, _dock_screen_row_count(dock_screen_tab))
+			if audio: audio.play("ui_recruit")
+		KEY_ENTER, KEY_KP_ENTER:
+			_dock_screen_confirm()
+		KEY_1:
+			dock_screen_tab = 0
+			dock_screen_cursor = 0
+		KEY_2:
+			dock_screen_tab = 1
+			dock_screen_cursor = 0
+		KEY_3:
+			dock_screen_tab = 2
+			dock_screen_cursor = 0
+		KEY_4:
+			dock_screen_tab = 3
+			dock_screen_cursor = 0
+		KEY_ESCAPE, KEY_J:
+			_toggle_dock_screen()
+
+func _dock_screen_confirm() -> void:
+	# Executes the action for the current tab + cursor by routing to the existing station
+	# economy functions. The INFO tab is read-only.
+	match dock_screen_tab:
+		0:  # Shipyard: select the cursor's class, then buy it.
+			shipyard_index = clampi(dock_screen_cursor, 0, SHIPYARD_CLASSES.size() - 1)
+			_buy_ship(true)
+		1:  # Crew: row 0 recruits crew, row 1 recruits a marine.
+			if dock_screen_cursor == 0:
+				_recruit("crew", true)
+			else:
+				_recruit("marine", true)
+		2:  # Repair/refit the fleet (handles the no-station case with its own deny).
+			_station_service()
+		3:  # Info: read-only, no action.
+			pass
+
+func _build_dock_screen() -> Dictionary:
+	# Per-tab row data for the HUD overlay so hud.gd only renders (logic stays here).
+	var d: Dictionary = {}
+	var shipyard_rows: Array = []
+	for i in range(SHIPYARD_CLASSES.size()):
+		var cls: String = String(SHIPYARD_CLASSES[i])
+		var info: Dictionary = Game.class_info(cls)
+		shipyard_rows.append({
+			"display": String(info.get("display", cls.capitalize())),
+			"cost": int(Game.class_stat(cls, "value")),
+			"hull": int(Game.class_stat(cls, "hull")),
+			"shield": int(Game.class_stat(cls, "shield")),
+			"crew_needed": int(Game.class_stat(cls, "crew_needed")),
+			"selected": i == shipyard_index,
+		})
+	d["shipyard"] = shipyard_rows
+	var rc: Dictionary = Game.crew_role_counts()
+	d["crew"] = {
+		"crew_pool": Game.crew_pool,
+		"marine_pool": Game.marine_pool,
+		"roles": "(P%d E%d G%d)" % [int(rc.get("pilot", 0)), int(rc.get("engineer", 0)), int(rc.get("gunner", 0))],
+		"cost_crew": COST_CREW,
+		"cost_marine": COST_MARINE,
+	}
+	var est: Dictionary = _service_estimate()
+	d["repair"] = {
+		"in_range": not est.is_empty(),
+		"station": String(est.get("station", "")),
+		"cost": int(est.get("cost", 0)),
+	}
+	var svc: Node3D = _service_station()
+	var sname: String = ""
+	var sfaction: String = ""
+	if svc != null:
+		sname = String(svc.ship_name)
+		sfaction = String(svc.faction)
+	d["info"] = {
+		"station": sname,
+		"faction": sfaction,
+		"credits": Game.credits,
+		"fleet_count": _count_fleet(),
+		"captured": Game.captured_count,
+		"order": fleet_order.to_upper(),
+	}
+	return d
 
 # ---------------------------------------------------------------------------
 # INPUT SOURCE GATING + CONTROL SETTINGS
@@ -676,7 +826,8 @@ func _process_space(delta: float) -> void:
 	# Pause gate: skip all flight/AI/combat/boarding simulation. _update_hud() still runs
 	# (called by _process after this returns) so the pause overlay stays on screen. We use
 	# this boolean rather than get_tree().paused so timers and the capture autoload survive.
-	if paused:
+	# The station market / dock screen freezes the sim the same way while it is open.
+	if paused or dock_screen_open:
 		return
 	# Tick audio-trigger cooldowns and raise the low-hull klaxon when the player is critical.
 	_overheat_cd = max(0.0, _overheat_cd - delta)
@@ -3011,6 +3162,14 @@ func _update_hud() -> void:
 	d["system_map_open"] = system_map_open
 	if system_map_open:
 		d["system_map"] = _build_system_map()
+	# Station market / dock screen overlay (rendered on top of the rest of the HUD).
+	d["dock_screen_open"] = dock_screen_open
+	d["dock_screen_tab"] = dock_screen_tab
+	d["dock_screen_cursor"] = dock_screen_cursor
+	var dock_svc: Node3D = _service_station()
+	d["dock_screen_station"] = String(dock_svc.ship_name) if dock_svc != null else ""
+	if dock_screen_open:
+		d["dock_screen"] = _build_dock_screen()
 
 	if deck_mode:
 		var st: Dictionary = deck.status()
@@ -3079,6 +3238,8 @@ func _count_fleet() -> int:
 	return n
 
 func _context_prompt() -> String:
+	if dock_screen_open:
+		return "STATION MARKET: ←→ tabs  ↑↓ select  Enter confirm  J/Esc close"
 	if fleet_menu_open:
 		return "FLEET ORDERS: [1]Follow [2]Hold [3]Escort [4]Defend [5]Dock [6]Attack  [F/Esc close]"
 	if is_instance_valid(station) and _pdist(station) < 70.0:
