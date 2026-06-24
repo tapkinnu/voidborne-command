@@ -243,5 +243,5 @@
   state (including the active system index) can be quick-saved/loaded (`V`/`L`) to one
   versioned slot. A non-destructive **autosave** now writes to a separate slot
   (`user://voidborne_autosave.json`) every 60 s during active space gameplay and on jump/capture
-  milestones, but multi-slot named-save persistence and retaining captured stations across
-  jumps remain backlog.
+  milestones, but multi-slot named-save persistence remains backlog. Captured stations now
+  persist across jumps (a per-system `captured_station_names` record survives teardown/rebuild).

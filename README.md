@@ -58,7 +58,7 @@ Screenshots are written to `artifacts/screenshots/` (plus a `contact_sheet.jpg`)
 | `P` | **Pause** the game (flight/AI/combat freeze; HUD shows a "PAUSED" banner). Press `P` again to resume |
 | `F2` | **Cycle control scheme**: Auto → Keyboard+Mouse → Gamepad → Auto |
 | `M` | Toggle the **system map** overlay — top-down view of all stations, fleet, and threats (flight stays live); also lists the jump gates |
-| `K` | **Jump to the next star system** — warps the player and the owned fleet to the next sector (three systems cycle); economy/crew/missions carry over |
+| `K` | **Jump to the next star system** — warps the player and the owned fleet to the next sector (three systems cycle); economy/crew/missions carry over; **captured stations persist** across jumps |
 | `O` | **Cycle active missions** — switches the tracked objective through the open missions; HUD panel and top-center objective follow the selection |
 
 ### Gamepad (when connected)
