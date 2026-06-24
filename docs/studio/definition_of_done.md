@@ -157,7 +157,16 @@
 ### Production pipeline
 - [ ] Real (or higher-fidelity procedural) art + an authored audio pass.
 - [ ] Automated screenshot diffing in CI; perf budget tests.
-- [ ] Broader unit tests for damage/boarding/economy state transitions (headless harness).
+- [x] Broader unit tests for damage/boarding/economy state transitions (headless harness).
+  Shipped: `tests/test_state_transitions.gd` covers damage edge cases (shield absorption,
+  overkill, subsystem 50/50 split, exact disable threshold at 22% hull, garrison halving,
+  destroyed no-op, weapon/shield/engine multiplier tables), boarding state guards (disabled,
+  marines, proximity, auto-capture, range-drift abort, round-count increment, attacker-favoured
+  capture victory), economy transitions (broke/successful recruit crew/marine, away-from-station
+  deny, broke/successful buy ship, crew-pool invariant, credit non-negativity, destroy-salvage
+  reward, capture-bounty vs salvage differential), and cross-system invariants (disabled ships
+  stay in array, destroyed ships removed, stale-target clearing, faction+health restoration on
+  capture). All sections print `STATE_TRANSITION_TEST_PASS` and exit 0 under headless SceneTree.
 - [x] Settings menu (resolution, volume, graphics) and pause. Shipped: `F1` opens an
       interactive settings overlay with six rows — Resolution (1280×720 / 1600×900 /
       1920×1080, applied to the window), Volume (0–100 %, applied to the Master audio bus
