@@ -156,7 +156,20 @@
 
 ### Production pipeline
 - [ ] Real (or higher-fidelity procedural) art + an authored audio pass.
-- [ ] Automated screenshot diffing in CI; perf budget tests.
+- [x] Automated screenshot diffing in CI; perf budget tests.
+  Shipped: `tools/screenshot_diff.py` compares a baseline screenshot directory against the
+  current `artifacts/screenshots/` capture, computing per-pixel luma diff (configurable
+  `--threshold`) and failing only when more than `--max-diff-pct` (default 5%) of pixels
+  differ; it resizes to a common dimension for resolution drift, WARNs (non-fatally) on
+  unmatched/missing files, and prints `SCREENSHOT_DIFF: PASS|FAIL`. `tools/save_baseline.sh`
+  snapshots the current PNGs into `artifacts/baseline/` (gitignored). `validate_build.sh`
+  Step 5 runs the diff when a baseline exists, but it is deliberately **non-fatal** (WARN only)
+  since software-rendered captures are noisy and baselines may be absent on first run. The perf
+  budget is enforced by `tests/test_perf_budget.gd` (auto-discovered by the Step 2 test glob, so
+  it IS fatal): it caps live entity registries (ships/projectiles/beams/explosions/muzzle
+  flashes/shield impacts/debris) and asserts the average frame time over a 60-frame run stays
+  under a generous 50 ms headless budget. Prints `PERF_BUDGET_TEST_PASS`. A true pixel-perfect
+  CI gate with a committed reference set remains backlog.
 - [x] Broader unit tests for damage/boarding/economy state transitions (headless harness).
   Shipped: `tests/test_state_transitions.gd` covers damage edge cases (shield absorption,
   overkill, subsystem 50/50 split, exact disable threshold at 22% hull, garrison halving,

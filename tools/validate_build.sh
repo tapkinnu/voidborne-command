@@ -83,4 +83,16 @@ if [[ -n "$HITS" ]]; then
 fi
 
 echo "PASS: no SCRIPT ERROR / Parse Error / Invalid call. Log: $LOG"
+
+echo "-- Step 5: screenshot diff (optional) -------------------------" | tee -a "$LOG"
+if [[ -d "$ROOT/artifacts/baseline" ]]; then
+	python3 "$ROOT/tools/screenshot_diff.py" "$ROOT/artifacts/baseline" "$ROOT/artifacts/screenshots" 2>&1 | tee -a "$LOG"
+	DIFF_STATUS=${PIPESTATUS[0]}
+	if [[ "$DIFF_STATUS" -ne 0 ]]; then
+		echo "WARN: screenshot diff detected regression (non-fatal)" | tee -a "$LOG"
+	fi
+else
+	echo "No baseline directory found; skipping screenshot diff. Run tools/save_baseline.sh to create one." | tee -a "$LOG"
+fi
+
 exit 0

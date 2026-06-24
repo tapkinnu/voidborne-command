@@ -25,6 +25,10 @@ Headless validation, screenshots, and checks:
 ./tools/capture_screenshots.sh
 python3 tools/make_contact_sheet.py artifacts/screenshots artifacts/screenshots/contact_sheet.jpg
 python3 tools/check_audio_wiring.py
+
+# Optional: screenshot regression baseline + diff
+./tools/save_baseline.sh
+python3 tools/screenshot_diff.py artifacts/baseline artifacts/screenshots
 ```
 
 Screenshots are written to `artifacts/screenshots/` (plus a `contact_sheet.jpg`).

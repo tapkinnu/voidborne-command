@@ -14,6 +14,7 @@ __pycache__/
 # Build / capture artifacts
 artifacts/screenshots/*.png
 artifacts/screenshots/*.jpg
+artifacts/baseline/
 artifacts/*.log
 .studio/*.log
 
