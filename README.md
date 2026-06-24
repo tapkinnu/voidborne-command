@@ -121,6 +121,7 @@ it is rebuilt by scanning the slot files. While the menu is open, flight/AI/comb
 | `H` | **Repair / refit**: restore hull, shields, and energy across your flagship and manned fleet (cost scales with damage; partial work if short on credits) |
 | `F` | Man any unmanned owned ships; if none need crew, open/close the **fleet order menu** |
 | `1`–`7` | While the fleet order menu is open: `[1]` Follow · `[2]` Hold · `[3]` Escort · `[4]` Defend target · `[5]` Dock · `[6]` Attack target · `[7]` Patrol (press `[7]` again to clear the route) |
+| `W` | While the fleet order menu is open: enter **wing order mode** — `↑`/`↓` select a wing (Alpha/Beta/Gamma), `1`–`7` set that wing's order independently, `W`/`Esc` back to the fleet menu |
 | `P` | While on the **Patrol** order: drop a patrol waypoint at the flagship's current position (otherwise `P` pauses/resumes) |
 | `Esc` | Close the fleet order menu without changing the order |
 | `C` | Toggle the **crew deck** interior view |
@@ -190,7 +191,15 @@ below). `Esc` closes the menu without changing the order. Attack and defend orde
 self-clear when their target is destroyed, captured, or turns friendly/hostile, and dock
 reverts to follow if no station is in range — in each case the fleet falls back to follow.
 The fleet/economy panel and radar ping show the standing order (`FOLLOW`, `HOLD`, `ESCORT`,
-`DEFEND <target>`, `DOCK`, `ATTACK <target>`, or `PATROL (<n> wp)`).
+`DEFEND <target>`, `DOCK`, `ATTACK <target>`, or `PATROL (<n> wp)`) and the wing membership
+counts (`Wings: A:n B:n G:n`).
+
+**Wing sub-grouping.** Press `F` to open the fleet order menu, then `W` to enter **wing
+order mode**. Use `↑`/`↓` to select a wing (Alpha / Beta / Gamma) and `1`–`7` to set that
+wing's independent standing order. Ships assigned to a wing follow the wing's order instead
+of the global fleet order — so Alpha can attack a capital while Beta escorts the flagship
+and Gamma holds position, all simultaneously. Unassigned escorts keep the global order. Wing
+orders, attack/defend targets, and membership all round-trip through save/load.
 
 **Patrol routes.** With the **Patrol** order set (`[7]`), fly the flagship to a spot and
 press `P` to drop a patrol **waypoint** there; drop up to eight (the oldest rolls off after

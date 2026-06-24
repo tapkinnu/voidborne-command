@@ -270,8 +270,13 @@
   now **patrol**) issued through the `F` fleet order menu. **Patrol routes are shipped**:
   set the `[7]` Patrol order, drop up to eight waypoints with `P`, and manned escorts cycle
   the route while engaging hostiles en route (`_ai_patrol()`, saved with the game, validated
-  by `PATROL_ORDER_TEST_PASS`). Richer doctrine beyond this (wing sub-grouping, per-ship
-  station assignment) is still future work.
+  by `PATROL_ORDER_TEST_PASS`). **Wing sub-grouping is shipped**: manned escorts can be
+  assigned to named wings (Alpha / Beta / Gamma), each with an independent standing order
+  (follow / hold / escort / defend / attack / dock / patrol) set through a wing sub-menu
+  (`F` → `W`). Unassigned escorts keep the global fleet order. Wing formation offsets group
+  wingmates tightly; wing orders, targets, and membership round-trip through save/load
+  (backward-compatible). Covered by `tests/test_wing_groups.gd` (`WING_GROUPS_TEST_PASS`).
+  Per-ship station assignment remains future work.
 - Target cycling prioritizes hostiles; neutral assets are fallback targets only after the
   hostile force is cleared.
 - Three hand-seeded star systems reachable via the `K` jump layer. Within a run, the battle
