@@ -151,6 +151,14 @@ const SAVE_GAME_ID: String = "voidborne_command"
 const SAVE_VERSION: int = 2   # v2 adds current_system_index (v1 saves load as system 0)
 var save_path: String = "user://voidborne_save.json"
 
+# --- Autosave ---------------------------------------------------------------
+# Periodic non-destructive autosave to a SEPARATE slot. It reuses the manual save
+# format/version and never touches save_path, so quick-load [L] still loads the manual
+# slot. autosave_path is a script variable so tests can redirect it to a scratch file.
+const AUTOSAVE_INTERVAL: float = 60.0
+var autosave_path: String = "user://voidborne_autosave.json"
+var _autosave_timer: float = 0.0
+
 var messages: Array = []           # rolling message log (strings)
 var objective: String = "Capture hostile stations Kryos Relay and Ironhold. Defend friendly stations. Hostile reinforcements may arrive."
 var _elapsed: float = 0.0
@@ -1029,6 +1037,8 @@ func jump_to_system(target_idx: int) -> void:
 
 	_msg("Arrived at %s." % dest_name)
 	if audio: audio.play("ui_buy")
+	# Capture the post-jump transition so a tough sector can't cost the player progress.
+	_do_autosave()
 
 func _do_jump_next() -> void:
 	jump_to_system((current_system_index + 1) % STAR_SYSTEMS.size())
@@ -1066,6 +1076,13 @@ func _process(delta: float) -> void:
 		for neb in _nebula_nodes:
 			if is_instance_valid(neb):
 				neb.rotation.y += 0.02 * delta
+		# Periodic autosave — only during active space gameplay (skip deck navigation and
+		# capture/demo runs). _do_autosave itself re-checks auto_demo.
+		if not auto_demo and not deck_mode:
+			_autosave_timer += delta
+			if _autosave_timer >= AUTOSAVE_INTERVAL:
+				_autosave_timer = 0.0
+				_do_autosave()
 	_update_hud()
 
 func _process_deck(delta: float) -> void:
@@ -2289,6 +2306,8 @@ func _complete_capture(s: Node3D) -> void:
 		_msg("%s CAPTURED but UNMANNED — recruit crew to fly it." % s.ship_name)
 	if audio: audio.play("capture")
 	_cancel_boarding()
+	# Preserve the capture milestone immediately.
+	_do_autosave()
 
 # ---------------------------------------------------------------------------
 # STATION ECONOMY: recruit / buy / deck toggle
@@ -3002,6 +3021,23 @@ func _quick_save() -> bool:
 	if audio: audio.play("ui_buy")
 	return true
 
+func _do_autosave() -> bool:
+	# Non-destructive periodic/event autosave to autosave_path. Reuses _build_save_dict()
+	# and the manual write pattern; it never touches save_path. Skipped entirely in
+	# capture/demo mode so headless screenshot/smoke runs stay clean.
+	if auto_demo:
+		return false
+	var data: Dictionary = _build_save_dict()
+	var f: FileAccess = FileAccess.open(autosave_path, FileAccess.WRITE)
+	if f == null:
+		_msg("Autosave failed.")
+		return false
+	f.store_string(JSON.stringify(data, "\t"))
+	f.close()
+	_msg("Autosaved (v%d) — %d cr, fleet %d." % [SAVE_VERSION, Game.credits, _count_fleet()])
+	if audio: audio.play("ui_buy")
+	return true
+
 func _build_save_dict() -> Dictionary:
 	var ship_list: Array = []
 	for s in ships:
@@ -3091,6 +3127,31 @@ func _quick_load() -> bool:
 		return false
 	_apply_save(parsed)
 	_msg("Game LOADED (v%d) — %d cr, fleet %d." % [int((parsed as Dictionary)["version"]), Game.credits, _count_fleet()])
+	if audio: audio.play("ui_buy")
+	return true
+
+func _load_autosave() -> bool:
+	# Loads from the autosave slot (not save_path). Same validate/apply path as _quick_load.
+	# Intended for programmatic/test use; quick-load [L] still loads the manual slot.
+	if not FileAccess.file_exists(autosave_path):
+		_msg("No autosave found.")
+		if audio: audio.play("ui_deny")
+		return false
+	var f: FileAccess = FileAccess.open(autosave_path, FileAccess.READ)
+	if f == null:
+		_msg("Load failed: cannot open autosave file.")
+		if audio: audio.play("ui_deny")
+		return false
+	var text: String = f.get_as_text()
+	f.close()
+	var parsed: Variant = JSON.parse_string(text)
+	var reason: String = _validate_save(parsed)
+	if reason != "":
+		_msg("Autosave rejected: %s" % reason)
+		if audio: audio.play("ui_deny")
+		return false
+	_apply_save(parsed)
+	_msg("Autosave LOADED (v%d) — %d cr, fleet %d." % [int((parsed as Dictionary)["version"]), Game.credits, _count_fleet()])
 	if audio: audio.play("ui_buy")
 	return true
 
@@ -3442,6 +3503,8 @@ func _update_hud() -> void:
 	d["mission"] = _build_mission_hud()
 	d["messages"] = messages.duplicate()
 	d["capture_demo"] = auto_demo
+	d["autosave_timer"] = _autosave_timer
+	d["autosave_interval"] = AUTOSAVE_INTERVAL
 	d["mouse_aim"] = mouse_aim
 	d["control_scheme"] = control_scheme
 	d["settings_open"] = settings_open
