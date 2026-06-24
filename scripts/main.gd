@@ -16,6 +16,10 @@ var station: Node3D = null
 var projectiles: Array = []        # Array of dicts {node, vel, dmg, ttl, faction}
 var beams: Array = []              # Array of dicts {node, ttl}
 var explosions: Array = []         # Array of dicts {node, mat, ttl, life, scale}
+var _muzzle_flashes: Array = []    # Array of dicts {node, mat, ttl, life, start_scale, end_scale}
+var _shield_impacts: Array = []    # Array of dicts {node, mat, ttl, life, start_scale, end_scale}
+var _debris: Array = []            # Array of dicts {node, vel, rot_vel, ttl, life, mat}
+var _decals: Array = []            # reserved; hit decals are children of ship Hull nodes (count tracked via metadata)
 
 var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var space_camera: Camera3D
@@ -398,6 +402,9 @@ func _process_space(delta: float) -> void:
 	_update_projectiles(delta)
 	_update_beams(delta)
 	_update_explosions(delta)
+	_update_muzzle_flashes(delta)
+	_update_shield_impacts(delta)
+	_update_debris(delta)
 	_update_boarding(delta)
 	_update_camera(delta, false)
 	_handle_station_actions()
@@ -673,6 +680,7 @@ func _fire_projectile(s: Node3D, aim_target: Node3D) -> void:
 		aim_dir = (aim_dir * 0.7 + fwd * 0.3).normalized()
 	for m in muzzles:
 		var origin: Vector3 = _muzzle_world(s, m)
+		_spawn_muzzle_flash(origin, s.faction)
 		var node: MeshInstance3D = MeshInstance3D.new()
 		var cm: CapsuleMesh = CapsuleMesh.new()
 		cm.radius = 0.26
@@ -729,6 +737,7 @@ func _fire_beam(s: Node3D, aim_target: Node3D) -> void:
 	node.global_position = mid
 	node.look_at(dest, Vector3.UP)
 	node.rotate_object_local(Vector3.RIGHT, PI / 2.0)
+	_spawn_muzzle_flash(origin, s.faction)
 	beams.append({"node": node, "ttl": 0.3})
 	# Hitscan damage.
 	_apply_damage(s, aim_target, s.weapon_dmg)
@@ -751,6 +760,7 @@ func _fire_projectile_from(s: Node3D, aim_target: Node3D, origin: Vector3, fire_
 	node.material_override = mat
 	add_child(node)
 	node.global_position = origin
+	_spawn_muzzle_flash(origin, s.faction)
 	node.look_at(origin + fire_dir, Vector3.UP)
 	node.rotate_object_local(Vector3.RIGHT, PI / 2.0)
 	var speed: float = 90.0
@@ -792,6 +802,7 @@ func _fire_beam_from(s: Node3D, aim_target: Node3D, origin: Vector3, fire_dir: V
 	node.global_position = mid
 	node.look_at(dest, Vector3.UP)
 	node.rotate_object_local(Vector3.RIGHT, PI / 2.0)
+	_spawn_muzzle_flash(origin, s.faction)
 	beams.append({"node": node, "ttl": 0.3})
 	_apply_damage(s, aim_target, s.weapon_dmg)
 	if audio:
@@ -815,7 +826,7 @@ func _update_projectiles(delta: float) -> void:
 			if pd["faction"] == "player" and s.faction == "neutral":
 				continue   # don't shoot the neutral station accidentally
 			if node.global_position.distance_to(s.global_position) < s.radius():
-				_deal_damage(s, float(pd["dmg"]), String(pd.get("subsystem", "")))
+				_deal_damage(s, float(pd["dmg"]), String(pd.get("subsystem", "")), node.global_position)
 				hit = true
 				break
 		if hit or float(pd["ttl"]) <= 0.0:
@@ -846,17 +857,19 @@ func _apply_damage(attacker: Node3D, victim: Node3D, dmg: float) -> void:
 		return
 	var sub: String = subsystem_focus if (is_instance_valid(attacker) and attacker.is_player) else ""
 	var ev: Dictionary = victim.take_damage(dmg, sub)
-	_handle_damage_events(victim, ev)
+	# Beam hitscan position is less precise; pass ZERO so the shield impact is skipped
+	# (the full-bubble _shield_flash in ship.tick_visuals still fires for beams).
+	_handle_damage_events(victim, ev, Vector3.ZERO)
 
-func _deal_damage(victim: Node3D, dmg: float, subsystem: String = "") -> void:
+func _deal_damage(victim: Node3D, dmg: float, subsystem: String = "", impact_pos: Vector3 = Vector3.ZERO) -> void:
 	# Used by projectile impacts: the subsystem focus is baked into the projectile at
 	# fire time so the shot routes correctly even if the player re-focuses mid-flight.
 	if not is_instance_valid(victim):
 		return
 	var ev: Dictionary = victim.take_damage(dmg, subsystem)
-	_handle_damage_events(victim, ev)
+	_handle_damage_events(victim, ev, impact_pos)
 
-func _handle_damage_events(victim: Node3D, ev: Dictionary) -> void:
+func _handle_damage_events(victim: Node3D, ev: Dictionary, impact_pos: Vector3 = Vector3.ZERO) -> void:
 	if audio:
 		if bool(ev.get("subsystem_hit", false)):
 			audio.play("subsystem_hit", rng.randf_range(0.95, 1.1))
@@ -864,6 +877,13 @@ func _handle_damage_events(victim: Node3D, ev: Dictionary) -> void:
 			audio.play("shield", 1.0)
 		else:
 			audio.play("hit", rng.randf_range(0.9, 1.2))
+	# Localized impact VFX at the precise hit point (projectile impacts only; beams pass ZERO).
+	if impact_pos != Vector3.ZERO and is_instance_valid(victim):
+		if bool(ev.get("shield_hit", false)):
+			_spawn_shield_impact(impact_pos, victim)
+		# Shields down -> the hull is taking the hit: scorch the hull at the impact point.
+		if float(victim.shield) <= 0.0 and not bool(ev.get("destroyed", false)):
+			_spawn_hit_decal(victim, impact_pos)
 	if bool(ev.get("disabled", false)):
 		_msg("%s DISABLED — board it with marines [B]." % victim.ship_name)
 		if audio:
@@ -873,6 +893,7 @@ func _handle_damage_events(victim: Node3D, ev: Dictionary) -> void:
 
 func _destroy_ship(s: Node3D) -> void:
 	_spawn_explosion(s.global_position, s.radius())
+	_spawn_debris(s.global_position, s.radius(), s.faction)
 	if audio:
 		audio.play("explosion")
 	if s.faction == "hostile":
@@ -933,6 +954,162 @@ func _update_explosions(delta: float) -> void:
 		else:
 			keep.append(ed)
 	explosions = keep
+
+# ---------------------------------------------------------------------------
+# COMBAT VFX: muzzle flashes, shield impacts, hit decals, debris
+# ---------------------------------------------------------------------------
+func _spawn_muzzle_flash(pos: Vector3, faction: String) -> void:
+	var node: MeshInstance3D = MeshInstance3D.new()
+	var sm: SphereMesh = SphereMesh.new()
+	sm.radius = 0.8
+	sm.height = 1.6
+	node.mesh = sm
+	var col: Color = Color(0.5, 1.0, 0.6, 1.0) if faction == "player" else Color(1.0, 0.5, 0.35, 1.0)
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_color = col
+	mat.emission_enabled = true
+	mat.emission = col
+	mat.emission_energy_multiplier = 10.0
+	node.material_override = mat
+	add_child(node)
+	node.global_position = pos
+	_muzzle_flashes.append({"node": node, "mat": mat, "ttl": 0.12, "life": 0.12, "start_scale": 1.0, "end_scale": 2.5})
+
+func _update_muzzle_flashes(delta: float) -> void:
+	var keep: Array = []
+	for e in _muzzle_flashes:
+		var ed: Dictionary = e
+		ed["ttl"] = float(ed["ttl"]) - delta
+		var node: Node3D = ed["node"]
+		if not is_instance_valid(node):
+			continue
+		var t: float = 1.0 - clamp(float(ed["ttl"]) / float(ed["life"]), 0.0, 1.0)
+		var sc: float = lerp(float(ed["start_scale"]), float(ed["end_scale"]), t)
+		node.scale = Vector3(sc, sc, sc)
+		var mat: StandardMaterial3D = ed["mat"]
+		mat.albedo_color = Color(mat.albedo_color.r, mat.albedo_color.g, mat.albedo_color.b, 1.0 - t)
+		if float(ed["ttl"]) <= 0.0:
+			node.queue_free()
+		else:
+			keep.append(ed)
+	_muzzle_flashes = keep
+
+func _spawn_shield_impact(pos: Vector3, victim: Node3D) -> void:
+	var node: MeshInstance3D = MeshInstance3D.new()
+	var sm: SphereMesh = SphereMesh.new()
+	sm.radius = 1.5
+	sm.height = 3.0
+	node.mesh = sm
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.albedo_color = Color(0.5, 0.8, 1.0, 0.8)
+	mat.emission_enabled = true
+	mat.emission = Color(0.4, 0.7, 1.0)
+	mat.emission_energy_multiplier = 4.0
+	node.material_override = mat
+	add_child(node)
+	node.global_position = pos
+	_shield_impacts.append({"node": node, "mat": mat, "ttl": 0.3, "life": 0.3, "start_scale": 0.5, "end_scale": 2.0})
+
+func _update_shield_impacts(delta: float) -> void:
+	var keep: Array = []
+	for e in _shield_impacts:
+		var ed: Dictionary = e
+		ed["ttl"] = float(ed["ttl"]) - delta
+		var node: Node3D = ed["node"]
+		if not is_instance_valid(node):
+			continue
+		var t: float = 1.0 - clamp(float(ed["ttl"]) / float(ed["life"]), 0.0, 1.0)
+		var sc: float = lerp(float(ed["start_scale"]), float(ed["end_scale"]), t)
+		node.scale = Vector3(sc, sc, sc)
+		var mat: StandardMaterial3D = ed["mat"]
+		mat.albedo_color = Color(mat.albedo_color.r, mat.albedo_color.g, mat.albedo_color.b, 0.8 * (1.0 - t))
+		if float(ed["ttl"]) <= 0.0:
+			node.queue_free()
+		else:
+			keep.append(ed)
+	_shield_impacts = keep
+
+func _spawn_hit_decal(victim: Node3D, impact_pos: Vector3) -> void:
+	# Cap per ship so long fights don't grow unbounded decal counts.
+	if int(victim.get_meta("decal_count", 0)) >= 8:
+		return
+	var parent: Node3D = victim.get_node_or_null("Hull")
+	if parent == null:
+		parent = victim
+	var node: MeshInstance3D = MeshInstance3D.new()
+	var qm: QuadMesh = QuadMesh.new()
+	qm.size = Vector2(0.8, 0.8)
+	node.mesh = qm
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
+	mat.albedo_color = Color(0.05, 0.03, 0.02, 0.85)
+	mat.emission_enabled = true
+	mat.emission = Color(0.3, 0.1, 0.05)
+	mat.emission_energy_multiplier = 0.3
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.no_depth_test = true
+	node.material_override = mat
+	parent.add_child(node)
+	# Sit just outside the hull at the impact point, facing outward from the ship centre.
+	var outward: Vector3 = (impact_pos - victim.global_position).normalized()
+	node.global_position = impact_pos + outward * 0.05
+	node.look_at(victim.global_position, Vector3.UP)
+	victim.set_meta("decal_count", int(victim.get_meta("decal_count", 0)) + 1)
+
+func _spawn_debris(pos: Vector3, base_radius: float, faction: String) -> void:
+	var hull_col: Color = Color(0.4, 0.4, 0.42, 1.0)
+	if faction == "player":
+		hull_col = Color(0.25, 0.6, 0.38, 1.0)
+	elif faction == "hostile":
+		hull_col = Color(0.6, 0.25, 0.2, 1.0)
+	var count: int = rng.randi_range(4, 8)
+	for i in range(count):
+		var node: MeshInstance3D = MeshInstance3D.new()
+		var bm: BoxMesh = BoxMesh.new()
+		var fs: float = rng.randf_range(0.5, 1.5)
+		bm.size = Vector3(0.4, 0.4, 0.4) * fs
+		node.mesh = bm
+		var mat: StandardMaterial3D = StandardMaterial3D.new()
+		mat.albedo_color = hull_col
+		mat.emission_enabled = true
+		mat.emission = Color(0.8, 0.4, 0.15)
+		mat.emission_energy_multiplier = 2.0
+		node.material_override = mat
+		add_child(node)
+		node.global_position = pos + Vector3(
+			rng.randf_range(-base_radius, base_radius),
+			rng.randf_range(-base_radius, base_radius),
+			rng.randf_range(-base_radius, base_radius))
+		var vel: Vector3 = Vector3(rng.randf_range(-15, 15), rng.randf_range(-15, 15), rng.randf_range(-15, 15))
+		var rot_vel: Vector3 = Vector3(rng.randf_range(-3, 3), rng.randf_range(-3, 3), rng.randf_range(-3, 3))
+		_debris.append({"node": node, "vel": vel, "rot_vel": rot_vel, "ttl": 1.5, "life": 1.5, "mat": mat})
+
+func _update_debris(delta: float) -> void:
+	var keep: Array = []
+	for e in _debris:
+		var ed: Dictionary = e
+		ed["ttl"] = float(ed["ttl"]) - delta
+		var node: Node3D = ed["node"]
+		if not is_instance_valid(node):
+			continue
+		var vel: Vector3 = ed["vel"]
+		var rot_vel: Vector3 = ed["rot_vel"]
+		node.global_position += vel * delta
+		node.rotate_x(rot_vel.x * delta)
+		node.rotate_y(rot_vel.y * delta)
+		node.rotate_z(rot_vel.z * delta)
+		var mat: StandardMaterial3D = ed["mat"]
+		mat.albedo_color = Color(mat.albedo_color.r, mat.albedo_color.g, mat.albedo_color.b, clamp(float(ed["ttl"]) / float(ed["life"]), 0.0, 1.0))
+		if float(ed["ttl"]) <= 0.0:
+			node.queue_free()
+		else:
+			keep.append(ed)
+	_debris = keep
 
 # ---------------------------------------------------------------------------
 # TARGETING / RADAR
