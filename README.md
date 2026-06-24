@@ -51,6 +51,7 @@ Screenshots are written to `artifacts/screenshots/` (plus a `contact_sheet.jpg`)
 | `T` | Order your manned fleet to **attack / focus-fire** the current target (same as menu `[6]`) |
 | `B` | Board a **disabled** target with marines |
 | `V` / `L` | **Quick save / quick load** the current battle (versioned `user://voidborne_save.json`) |
+| (auto) | **Autosave** every 60 s of active flight + on jump/capture (separate `user://voidborne_autosave.json`) |
 | `Z` | **Cycle subsystem focus** on the current target: none → engines → weapons → shields → none |
 | `` ` `` (backtick) | Toggle **mouse-aim flight** — captures the cursor; mouse X→yaw, mouse Y→pitch (additive over keyboard) |
 | `F1` | Toggle the **settings overlay** — interactive menu: resolution, volume, graphics quality, pause, mouse-aim, control scheme |
@@ -174,6 +175,10 @@ fleet return, captured stations and ships stay yours, purchased ships persist, u
 prizes stay unmanned, and destroyed or already-cleared hostiles do **not** come back. A save
 is rejected (without touching your current game) if it is corrupt, is not a Voidborne save,
 is missing required sections, or was written by a newer game version.
+
+The game also **autosaves** to a separate slot (`user://voidborne_autosave.json`) every 60 s
+of active flight, on every system jump, and whenever you capture a ship or station. The
+autosave never overwrites your manual save — `L` always loads the manual slot.
 
 While targeting a hostile, press `Z` to **cycle subsystem focus**: none → engines → weapons →
 shields → none. With a subsystem focused, half of your post-shield damage is routed into that

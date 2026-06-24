@@ -241,5 +241,7 @@
   hostile force is cleared.
 - Three hand-seeded star systems reachable via the `K` jump layer. Within a run, the battle
   state (including the active system index) can be quick-saved/loaded (`V`/`L`) to one
-  versioned slot; there is no autosave or multi-slot persistence yet, and captured stations in
-  a system are not retained once the player jumps away from that system.
+  versioned slot. A non-destructive **autosave** now writes to a separate slot
+  (`user://voidborne_autosave.json`) every 60 s during active space gameplay and on jump/capture
+  milestones, but multi-slot named-save persistence and retaining captured stations across
+  jumps remain backlog.
