@@ -30,6 +30,14 @@ func set_data(d: Dictionary) -> void:
 func _txt(pos: Vector2, s: String, col: Color, size: int = 14) -> void:
 	draw_string(_font, pos, s, HORIZONTAL_ALIGNMENT_LEFT, -1, size, col)
 
+# Marine count line, annotated with the wounded count when any marine is injured.
+func _marines_str(data: Dictionary) -> String:
+	var pool: int = int(data.get("marine_pool", 0))
+	var wounded: int = int(data.get("marine_wounded", 0))
+	if wounded > 0:
+		return "Marines: %d (W:%d)" % [pool, wounded]
+	return "Marines: %d" % pool
+
 func _bar(pos: Vector2, w: float, h: float, frac: float, col: Color, label: String) -> void:
 	draw_rect(Rect2(pos, Vector2(w, h)), Color(0, 0, 0, 0.5), true)
 	draw_rect(Rect2(pos, Vector2(w * clamp(frac, 0.0, 1.0), h)), col, true)
@@ -83,9 +91,9 @@ func _draw() -> void:
 	_txt(Vector2(16, 48), "Credits: %d" % int(data.get("credits", 0)), Color(1, 0.85, 0.4), 13)
 	var role_str: String = String(data.get("crew_roles", ""))
 	if role_str != "":
-		_txt(Vector2(16, 64), "Crew: %d %s   Marines: %d" % [int(data.get("crew_pool", 0)), role_str, int(data.get("marine_pool", 0))], C_DIM, 13)
+		_txt(Vector2(16, 64), "Crew: %d %s   %s" % [int(data.get("crew_pool", 0)), role_str, _marines_str(data)], C_DIM, 13)
 	else:
-		_txt(Vector2(16, 64), "Crew: %d   Marines: %d" % [int(data.get("crew_pool", 0)), int(data.get("marine_pool", 0))], C_DIM, 13)
+		_txt(Vector2(16, 64), "Crew: %d   %s" % [int(data.get("crew_pool", 0)), _marines_str(data)], C_DIM, 13)
 	_txt(Vector2(16, 80), "Fleet: %d   Captured: %d" % [int(data.get("fleet_count", 0)), int(data.get("captured", 0))], C_DIM, 13)
 	var order_key: String = String(data.get("fleet_order", "follow"))
 	var order_txt: String = order_key.to_upper()

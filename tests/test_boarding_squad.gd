@@ -105,12 +105,17 @@ func _initialize() -> void:
 				_fail("boarded frigate did not switch to player faction")
 			if int(game.get("captured_count")) != before_captured + 1:
 				_fail("successful boarding did not increment captured_count")
-			# Survivors become the new marine pool: reduced by casualties, NOT the old flat 2.
+			# Wound model: in a lopsided fight no marine dies, so the whole squad returns
+			# to the pool but carries injuries rather than being killed off.
 			var pool_after: int = int(game.get("marine_pool"))
-			if pool_after <= 0 or pool_after >= 20:
-				_fail("marine_pool %d not reduced by squad casualties" % pool_after)
-			if pool_after == 18:
-				_fail("marine_pool reduced by flat 2 (old model), expected casualty-based")
+			if pool_after <= 0:
+				_fail("marine_pool %d should retain survivors after capture" % pool_after)
+			var wounded_after: int = 0
+			for rm in game.get("marine_roster"):
+				if typeof(rm) == TYPE_DICTIONARY and int((rm as Dictionary).get("wounds", 0)) > 0:
+					wounded_after += 1
+			if wounded_after <= 0:
+				_fail("boarding squad took no wounds (expected casualty-based injuries)")
 			# Captured ship is left ungarrisoned for the new owner.
 			if int(frig.get("marine_garrison")) != 0:
 				_fail("captured ship garrison %d != 0" % int(frig.get("marine_garrison")))

@@ -259,9 +259,13 @@
 
 ### Known limitations (current slice)
 - Crew and marines are both named individuals with skills and morale; the deck shows names
-  for both. Boarding still resolves as a per-round attacker-vs-defender casualty exchange
-  (with a class-based defender garrison) — named marines are drawn, suffer casualties by
-  count, and survivors are restored, but there is no per-marine wound/injury state yet.
+  for both. Boarding resolves as a per-round attacker-vs-defender casualty exchange (with a
+  class-based defender garrison). Named marines now carry a **per-marine wound/injury state**
+  (0 healthy → 3 critical): boarding casualties wound marines (spreading injuries across the
+  squad) before any are killed, wounded marines fight at reduced effectiveness
+  (`1.0 - wounds*0.25` each), survivors keep their wounds, and docking at a friendly station
+  heals the whole squad. The crew deck and HUD economy panel surface wounded marines
+  (`SHIPPED`, validated by `MARINE_WOUNDS_TEST_PASS`).
 - Fleet AI is a six-order command set (follow, hold, escort, defend, dock, attack) issued
   through the `F` fleet order menu; richer doctrine (patrol routes, wing sub-grouping) is
   still future work.

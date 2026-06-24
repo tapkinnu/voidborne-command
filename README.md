@@ -160,7 +160,12 @@ Whittle a hostile ship or a hostile station (**Kryos Relay** / **Ironhold**) to 
 target's **defending garrison** in a resolved **squad action**. Each round both sides take
 casualties (scaled by their strength and a seeded roll); boarding **succeeds** when the
 defenders are cleared and **fails** — losing all your marines — if your boarders are wiped
-first. Bigger hulls garrison more marines (corvette 2 → frigate 4 → capital 8 → station 12),
+first. Attacker casualties first **wound** marines (W1 light → W3 critical, spreading across
+the squad) — wounded marines fight at reduced effectiveness (`1.0 − wounds×0.25` each) and
+only die once fully wounded, so survivors limp home injured rather than dead. Dock at a
+friendly station (`H`) to **patch up** the whole squad back to full health; the crew deck
+tags wounded marines (`W#`, colour-coded) and the HUD shows the wounded count (`Marines: N (W:n)`).
+Bigger hulls garrison more marines (corvette 2 → frigate 4 → capital 8 → station 12),
 so disabling them first (which already halves the garrison) and bringing enough marines
 matters. On a successful boarding the asset **switches to your faction**, the surviving
 attackers become your marine pool, and hostile captures pay a better

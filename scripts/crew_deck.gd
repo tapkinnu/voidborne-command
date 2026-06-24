@@ -399,13 +399,23 @@ func _spawn_crew_marine_named(marine_dict: Dictionary, idx: int, total: int) -> 
 	_crew_container.add_child(hh)
 	var mname: String = String(marine_dict.get("name", "Marine"))
 	var skill: int = int(marine_dict.get("skill", 1))
+	var wounds: int = int(marine_dict.get("wounds", 0))
 	var label: Label3D = Label3D.new()
-	label.text = "%s [MAR] S%d" % [mname, skill]
+	if wounds > 0:
+		label.text = "%s [MAR] S%d W%d" % [mname, skill, wounds]
+	else:
+		label.text = "%s [MAR] S%d" % [mname, skill]
 	label.font_size = 48
 	label.pixel_size = 0.01
 	label.no_depth_test = true
 	label.position = Vector3(0, 2.4, 0)
-	label.modulate = Color(1, 1, 1)
+	# Tint by injury severity so wounded marines read at a glance on the crew deck.
+	var tint: Color = Color(1, 1, 1)
+	match wounds:
+		1: tint = Color(1, 0.9, 0.3)
+		2: tint = Color(1, 0.6, 0.2)
+		3: tint = Color(1, 0.3, 0.2)
+	label.modulate = tint
 	hh.add_child(label)
 	crew_nodes.append({
 		"node": hh,

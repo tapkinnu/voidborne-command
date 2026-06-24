@@ -250,6 +250,7 @@ func _make_marine_member(rng: RandomNumberGenerator) -> Dictionary:
 		"skill": rng.randi_range(3, 7),
 		"morale": rng.randf_range(0.7, 1.0),
 		"assigned": false,
+		"wounds": 0,
 	}
 
 func recruit_marine_member(rng: RandomNumberGenerator) -> Dictionary:
@@ -320,6 +321,7 @@ func marine_roster_to_save() -> Array:
 			"skill": int(md.get("skill", 1)),
 			"morale": float(md.get("morale", 1.0)),
 			"assigned": bool(md.get("assigned", false)),
+			"wounds": clampi(int(md.get("wounds", 0)), 0, 3),
 		})
 	return out
 
@@ -334,6 +336,7 @@ func marine_roster_from_save(data: Array) -> void:
 			"skill": clampi(int(ed.get("skill", 1)), 1, 10),
 			"morale": clampf(float(ed.get("morale", 1.0)), 0.0, 1.0),
 			"assigned": bool(ed.get("assigned", false)),
+			"wounds": clampi(int(ed.get("wounds", 0)), 0, 3),
 		})
 
 func rebuild_default_marine_roster(rng: RandomNumberGenerator, count: int) -> void:

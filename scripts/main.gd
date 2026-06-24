@@ -2531,7 +2531,10 @@ func _try_start_boarding() -> void:
 	boarding_round_timer = 0.0
 	boarding_round_count = 0
 	boarding_drawn_marines = Game.draw_boarding_marines(Game.marine_pool)
-	boarding_attacker_strength = boarding_drawn_marines.size()
+	# Wounded marines fight at reduced effectiveness, so the attacking strength is the
+	# squad's effective strength (not the raw head count). The drawn list still holds
+	# every marine; wounds only shrink the strength number used by the casualty math.
+	boarding_attacker_strength = _marine_effective_strength(boarding_drawn_marines)
 	boarding_defender_strength = int(target.marine_garrison)
 	boarding_initial_attacker = boarding_attacker_strength
 	boarding_initial_defender = boarding_defender_strength
@@ -2571,7 +2574,13 @@ func _resolve_boarding_round() -> void:
 	var def_cas: int = 0
 	if atk > 0:
 		def_cas = max(1, int(round(float(atk) * BOARD_EXCHANGE_RATE * rng.randf_range(0.7, 1.3))))
-	boarding_attacker_strength = max(0, atk - atk_cas)
+	# Attacker casualties wound marines (spreading injuries) before any are killed; only
+	# a fully-wounded squad starts losing marines outright. Recompute effective strength
+	# from the survivors so wounded attackers inflict fewer casualties next round.
+	if atk_cas > 0:
+		var _killed: int = _apply_boarding_casualties(boarding_drawn_marines, atk_cas)
+	boarding_attacker_strength = _marine_effective_strength(boarding_drawn_marines)
+	# Defenders are garrison NPCs — a plain count reduction, no wound tracking.
 	boarding_defender_strength = max(0, def - def_cas)
 	boarding_round_count += 1
 	if audio:
@@ -2590,6 +2599,50 @@ func _update_boarding_bar() -> void:
 		boarding_progress = 1.0
 	else:
 		boarding_progress = clamp(1.0 - float(boarding_defender_strength) / float(boarding_initial_defender), 0.0, 1.0)
+
+# Effective fighting strength of a marine party: each marine contributes
+# 1.0 - wounds*0.25 (healthy 1.0, light 0.75, serious 0.5, critical 0.25). Summed
+# and rounded to an int at the total level so a squad's wounds reduce capacity smoothly.
+func _marine_effective_strength(marines: Array) -> int:
+	var total: float = 0.0
+	for m in marines:
+		if typeof(m) != TYPE_DICTIONARY:
+			continue
+		var md: Dictionary = m
+		var w: int = clampi(int(md.get("wounds", 0)), 0, 3)
+		total += 1.0 - float(w) * 0.25
+	return int(round(total))
+
+# Apply `casualties` hits to a drawn boarding party. Each hit wounds the least-wounded
+# marine first (spreading injuries across the squad); a marine already at 3 wounds dies
+# instead and is removed from `drawn` and from Game.marine_roster. Returns the number
+# of marines killed (removed from `drawn`).
+func _apply_boarding_casualties(drawn: Array, casualties: int) -> int:
+	var killed: int = 0
+	for _i in range(max(0, casualties)):
+		# Find the live marine with the lowest wounds.
+		var best: Dictionary = {}
+		var best_idx: int = -1
+		var best_w: int = 99
+		for j in range(drawn.size()):
+			if typeof(drawn[j]) != TYPE_DICTIONARY:
+				continue
+			var md: Dictionary = drawn[j]
+			var w: int = clampi(int(md.get("wounds", 0)), 0, 3)
+			if w < best_w:
+				best_w = w
+				best_idx = j
+				best = md
+		if best_idx < 0:
+			break  # nothing left to wound or kill
+		if best_w >= 3:
+			# Entire squad is critically wounded — this hit kills.
+			Game.marine_roster.erase(best)
+			drawn.remove_at(best_idx)
+			killed += 1
+		else:
+			best["wounds"] = best_w + 1
+	return killed
 
 func _fail_boarding() -> void:
 	var lost: int = boarding_initial_attacker
@@ -2640,18 +2693,11 @@ func _complete_capture(s: Node3D) -> void:
 	s.hull = max(s.hull, s.max_hull * 0.4)
 	# Captured asset starts ungarrisoned; the surviving boarders become the new marine pool.
 	s.marine_garrison = 0
-	# Squad casualties: only the surviving boarders (boarding_attacker_strength) return
-	# to the available pool; the fallen are removed from the roster entirely.
-	var survivors_count: int = max(0, boarding_attacker_strength)
-	var boarding_survivors: Array = []
-	for m in boarding_drawn_marines:
-		if typeof(m) != TYPE_DICTIONARY:
-			continue
-		if boarding_survivors.size() < survivors_count:
-			boarding_survivors.append(m)
-		else:
-			Game.marine_roster.erase(m)
-	Game.restore_boarding_marines(boarding_survivors)
+	# Squad casualties: marines killed during the breach rounds were already removed from
+	# both boarding_drawn_marines and the roster by _apply_boarding_casualties. Every
+	# marine still in the drawn list survives the capture (wounds and all) and returns to
+	# the available pool.
+	Game.restore_boarding_marines(boarding_drawn_marines)
 	boarding_drawn_marines = []
 	Game.captured_count += 1
 	_msg("Boarding won: %d attackers lost, %d defenders lost." % [attackers_lost, defenders_lost])
@@ -3266,6 +3312,21 @@ func _service_estimate() -> Dictionary:
 		cost = max(SERVICE_MIN_CHARGE, int(ceil(raw)))
 	return {"station": svc.ship_name, "cost": cost}
 
+# Heal every wounded marine in the roster back to full health. Used by station docking
+# (the medic) and the test harness. Emits a HUD message only when someone was wounded.
+func _heal_marines_at_station(station_name: String) -> int:
+	var healed: int = 0
+	for m in Game.marine_roster:
+		if typeof(m) != TYPE_DICTIONARY:
+			continue
+		var md: Dictionary = m
+		if int(md.get("wounds", 0)) > 0:
+			md["wounds"] = 0
+			healed += 1
+	if healed > 0:
+		_msg("Marine squad patched up at %s." % station_name)
+	return healed
+
 func _station_service() -> void:
 	var svc: Node3D = _service_station()
 	if svc == null:
@@ -3281,6 +3342,10 @@ func _station_service() -> void:
 			_msg("No friendly station in range — dock at a station for repair/refit [H].")
 		if audio: audio.play("ui_deny")
 		return
+
+	# Marines visit the station medic regardless of fleet damage — heal wounds first so a
+	# squad with no ship repairs still gets patched up before the "all nominal" early-out.
+	_heal_marines_at_station(String(svc.ship_name))
 
 	var targets: Array = _service_targets()
 	var raw_cost: float = _service_raw_cost(targets)
@@ -3970,6 +4035,11 @@ func _update_hud() -> void:
 	d["credits"] = Game.credits
 	d["crew_pool"] = Game.crew_pool
 	d["marine_pool"] = Game.marine_pool
+	var marine_wounded: int = 0
+	for m in Game.marine_roster:
+		if typeof(m) == TYPE_DICTIONARY and int((m as Dictionary).get("wounds", 0)) > 0:
+			marine_wounded += 1
+	d["marine_wounded"] = marine_wounded
 	var avail: Array = Game.available_crew()
 	var p_count: int = 0
 	var e_count: int = 0

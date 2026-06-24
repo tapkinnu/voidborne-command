@@ -406,8 +406,15 @@ func _initialize() -> void:
 			var after_marines: int = int(game.get("marine_pool"))
 			if after_marines <= 0:
 				_fail("no marine survivors after capture")
-			if after_marines >= before_marines:
-				_fail("marine pool not reduced by casualties")
+			# Wound model: survivors are wounded rather than killed in a lopsided fight, so the
+			# squad returns intact but injured instead of the pool shrinking.
+			var any_wounded: bool = false
+			for rm in game.get("marine_roster"):
+				if typeof(rm) == TYPE_DICTIONARY and int((rm as Dictionary).get("wounds", 0)) > 0:
+					any_wounded = true
+					break
+			if after_marines >= before_marines and not any_wounded:
+				_fail("boarding squad neither lost nor wounded marines")
 
 	# ===================================================================
 	# 3. ECONOMY STATE TRANSITIONS
