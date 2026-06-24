@@ -3814,9 +3814,19 @@ func _set_deck_mode(on: bool) -> void:
 	if on:
 		deck.set_ship_list(_owned_ship_list())
 		deck.refresh_roster()
+		# Swap the space WorldEnvironment for brighter deck lighting so the
+		# interior is readable in screenshots and play. Restore on exit.
+		if world_env:
+			world_env.environment.ambient_light_color = Color(0.5, 0.55, 0.65, 1.0)
+			world_env.environment.ambient_light_energy = 1.5
+			world_env.environment.background_color = Color(0.06, 0.08, 0.12, 1.0)
 		_msg("Entered CREW DECK. WASD move, F order follow, C exit, R next ship.")
 	else:
 		space_camera.current = true
+		if world_env:
+			world_env.environment.ambient_light_color = Color(0.18, 0.20, 0.28, 1.0)
+			world_env.environment.ambient_light_energy = 0.6
+			world_env.environment.background_color = Color(0.01, 0.012, 0.03, 1.0)
 		_msg("Returned to the bridge.")
 
 # ---------------------------------------------------------------------------

@@ -161,9 +161,9 @@ func _build_room_geometry(idx: int) -> void:
 	floor_mi.mesh = fm
 	var fmat: StandardMaterial3D = StandardMaterial3D.new()
 	var floor_colors: Array = [
-		Color(0.10, 0.14, 0.20),
-		Color(0.18, 0.15, 0.12),
-		Color(0.16, 0.10, 0.10),
+		Color(0.18, 0.24, 0.32),
+		Color(0.28, 0.22, 0.16),
+		Color(0.26, 0.16, 0.16),
 	]
 	fmat.albedo_color = Color(floor_colors[idx])
 	fmat.metallic = 0.3
@@ -173,9 +173,9 @@ func _build_room_geometry(idx: int) -> void:
 	_room_container.add_child(floor_mi)
 
 	var wall_colors: Array = [
-		Color(0.15, 0.22, 0.30),
-		Color(0.30, 0.22, 0.14),
-		Color(0.30, 0.14, 0.14),
+		Color(0.22, 0.32, 0.42),
+		Color(0.38, 0.28, 0.18),
+		Color(0.38, 0.18, 0.18),
 	]
 	var wcol: Color = Color(wall_colors[idx])
 	var wmat: StandardMaterial3D = StandardMaterial3D.new()
@@ -301,13 +301,24 @@ func _build_room_geometry(idx: int) -> void:
 
 	var sun: DirectionalLight3D = DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-70, -30, 0)
-	sun.light_energy = 0.8
+	sun.light_energy = 2.5
+	sun.light_color = Color(1.0, 0.95, 0.85, 1.0)
 	_room_container.add_child(sun)
 	var lamp: OmniLight3D = OmniLight3D.new()
 	lamp.position = Vector3(cx, 3.5, 0)
-	lamp.omni_range = 18
-	lamp.light_energy = 1.5
+	lamp.omni_range = 22
+	lamp.light_energy = 3.0
+	lamp.light_color = Color(0.9, 0.92, 1.0, 1.0)
 	_room_container.add_child(lamp)
+	# Fill light from the opposite side to avoid harsh shadows on humanoids.
+	var fill: OmniLight3D = OmniLight3D.new()
+	fill.position = Vector3(cx, 2.5, -6)
+	fill.omni_range = 20
+	fill.light_energy = 1.5
+	fill.light_color = Color(0.85, 0.9, 1.0, 1.0)
+	_room_container.add_child(fill)
+	# Ambient environment is handled by the main scene's WorldEnvironment swap
+	# in _set_deck_mode() — no local WorldEnvironment needed.
 
 func refresh_roster() -> void:
 	for c in crew_nodes:
