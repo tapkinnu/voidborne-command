@@ -157,3 +157,7 @@ cycle_mission={
 "deadzone": 0.5,
 "events": [{"type":"key","keycode":79,"unicode":111}]
 }
+pause={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":80,"unicode":112}]
+}

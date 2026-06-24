@@ -44,6 +44,25 @@ var control_scheme: String = "auto"   # "auto" | "keyboard" | "gamepad"
 var _mouse_aim_delta: Vector2 = Vector2.ZERO   # accumulated mouse motion this frame
 const MOUSE_AIM_SENS: float = 0.003
 
+# --- Settings menu / pause (display preferences; not part of save state) -----
+# paused is a simple boolean gate: _process_space() early-returns while it is set, but the
+# HUD keeps drawing (so the pause overlay shows) and get_tree().paused is deliberately NOT
+# used so timers and the headless capture autoload keep running. The settings menu is an
+# interactive overlay navigated with arrow keys / digits (see _input + _settings_*).
+var paused: bool = false
+var master_volume: int = 80            # 0..100, applied to the Master audio bus
+var graphics_quality: String = "high"  # "low" | "medium" | "high"
+var resolution_index: int = 0          # index into RESOLUTIONS
+var settings_cursor: int = 0           # highlighted row in the settings menu (0..5)
+const RESOLUTIONS: Array = [
+	{"w": 1280, "h": 720, "label": "1280x720"},
+	{"w": 1600, "h": 900, "label": "1600x900"},
+	{"w": 1920, "h": 1080, "label": "1920x1080"},
+]
+const GRAPHICS_QUALITIES: Array = ["low", "medium", "high"]
+const SETTINGS_ROW_COUNT: int = 6      # Resolution, Volume, Graphics, Pause, Mouse Aim, Scheme
+const VOLUME_STEP: int = 5
+
 # Per-source flight binding tables. The action system merges keyboard and gamepad
 # events, so to honour control_scheme ("keyboard" / "gamepad" / "auto") we read each
 # source explicitly. These mirror the events declared in project.godot [input].
@@ -161,10 +180,17 @@ var _respawn_warned: bool = false   # quiet-sector notice shown once per lull
 var _raider_seq: int = 4            # initial wing is Raider-1..4; reinforcements continue the count
 
 func _ready() -> void:
+	# Keep running even if anything ever pauses the tree; we gate game logic with the
+	# `paused` bool ourselves rather than touching get_tree().paused.
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	rng.seed = 20260623
 	auto_demo = OS.get_environment("VOIDBORNE_CAPTURE") != "" or OS.has_feature("demo")
 	Game.reset()
 	_build_environment()
+	_apply_graphics_quality()
+	_apply_master_volume()
+	if not auto_demo:
+		_apply_resolution()
 	_build_stars()
 	_build_battle()
 	_init_missions()
@@ -185,12 +211,57 @@ func _input(event: InputEvent) -> void:
 	if mouse_aim and control_scheme != "gamepad" and event is InputEventMouseMotion:
 		var m: InputEventMouseMotion = event
 		_mouse_aim_delta += m.relative
+	# Global toggles + settings-menu navigation are handled here in _input (not in
+	# _handle_station_actions) so they keep working while the game is paused — recall
+	# _process_space() early-returns when paused, so its station-action poll never runs.
+	if event is InputEventKey:
+		var ke: InputEventKey = event
+		if ke.pressed and not ke.echo:
+			# F1 always toggles the settings overlay (open or close).
+			if ke.keycode == KEY_F1:
+				_toggle_settings()
+				return
+			# While the settings menu is open, every key drives the menu.
+			if settings_open:
+				_handle_settings_menu_key(ke.keycode)
+				return
+			# P pauses/resumes outside the settings menu.
+			if ke.keycode == KEY_P:
+				_toggle_pause()
+				return
 	# Fleet order menu: number keys 1-6 pick an order, Esc closes. Only while the menu is
 	# open in space mode so the digits never collide with flight controls.
 	if fleet_menu_open and not deck_mode and event is InputEventKey:
-		var ke: InputEventKey = event
-		if ke.pressed and not ke.echo:
-			_handle_fleet_menu_key(ke.keycode)
+		var fe: InputEventKey = event
+		if fe.pressed and not fe.echo:
+			_handle_fleet_menu_key(fe.keycode)
+
+func _handle_settings_menu_key(keycode: int) -> void:
+	match keycode:
+		KEY_UP:
+			_settings_cursor_move(-1)
+		KEY_DOWN:
+			_settings_cursor_move(1)
+		KEY_LEFT:
+			_settings_value_change(-1)
+		KEY_RIGHT, KEY_ENTER, KEY_KP_ENTER:
+			_settings_value_change(1)
+		KEY_P:
+			_toggle_pause()
+		KEY_1:
+			settings_cursor = 0
+		KEY_2:
+			settings_cursor = 1
+		KEY_3:
+			settings_cursor = 2
+		KEY_4:
+			settings_cursor = 3
+		KEY_5:
+			settings_cursor = 4
+		KEY_6:
+			settings_cursor = 5
+		KEY_ESCAPE:
+			_toggle_settings()
 
 func _handle_fleet_menu_key(keycode: int) -> void:
 	match keycode:
@@ -263,8 +334,95 @@ func _toggle_mouse_aim() -> void:
 
 func _toggle_settings() -> void:
 	settings_open = not settings_open
+	settings_cursor = 0
 	_msg("Settings %s." % ("opened" if settings_open else "closed"))
 	if audio: audio.play("ui_recruit")
+
+func _toggle_pause() -> void:
+	# Simple boolean gate (NOT get_tree().paused): _process_space() early-returns while set,
+	# but the HUD keeps drawing so the pause overlay is visible.
+	paused = not paused
+	_msg("Game %s." % ("PAUSED" if paused else "resumed"))
+	if audio: audio.play("ui_recruit")
+
+# --- Settings menu navigation (public-callable; also driven from _input) -----
+func _settings_cursor_move(direction: int) -> void:
+	# Moves the highlighted row up (-1) or down (+1), wrapping within the row list.
+	settings_cursor = wrapi(settings_cursor + direction, 0, SETTINGS_ROW_COUNT)
+	if audio: audio.play("ui_recruit")
+
+func _settings_value_change(direction: int) -> void:
+	# Changes the value of the highlighted row. direction is -1 (left) or +1 (right).
+	match settings_cursor:
+		0:  # Resolution
+			resolution_index = wrapi(resolution_index + direction, 0, RESOLUTIONS.size())
+			if not auto_demo:
+				_apply_resolution()
+			if audio: audio.play("ui_buy")
+		1:  # Volume
+			master_volume = clampi(master_volume + direction * VOLUME_STEP, 0, 100)
+			_apply_master_volume()
+			if audio: audio.play("ui_buy")
+		2:  # Graphics quality
+			var gi: int = GRAPHICS_QUALITIES.find(graphics_quality)
+			if gi < 0:
+				gi = 0
+			gi = wrapi(gi + direction, 0, GRAPHICS_QUALITIES.size())
+			graphics_quality = String(GRAPHICS_QUALITIES[gi])
+			_apply_graphics_quality()
+			if audio: audio.play("ui_buy")
+		3:  # Pause (boolean)
+			_toggle_pause()
+		4:  # Mouse aim (boolean)
+			_toggle_mouse_aim()
+		5:  # Control scheme
+			_cycle_control_scheme()
+
+func _apply_resolution() -> void:
+	var res: Dictionary = RESOLUTIONS[clampi(resolution_index, 0, RESOLUTIONS.size() - 1)]
+	var w: int = int(res.get("w", 1280))
+	var h: int = int(res.get("h", 720))
+	var win: Window = get_window()
+	if win != null:
+		win.size = Vector2i(w, h)
+
+func _apply_master_volume() -> void:
+	var bus: int = AudioServer.get_bus_index("Master")
+	if bus < 0:
+		return
+	var frac: float = float(master_volume) / 100.0
+	if frac <= 0.0:
+		AudioServer.set_bus_mute(bus, true)
+		AudioServer.set_bus_volume_db(bus, -80.0)
+	else:
+		AudioServer.set_bus_mute(bus, false)
+		AudioServer.set_bus_volume_db(bus, linear_to_db(frac))
+
+func _apply_graphics_quality() -> void:
+	if world_env == null:
+		return
+	var env: Environment = world_env.environment
+	if env == null:
+		return
+	var vp: Viewport = get_viewport()
+	match graphics_quality:
+		"low":
+			env.glow_enabled = false
+			env.ssao_enabled = false
+			if vp != null:
+				vp.msaa_3d = Viewport.MSAA_DISABLED
+		"medium":
+			env.glow_enabled = true
+			env.glow_intensity = 0.5
+			env.glow_bloom = 0.1
+			if vp != null:
+				vp.msaa_3d = Viewport.MSAA_2X
+		_:  # "high"
+			env.glow_enabled = true
+			env.glow_intensity = 0.9
+			env.glow_bloom = 0.25
+			if vp != null:
+				vp.msaa_3d = Viewport.MSAA_4X
 
 func _cycle_control_scheme() -> void:
 	# auto -> keyboard -> gamepad -> auto
@@ -446,9 +604,11 @@ func _process(delta: float) -> void:
 		_process_deck(delta)
 	else:
 		_process_space(delta)
-	for s in ships:
-		if is_instance_valid(s):
-			s.tick_visuals(delta)
+	# Freeze cosmetic ticking too while paused so nothing drifts; the HUD still redraws.
+	if not paused:
+		for s in ships:
+			if is_instance_valid(s):
+				s.tick_visuals(delta)
 	_update_hud()
 
 func _process_deck(delta: float) -> void:
@@ -466,6 +626,11 @@ func _process_deck(delta: float) -> void:
 			audio.play("ui_recruit")
 
 func _process_space(delta: float) -> void:
+	# Pause gate: skip all flight/AI/combat/boarding simulation. _update_hud() still runs
+	# (called by _process after this returns) so the pause overlay stays on screen. We use
+	# this boolean rather than get_tree().paused so timers and the capture autoload survive.
+	if paused:
+		return
 	if is_instance_valid(player) and not player.destroyed:
 		_player_control(delta)
 	_validate_fleet_attack()
@@ -497,6 +662,10 @@ func _process_space(delta: float) -> void:
 	_handle_station_actions()
 
 func _player_control(delta: float) -> void:
+	# While the settings overlay is open, swallow all flight input so the ship holds steady
+	# (the keys drive the menu instead). The HUD overlay is interactive, not a hard pause.
+	if settings_open:
+		return
 	# control_scheme gates which input sources feed flight. _flight_axis() reads the right
 	# mix (keyboard, gamepad, or both) for each directional pair.
 	# Throttle / boost / brake.
@@ -1650,11 +1819,14 @@ func _complete_capture(s: Node3D) -> void:
 # STATION ECONOMY: recruit / buy / deck toggle
 # ---------------------------------------------------------------------------
 func _handle_station_actions() -> void:
+	# While the settings overlay is open, every key is consumed by the menu in _input;
+	# skip all station/UI keys here so they never leak through (F1/Esc/P are handled in
+	# _input and keep working regardless).
+	if settings_open:
+		return
 	# Control settings toggles (always available regardless of control_scheme).
 	if Input.is_action_just_pressed("mouse_aim"):
 		_toggle_mouse_aim()
-	if Input.is_action_just_pressed("settings"):
-		_toggle_settings()
 	if Input.is_action_just_pressed("cycle_scheme"):
 		_cycle_control_scheme()
 	if Input.is_action_just_pressed("system_map"):
@@ -2767,6 +2939,11 @@ func _update_hud() -> void:
 	d["mouse_aim"] = mouse_aim
 	d["control_scheme"] = control_scheme
 	d["settings_open"] = settings_open
+	d["paused"] = paused
+	d["master_volume"] = master_volume
+	d["graphics_quality"] = graphics_quality
+	d["resolution_label"] = String(RESOLUTIONS[clampi(resolution_index, 0, RESOLUTIONS.size() - 1)].get("label", ""))
+	d["settings_cursor"] = settings_cursor
 	d["system_map_open"] = system_map_open
 	if system_map_open:
 		d["system_map"] = _build_system_map()

@@ -158,7 +158,18 @@
 - [ ] Real (or higher-fidelity procedural) art + an authored audio pass.
 - [ ] Automated screenshot diffing in CI; perf budget tests.
 - [ ] Broader unit tests for damage/boarding/economy state transitions (headless harness).
-- [ ] Settings menu (resolution, volume, graphics) and pause.
+- [x] Settings menu (resolution, volume, graphics) and pause. Shipped: `F1` opens an
+      interactive settings overlay with six rows — Resolution (1280×720 / 1600×900 /
+      1920×1080, applied to the window), Volume (0–100 %, applied to the Master audio bus
+      via `linear_to_db` with mute at 0), Graphics quality (Low / Medium / High, toggles
+      glow intensity/bloom and MSAA 0×/2×/4×), Pause (boolean gate), Mouse Aim, and
+      Control Scheme. Navigation: `↑`/`↓` move the cursor, `←`/`→` change the value,
+      `Enter` toggles booleans, `1`–`6` jump to a row, `F1` or `Esc` closes. `P` pauses
+      outside the menu — a boolean gate (`paused`) early-returns `_process_space()` so
+      flight/AI/combat/boarding freeze while the HUD keeps drawing a "PAUSED" banner;
+      `get_tree().paused` is deliberately NOT used so timers and the headless capture
+      autoload keep running. Settings are display preferences and are not part of the
+      save file. Covered by `tests/test_settings_menu.gd` (`SETTINGS_MENU_TEST_PASS`).
 
 ### Known limitations (current slice)
 - Crew are named individuals with roles, skills, and morale; marines are still

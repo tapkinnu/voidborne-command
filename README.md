@@ -49,7 +49,8 @@ Screenshots are written to `artifacts/screenshots/` (plus a `contact_sheet.jpg`)
 | `V` / `L` | **Quick save / quick load** the current battle (versioned `user://voidborne_save.json`) |
 | `Z` | **Cycle subsystem focus** on the current target: none → engines → weapons → shields → none |
 | `` ` `` (backtick) | Toggle **mouse-aim flight** — captures the cursor; mouse X→yaw, mouse Y→pitch (additive over keyboard) |
-| `F1` | Toggle the **settings overlay** (shows mouse-aim state and control scheme) |
+| `F1` | Toggle the **settings overlay** — interactive menu: resolution, volume, graphics quality, pause, mouse-aim, control scheme |
+| `P` | **Pause** the game (flight/AI/combat freeze; HUD shows a "PAUSED" banner). Press `P` again to resume |
 | `F2` | **Cycle control scheme**: Auto → Keyboard+Mouse → Gamepad → Auto |
 | `M` | Toggle the **system map** overlay — top-down view of all stations, fleet, and threats (flight stays live) |
 | `O` | **Cycle active missions** — switches the tracked objective through the open missions; HUD panel and top-center objective follow the selection |
@@ -68,6 +69,21 @@ Screenshots are written to `artifacts/screenshots/` (plus a `contact_sheet.jpg`)
 | Start / Menu | Toggle mouse-aim |
 
 In **Auto** mode both keyboard+mouse and gamepad work simultaneously. **Keyboard+Mouse** mode ignores gamepad axes; **Gamepad** mode ignores keyboard flight (UI keys like save/load still work).
+
+### Settings menu (F1)
+| Key | Action |
+| --- | --- |
+| `F1` / `Esc` | Open / close the settings overlay |
+| `↑` / `↓` | Move the cursor between rows |
+| `←` / `→` | Change the value of the highlighted row (resolution, volume, graphics) or toggle booleans (pause, mouse-aim, scheme) |
+| `Enter` | Toggle the highlighted boolean (same as `→`) |
+| `1`–`6` | Jump directly to a row (Resolution, Volume, Graphics, Pause, Mouse Aim, Scheme) |
+
+The settings overlay shows six rows: **Resolution** (1280×720 / 1600×900 / 1920×1080),
+**Volume** (0–100 %, mute at 0), **Graphics quality** (Low / Medium / High — toggles glow
+and MSAA), **Pause**, **Mouse Aim**, and **Control Scheme**. While the menu is open,
+flight input is ignored. Settings are display preferences — they are not saved to the
+save file.
 
 ### Command & economy (fly near the STATION)
 | Key | Action |

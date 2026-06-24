@@ -19,6 +19,9 @@ func _ready() -> void:
 	_font = ThemeDB.fallback_font
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Keep redrawing even if the tree is ever paused (main gates game logic with its own
+	# `paused` bool, not get_tree().paused, but this is harmless and future-proof).
+	process_mode = Node.PROCESS_MODE_ALWAYS
 
 func set_data(d: Dictionary) -> void:
 	data = d
@@ -124,6 +127,8 @@ func _draw() -> void:
 		_draw_prompt(vp)
 		if bool(data.get("settings_open", false)):
 			_draw_settings_overlay(vp)
+		elif bool(data.get("paused", false)):
+			_draw_pause_overlay(vp)
 		return
 
 	# Player status bars (bottom-left)
@@ -187,6 +192,9 @@ func _draw() -> void:
 		_draw_fleet_menu(vp)
 	if bool(data.get("settings_open", false)):
 		_draw_settings_overlay(vp)
+	elif bool(data.get("paused", false)):
+		# Pause banner only when the settings menu isn't open (it shows pause state itself).
+		_draw_pause_overlay(vp)
 	# System map overlay sits on top of the whole HUD when toggled on (M key).
 	if bool(data.get("system_map_open", false)):
 		_draw_system_map(vp)
@@ -342,23 +350,68 @@ func _draw_fleet_menu(vp: Vector2) -> void:
 		_txt(Vector2(x + 16, ry), "%s[%s] %-11s — %s" % [marker, String(row[0]), String(row[2]), String(row[3])], col, 12)
 
 func _draw_settings_overlay(vp: Vector2) -> void:
-	# Centered semi-transparent settings panel summarising control bindings.
-	var w: float = 360.0
-	var h: float = 150.0
+	# Interactive settings panel. main.gd feeds the highlighted row via settings_cursor and
+	# the current values; navigation (arrows/Enter/digits) happens in main._input. The
+	# highlighted row gets a '►' marker and a bright color; other rows are dimmed.
+	var w: float = 440.0
+	var h: float = 250.0
 	var x: float = vp.x * 0.5 - w * 0.5
 	var y: float = vp.y * 0.5 - h * 0.5
-	draw_rect(Rect2(Vector2(x, y), Vector2(w, h)), Color(0.0, 0.04, 0.07, 0.88), true)
+	draw_rect(Rect2(Vector2(x, y), Vector2(w, h)), Color(0.0, 0.04, 0.07, 0.92), true)
 	draw_rect(Rect2(Vector2(x, y), Vector2(w, h)), C_LINE, false, 1.5)
-	_txt(Vector2(x + 16, y + 26), "SETTINGS (F1 to close)", C_LINE, 15)
+	_txt(Vector2(x + 16, y + 26), "SETTINGS  (F1/Esc to close)", C_LINE, 15)
+
+	var cursor: int = int(data.get("settings_cursor", 0))
 	var ma_on: bool = bool(data.get("mouse_aim", false))
-	_txt(Vector2(x + 16, y + 54), "Mouse Aim: %s  (` to toggle)" % ("ON" if ma_on else "OFF"), C_DIM, 13)
+	var paused: bool = bool(data.get("paused", false))
 	var scheme: String = String(data.get("control_scheme", "auto"))
-	var scheme_label: String = {
-		"auto": "Auto", "keyboard": "Keyboard+Mouse", "gamepad": "Gamepad",
-	}.get(scheme, "Auto")
-	_txt(Vector2(x + 16, y + 78), "Control Scheme: %s  (F2 to cycle)" % scheme_label, C_DIM, 13)
-	_txt(Vector2(x + 16, y + 100), "  Keyboard+Mouse / Gamepad / Auto", Color(0.62, 0.82, 0.94, 0.7), 12)
-	_txt(Vector2(x + 16, y + 128), "Gamepad: L-stick steer, triggers thrust", Color(0.62, 0.82, 0.94, 0.7), 12)
+	var vol: int = int(data.get("master_volume", 80))
+	var graphics: String = String(data.get("graphics_quality", "high"))
+	var res_label: String = String(data.get("resolution_label", ""))
+
+	var rows: Array = [
+		["Resolution", res_label],
+		["Volume", ""],   # custom bar rendered below
+		["Graphics", graphics.capitalize()],
+		["Pause", ("ON  (P to toggle)" if paused else "OFF  (P to toggle)")],
+		["Mouse Aim", ("ON  (` to toggle)" if ma_on else "OFF  (` to toggle)")],
+		["Scheme", "%s  (F2 to cycle)" % scheme.to_upper()],
+	]
+	var lx: float = x + 18.0
+	var vx: float = x + 150.0
+	var row_y: float = y + 58.0
+	var bright: Color = Color(1.0, 0.95, 0.5)
+	var dim: Color = Color(0.6, 0.78, 0.9)
+	for i in range(rows.size()):
+		var entry: Array = rows[i]
+		var selected: bool = i == cursor
+		var label_col: Color = bright if selected else dim
+		var marker: String = "►" if selected else " "
+		_txt(Vector2(lx, row_y), "%s %s:" % [marker, String(entry[0])], label_col, 14)
+		if i == 1:
+			# Volume bar with a numeric percent.
+			var bw: float = 160.0
+			var bh: float = 12.0
+			var bx: float = vx
+			var by: float = row_y - 11.0
+			draw_rect(Rect2(Vector2(bx, by), Vector2(bw, bh)), Color(0, 0, 0, 0.5), true)
+			draw_rect(Rect2(Vector2(bx, by), Vector2(bw * (float(vol) / 100.0), bh)), (bright if selected else Color(0.4, 0.8, 1.0)), true)
+			draw_rect(Rect2(Vector2(bx, by), Vector2(bw, bh)), label_col.darkened(0.2), false, 1.0)
+			_txt(Vector2(bx + bw + 10.0, row_y), "%d%%" % vol, label_col, 13)
+		else:
+			_txt(Vector2(vx, row_y), String(entry[1]), label_col, 13)
+		row_y += 26.0
+	_txt(Vector2(x + 16, y + h - 18.0), "↑↓ select   ←→ change   F1/Esc close", Color(0.62, 0.82, 0.94, 0.85), 12)
+
+func _draw_pause_overlay(vp: Vector2) -> void:
+	# Centered banner shown while paused and the settings menu is closed.
+	var w: float = 360.0
+	var h: float = 60.0
+	var x: float = vp.x * 0.5 - w * 0.5
+	var y: float = vp.y * 0.5 - h * 0.5
+	draw_rect(Rect2(Vector2(x, y), Vector2(w, h)), Color(0.0, 0.03, 0.06, 0.85), true)
+	draw_rect(Rect2(Vector2(x, y), Vector2(w, h)), Color(1.0, 0.85, 0.35, 0.9), false, 2.0)
+	_txt(Vector2(x + 60.0, y + 38.0), "PAUSED — press P to resume", Color(1.0, 0.9, 0.5), 18)
 
 func _draw_combat_overlay(vp: Vector2) -> void:
 	# Capture-mode visual proof of active fleet fire. These bright streaks sit over
