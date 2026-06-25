@@ -679,6 +679,17 @@ func slot_path(slot_index: int) -> String:
 func _slot_meta_path() -> String:
 	return save_slot_dir.path_join("slots_meta.json")
 
+# Silent JSON parse for save files. JSON.parse_string() pushes an engine ERROR to the
+# console on malformed input ("Parse JSON failed..."), which is just noise here because
+# corrupt/invalid saves are an expected, handled path (the result is validated and
+# rejected downstream). The instance parser returns an error code instead of printing,
+# so we mirror parse_string's semantics (data on success, null on failure) without noise.
+func _parse_json_silent(text: String) -> Variant:
+	var json: JSON = JSON.new()
+	if json.parse(text) != OK:
+		return null
+	return json.data
+
 func slot_exists(slot_index: int) -> bool:
 	if slot_index < 1 or slot_index > MAX_SAVE_SLOTS:
 		return false
@@ -731,7 +742,7 @@ func load_from_slot(slot_index: int) -> bool:
 		return false
 	var text: String = f.get_as_text()
 	f.close()
-	var parsed: Variant = JSON.parse_string(text)
+	var parsed: Variant = _parse_json_silent(text)
 	var reason: String = _validate_save(parsed)
 	if reason != "":
 		_msg("Slot %d rejected: %s" % [slot_index, reason])
@@ -782,7 +793,7 @@ func _read_slot_meta() -> Array:
 		return _rebuild_slot_meta()
 	var text: String = f.get_as_text()
 	f.close()
-	var parsed: Variant = JSON.parse_string(text)
+	var parsed: Variant = _parse_json_silent(text)
 	if typeof(parsed) != TYPE_ARRAY:
 		return _rebuild_slot_meta()
 	var arr: Array = parsed
@@ -816,7 +827,7 @@ func _rebuild_slot_meta() -> Array:
 			continue
 		var text: String = f.get_as_text()
 		f.close()
-		var parsed: Variant = JSON.parse_string(text)
+		var parsed: Variant = _parse_json_silent(text)
 		if typeof(parsed) != TYPE_DICTIONARY:
 			metas.append(_empty_slot_meta(i))
 			continue
@@ -4873,7 +4884,7 @@ func _quick_load() -> bool:
 		return false
 	var text: String = f.get_as_text()
 	f.close()
-	var parsed: Variant = JSON.parse_string(text)
+	var parsed: Variant = _parse_json_silent(text)
 	var reason: String = _validate_save(parsed)
 	if reason != "":
 		# Rejected saves never clobber the live battle state.
@@ -4899,7 +4910,7 @@ func _load_autosave() -> bool:
 		return false
 	var text: String = f.get_as_text()
 	f.close()
-	var parsed: Variant = JSON.parse_string(text)
+	var parsed: Variant = _parse_json_silent(text)
 	var reason: String = _validate_save(parsed)
 	if reason != "":
 		_msg("Autosave rejected: %s" % reason)
