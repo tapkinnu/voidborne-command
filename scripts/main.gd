@@ -12,6 +12,12 @@ const AudioScript: GDScript = preload("res://scripts/audio.gd")
 # values are available in const context. The consts below re-export GC under main.gd's
 # established public names, keeping external callers/tests (e.g. main.SERVICE_RANGE) stable.
 const GC: GDScript = preload("res://scripts/game_constants.gd")
+# Extracted subsystem modules. main.gd keeps thin forwarders over these so the public API
+# (and the test suite, which calls main._validate_save / main._commodity_prices / etc.)
+# stays identical while the bulky logic lives in focused, independently-readable files.
+const SaveSchema: GDScript = preload("res://scripts/save_schema.gd")
+const EconomyPricing: GDScript = preload("res://scripts/economy_pricing.gd")
+const SpaceBackdrop: GDScript = preload("res://scripts/space_backdrop.gd")
 
 # --- World object registries ------------------------------------------------
 var ships: Array = []              # all live Ship nodes (player, allies, hostiles, station)
@@ -1142,26 +1148,12 @@ func _buy_upgrade(category_index: int) -> void:
 # COMMODITY TRADING ECONOMY
 # ---------------------------------------------------------------------------
 func _commodity_price_mult(station_name: String, sys_index: int, comm_id: String) -> float:
-	# Deterministic per-station/per-system/per-commodity price multiplier in ~0.6x..1.8x.
-	# Seeded from the string hashes so the same station always offers the same prices.
-	var seed_val: int = (station_name.hash() ^ (sys_index * 7919) ^ comm_id.hash()) & 0x7FFFFFFF
-	var rng_c: RandomNumberGenerator = RandomNumberGenerator.new()
-	rng_c.seed = seed_val
-	return rng_c.randf_range(0.6, 1.8)
+	return EconomyPricing.price_mult(station_name, sys_index, comm_id)
 
 func _commodity_prices(station_name: String, sys_index: int) -> Dictionary:
-	# Returns {commodity_id: {"buy": int, "sell": int}} for all commodities. Buy is what the
-	# player pays to acquire a unit; sell is what the station pays to take one (buy >= sell so
-	# the spread discourages instant round-trip profit at a single station).
-	var out: Dictionary = {}
-	for comm in COMMODITIES:
-		var cid: String = String(comm.get("id", ""))
-		var base_price: int = int(comm.get("base_price", 0))
-		var mult: float = _commodity_price_mult(station_name, sys_index, cid)
-		var buy_price: int = max(1, int(round(float(base_price) * mult)))
-		var sell_price: int = max(1, int(round(float(buy_price) * 0.85)))
-		out[cid] = {"buy": buy_price, "sell": sell_price}
-	return out
+	# Returns {commodity_id: {"buy": int, "sell": int}} for all commodities.
+	# Delegates to the stateless EconomyPricing module (see scripts/economy_pricing.gd).
+	return EconomyPricing.commodity_prices(station_name, sys_index, COMMODITIES)
 
 func _cargo_used() -> int:
 	# Total units currently held across all commodities.
@@ -1433,123 +1425,14 @@ func _cycle_control_scheme() -> void:
 # WORLD CONSTRUCTION
 # ---------------------------------------------------------------------------
 func _build_environment() -> void:
-	world_env = WorldEnvironment.new()
-	var env: Environment = Environment.new()
-	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color(0.01, 0.012, 0.03)
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.18, 0.20, 0.28)
-	env.ambient_light_energy = 0.6
-	env.glow_enabled = true
-	env.glow_intensity = 0.9
-	env.glow_bloom = 0.25
-	env.fog_enabled = false
-	world_env.environment = env
-	add_child(world_env)
-
-	var sun: DirectionalLight3D = DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-42, -38, 0)
-	sun.light_energy = 1.1
-	sun.light_color = Color(1.0, 0.96, 0.9)
-	add_child(sun)
-
-	var rim: DirectionalLight3D = DirectionalLight3D.new()
-	rim.rotation_degrees = Vector3(30, 140, 0)
-	rim.light_energy = 0.35
-	rim.light_color = Color(0.5, 0.6, 1.0)
-	add_child(rim)
+	# Delegates to the SpaceBackdrop builder (see scripts/space_backdrop.gd); we keep the
+	# WorldEnvironment handle for later graphics-quality/deck-mode tweaks.
+	world_env = SpaceBackdrop.build_environment(self)
 
 func _build_stars() -> void:
-	# Procedural starfield: a MultiMesh shell of tiny unshaded emissive points, plus a
-	# couple of nebula billboards so the backdrop is never a flat black frame.
-	var mm: MultiMesh = MultiMesh.new()
-	mm.transform_format = MultiMesh.TRANSFORM_3D
-	mm.use_colors = true
-	var qm: QuadMesh = QuadMesh.new()
-	qm.size = Vector2(2.2, 2.2)
-	mm.mesh = qm
-	var count: int = 1500
-	var near_count: int = 65   # brighter, larger foreground stars (last `near_count` instances)
-	mm.instance_count = count
-	for i in range(count):
-		var dir: Vector3 = Vector3(rng.randf_range(-1, 1), rng.randf_range(-1, 1), rng.randf_range(-1, 1)).normalized()
-		var pos: Vector3 = dir * rng.randf_range(800.0, 1200.0)
-		var t: Transform3D = Transform3D(Basis(), pos)
-		# Billboard-ish: face origin.
-		t = t.looking_at(Vector3.ZERO, Vector3.UP)
-		var is_near: bool = i >= count - near_count
-		var s: float = rng.randf_range(2.0, 3.5) if is_near else rng.randf_range(0.4, 1.8)
-		t = t.scaled_local(Vector3(s, s, s))
-		mm.set_instance_transform(i, t)
-		# Color-temperature variation: most white-blue, some yellow-orange, a few red.
-		var b: float = rng.randf_range(0.5, 1.0)
-		var roll: float = rng.randf()
-		var tint: Color
-		if roll < 0.18:
-			tint = Color(b, b * 0.78, b * 0.55)          # yellow-orange
-		elif roll < 0.26:
-			tint = Color(b, b * 0.5, b * 0.42)           # red
-		elif roll < 0.46:
-			tint = Color(b * 0.75, b * 0.85, b)          # blue-white
-		else:
-			tint = Color(b, b, b * rng.randf_range(0.88, 1.0))  # white
-		if is_near:
-			tint = tint.lightened(0.15)
-		mm.set_instance_color(i, tint)
-	var mmi: MultiMeshInstance3D = MultiMeshInstance3D.new()
-	mmi.multimesh = mm
-	var smat: StandardMaterial3D = StandardMaterial3D.new()
-	smat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	smat.albedo_color = Color(1, 1, 1)
-	smat.vertex_color_use_as_albedo = true
-	smat.emission_enabled = true
-	smat.emission = Color(1, 1, 1)
-	smat.emission_energy_multiplier = 1.4
-	smat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	mmi.material_override = smat
-	add_child(mmi)
-
-	# Layered nebula clouds (large unshaded transparent spheres, different hues/positions).
-	# Each [position, color, radius]. Tracked in _nebula_nodes for a slow drift rotation.
-	var clouds: Array = [
-		[Vector3(-320, 130, -430), Color(0.30, 0.10, 0.45, 0.11), 230.0],  # deep purple
-		[Vector3(360, -90, -320), Color(0.08, 0.28, 0.40, 0.10), 210.0],   # teal
-		[Vector3(120, 180, -520), Color(0.42, 0.22, 0.08, 0.09), 250.0],   # warm orange
-		[Vector3(-150, -160, -300), Color(0.16, 0.10, 0.34, 0.08), 200.0], # dim violet
-	]
-	for nb in clouds:
-		var neb: MeshInstance3D = MeshInstance3D.new()
-		var sm: SphereMesh = SphereMesh.new()
-		var nr: float = float(nb[2])
-		sm.radius = nr
-		sm.height = nr * 2.0
-		neb.mesh = sm
-		var nmat: StandardMaterial3D = StandardMaterial3D.new()
-		nmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		nmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		nmat.albedo_color = nb[1]
-		nmat.cull_mode = BaseMaterial3D.CULL_DISABLED
-		neb.mesh.surface_set_material(0, nmat)
-		neb.position = nb[0]
-		add_child(neb)
-		_nebula_nodes.append(neb)
-
-	# Faint distant galaxy band: a large flattened sphere with a low-alpha milky tint.
-	var galaxy: MeshInstance3D = MeshInstance3D.new()
-	var gsm: SphereMesh = SphereMesh.new()
-	gsm.radius = 600.0
-	gsm.height = 1200.0
-	galaxy.mesh = gsm
-	var gmat: StandardMaterial3D = StandardMaterial3D.new()
-	gmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	gmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	gmat.albedo_color = Color(0.55, 0.58, 0.70, 0.05)
-	gmat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	galaxy.mesh.surface_set_material(0, gmat)
-	galaxy.position = Vector3(0, -120, -900)
-	galaxy.scale = Vector3(1.0, 0.15, 1.0)
-	galaxy.rotation.z = deg_to_rad(18.0)
-	add_child(galaxy)
+	# Delegates to the SpaceBackdrop builder; the returned nebula meshes are tracked here so
+	# _process can slowly drift-rotate them.
+	_nebula_nodes.append_array(SpaceBackdrop.build_stars(self, rng))
 
 func _spawn_ship(p_class: String, faction: String, ship_name: String, pos: Vector3, manned: bool = true) -> Node3D:
 	var s: Node3D = ShipScript.new()
@@ -2928,13 +2811,13 @@ func _destroy_ship(s: Node3D) -> void:
 	s.queue_free()
 
 func _ship_credit_value(s: Node3D) -> int:
-	return int(Game.class_stat(s.ship_class, "value"))
+	return EconomyPricing.ship_credit_value(s.ship_class)
 
 func _capture_credit_reward(s: Node3D) -> int:
-	return max(MIN_CAPTURE_BOUNTY, int(ceil(float(_ship_credit_value(s)) * CAPTURE_BOUNTY_RATE)))
+	return EconomyPricing.capture_credit_reward(s.ship_class)
 
 func _destroy_salvage_reward(s: Node3D) -> int:
-	return max(MIN_DESTROY_SALVAGE, int(ceil(float(_ship_credit_value(s)) * DESTROY_SALVAGE_RATE)))
+	return EconomyPricing.destroy_salvage_reward(s.ship_class)
 
 func _spawn_explosion(pos: Vector3, base_radius: float) -> void:
 	var node: MeshInstance3D = MeshInstance3D.new()
@@ -4926,142 +4809,12 @@ func _load_autosave() -> bool:
 	return true
 
 func _validate_vec3(v: Variant) -> String:
-	if typeof(v) != TYPE_ARRAY:
-		return "not an array"
-	var arr: Array = v
-	if arr.size() != 3:
-		return "needs 3 elements"
-	for n in arr:
-		if typeof(n) != TYPE_FLOAT and typeof(n) != TYPE_INT:
-			return "non-numeric"
-	return ""
+	return SaveSchema.validate_vec3(v)
 
 func _validate_save(parsed: Variant) -> String:
 	# Returns "" when the payload is acceptable, otherwise a human-readable reason.
-	if typeof(parsed) != TYPE_DICTIONARY:
-		return "corrupt or non-object save"
-	var d: Dictionary = parsed
-	if String(d.get("game_id", "")) != SAVE_GAME_ID:
-		return "not a Voidborne save"
-	if not d.has("version"):
-		return "missing version"
-	var ver_val: Variant = d["version"]
-	if typeof(ver_val) != TYPE_FLOAT and typeof(ver_val) != TYPE_INT:
-		return "invalid version"
-	var ver_float: float = float(ver_val)
-	var ver: int = int(ver_float)
-	if abs(ver_float - float(ver)) > 0.001:
-		return "invalid version"
-	if ver < 1:
-		return "invalid version"
-	if ver > SAVE_VERSION:
-		return "future version (v%d > v%d) — update the game" % [ver, SAVE_VERSION]
-	if typeof(d.get("economy")) != TYPE_DICTIONARY:
-		return "missing economy section"
-	var econ: Dictionary = d["economy"]
-	for key in ["credits", "crew_pool", "marine_pool", "captured_count", "purchased_count"]:
-		if not econ.has(key):
-			return "missing economy.%s" % key
-	# Cargo is optional (backward compatible: old saves predate trading). If present it must be
-	# a Dictionary of non-negative integer quantities.
-	if econ.has("cargo"):
-		if typeof(econ["cargo"]) != TYPE_DICTIONARY:
-			return "economy.cargo not a dictionary"
-		var cargo_d: Dictionary = econ["cargo"]
-		for ck in cargo_d.keys():
-			var qv: Variant = cargo_d[ck]
-			if typeof(qv) != TYPE_FLOAT and typeof(qv) != TYPE_INT:
-				return "economy.cargo.%s non-numeric" % String(ck)
-			if float(qv) < 0.0:
-				return "economy.cargo.%s negative" % String(ck)
-	if typeof(d.get("ships")) != TYPE_ARRAY:
-		return "missing ships section"
-	# Missions are optional (backward compatible). If present, must be an Array.
-	if d.has("missions") and typeof(d["missions"]) != TYPE_ARRAY:
-		return "missions not an array"
-	# Bounties are optional (backward compatible: old saves predate the bounty board). If
-	# present, must be an Array; the per-class kill counter a Dictionary of non-negative ints.
-	if d.has("bounties") and typeof(d["bounties"]) != TYPE_ARRAY:
-		return "bounties not an array"
-	if d.has("hostile_kills_by_class"):
-		if typeof(d["hostile_kills_by_class"]) != TYPE_DICTIONARY:
-			return "hostile_kills_by_class not a dictionary"
-		var kills_d: Dictionary = d["hostile_kills_by_class"]
-		for kk in kills_d.keys():
-			var kv: Variant = kills_d[kk]
-			if typeof(kv) != TYPE_FLOAT and typeof(kv) != TYPE_INT:
-				return "hostile_kills_by_class.%s non-numeric" % String(kk)
-			if float(kv) < 0.0:
-				return "hostile_kills_by_class.%s negative" % String(kk)
-	if d.has("bounty_seq"):
-		var seq_val: Variant = d["bounty_seq"]
-		if typeof(seq_val) != TYPE_FLOAT and typeof(seq_val) != TYPE_INT:
-			return "bounty_seq non-numeric"
-		if float(seq_val) < 0.0:
-			return "bounty_seq negative"
-	# System index is optional (v1 saves predate it). If present, an int in range.
-	if d.has("current_system_index"):
-		var sys_val: Variant = d["current_system_index"]
-		if typeof(sys_val) != TYPE_FLOAT and typeof(sys_val) != TYPE_INT:
-			return "current_system_index non-numeric"
-		var sys_i: int = int(sys_val)
-		if sys_i < 0 or sys_i >= STAR_SYSTEMS.size():
-			return "current_system_index out of range"
-	var ships_arr: Array = d["ships"]
-	var player_count: int = 0
-	for entry in ships_arr:
-		if typeof(entry) != TYPE_DICTIONARY:
-			return "invalid ship entry"
-		var sd: Dictionary = entry
-		for key in ["ship_name", "ship_class", "faction"]:
-			if not sd.has(key):
-				return "ship missing %s" % key
-		if not Game.SHIP_CLASSES.has(String(sd["ship_class"])):
-			return "unknown ship_class '%s'" % String(sd["ship_class"])
-		var perr: String = _validate_vec3(sd.get("pos"))
-		if perr != "":
-			return "ship %s pos %s" % [String(sd.get("ship_name", "?")), perr]
-		var rerr: String = _validate_vec3(sd.get("rot"))
-		if rerr != "":
-			return "ship %s rot %s" % [String(sd.get("ship_name", "?")), rerr]
-		# Marine garrison is optional (backward compatible). If present, a non-negative int.
-		if sd.has("marine_garrison"):
-			var garr_val: Variant = sd["marine_garrison"]
-			if typeof(garr_val) != TYPE_FLOAT and typeof(garr_val) != TYPE_INT:
-				return "ship %s marine_garrison non-numeric" % String(sd.get("ship_name", "?"))
-			if float(garr_val) < 0.0:
-				return "ship %s marine_garrison negative" % String(sd.get("ship_name", "?"))
-		if sd.has("garrisoned_marine_names") and typeof(sd["garrisoned_marine_names"]) != TYPE_ARRAY:
-			return "ship %s garrisoned_marine_names not an array" % String(sd.get("ship_name", "?"))
-		# Subsystem health is optional (backward compatible). If present, must be a 0..1 float.
-		for sub_key in ["sub_engine", "sub_weapon", "sub_shield"]:
-			if sd.has(sub_key):
-				var sub_val: Variant = sd[sub_key]
-				if typeof(sub_val) != TYPE_FLOAT and typeof(sub_val) != TYPE_INT:
-					return "ship %s %s non-numeric" % [String(sd.get("ship_name", "?")), sub_key]
-				var sub_f: float = float(sub_val)
-				if sub_f < 0.0 or sub_f > 1.0:
-					return "ship %s %s out of range" % [String(sd.get("ship_name", "?")), sub_key]
-		# Turret state is optional (backward compatible). If present, must be an Array.
-		if sd.has("turrets") and typeof(sd["turrets"]) != TYPE_ARRAY:
-			return "ship %s turrets not an array" % String(sd.get("ship_name", "?"))
-		# Upgrades are optional (backward compatible). If present, a dict of 0..5 levels.
-		if sd.has("upgrades"):
-			if typeof(sd["upgrades"]) != TYPE_DICTIONARY:
-				return "ship %s upgrades not a dictionary" % String(sd.get("ship_name", "?"))
-			var upg_d: Dictionary = sd["upgrades"]
-			for uk in ["weapons", "shields", "hull", "engines", "reactor"]:
-				if upg_d.has(uk):
-					var uv: Variant = upg_d[uk]
-					if typeof(uv) != TYPE_FLOAT and typeof(uv) != TYPE_INT:
-						return "ship %s upgrades.%s non-numeric" % [String(sd.get("ship_name", "?")), uk]
-					if float(uv) < 0.0 or float(uv) > 5.0:
-						return "ship %s upgrades.%s out of range" % [String(sd.get("ship_name", "?")), uk]
-		if bool(sd.get("is_player", false)):
-			player_count += 1
-	if player_count == 0:
-		return "no player flagship in save"
-	return ""
+	# Delegates to the stateless SaveSchema validator (see scripts/save_schema.gd).
+	return SaveSchema.validate_save(parsed, SAVE_GAME_ID, SAVE_VERSION, STAR_SYSTEMS.size())
 
 func _apply_save(parsed: Dictionary) -> void:
 	# Clear transient combat/UI state, tear down the live battle, then rebuild from the save.

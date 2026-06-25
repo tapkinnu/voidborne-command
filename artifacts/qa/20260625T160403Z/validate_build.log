@@ -1,0 +1,14 @@
+== Voidborne Command :: validate_build ==
+godot=/home/ganomix/tools/godot/Godot_v4.4.1-stable_linux.x86_64 driver=vulkan
+-- Step 1: import --------------------------------------------
+-- Step 1b: save/load schema verifier ------------------------
+VOIDBORNE_SAVE_LOAD_VERIFY: PASS (35 cases)
+-- Step 2: GDScript tests -------------------------------------
+test=tests/test_asteroid_mining.gd
+test=tests/test_autosave.gd
+test=tests/test_boarding_squad.gd
+test=tests/test_bounty_board.gd
+test=tests/test_captured_station_persistence.gd
+test=tests/test_combat_vfx.gd
+test=tests/test_commodity_trading.gd
+test=tests/test_crew_deck_camera.gd
