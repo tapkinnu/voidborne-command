@@ -316,10 +316,28 @@ var system_map_open: bool = false
 # station info) into one navigable interface. It freezes flight like `paused` while open and
 # routes every action through the existing _buy_ship/_recruit/_station_service functions.
 var dock_screen_open: bool = false
-var dock_screen_tab: int = 0          # 0=Shipyard, 1=Crew, 2=Repair, 3=Info
+var dock_screen_tab: int = 0          # 0=Shipyard, 1=Crew, 2=Repair, 3=Info, 4=Market
 var dock_screen_cursor: int = 0       # row cursor within the current tab
-const DOCK_SCREEN_TAB_COUNT: int = 4
-const DOCK_SCREEN_TAB_NAMES: Array = ["SHIPYARD", "CREW", "REPAIR", "INFO"]
+const DOCK_SCREEN_TAB_COUNT: int = 5
+const DOCK_SCREEN_TAB_NAMES: Array = ["SHIPYARD", "CREW", "REPAIR", "INFO", "MARKET"]
+# Market sell/buy toggle (transient UI; not saved). The MARKET tab buys at the station's
+# buy price by default; pressing [S] flips it to sell at the (lower) sell price.
+var market_sell_mode: bool = false
+
+# --- Commodity trading economy ----------------------------------------------
+# Five tradeable goods with a credit anchor (base_price). Per-station buy/sell prices are
+# derived deterministically from the station name + system index so arbitrage routes are
+# stable within a session (see _commodity_price_mult / _commodity_prices). The flagship
+# carries a fixed-capacity cargo hold (cargo: id -> qty); buy/sell move credits <-> cargo.
+const COMMODITIES: Array = [
+	{"id": "ore",   "name": "Ore",          "base_price": 50},
+	{"id": "alloy", "name": "Alloy",        "base_price": 120},
+	{"id": "cells", "name": "Energy Cells", "base_price": 90},
+	{"id": "meds",  "name": "Med-Supplies", "base_price": 180},
+	{"id": "tech",  "name": "Tech Parts",   "base_price": 350},
+]
+const CARGO_CAPACITY: int = 50   # total units across all commodities the flagship can hold
+var cargo: Dictionary = {}       # commodity_id (String) -> quantity (int); empty == nothing held
 
 # --- Respawning hostile threats ---------------------------------------------
 # When the live mobile-hostile count drops below RESPAWN_THRESHOLD the respawn
@@ -338,6 +356,7 @@ func _ready() -> void:
 	rng.seed = 20260623
 	auto_demo = OS.get_environment("VOIDBORNE_CAPTURE") != "" or OS.has_feature("demo")
 	Game.reset()
+	cargo = {}   # flagship starts with an empty cargo hold each new session
 	_build_environment()
 	_apply_graphics_quality()
 	_apply_master_volume()
@@ -819,6 +838,8 @@ func _dock_screen_row_count(tab: int) -> int:
 			return 1
 		3:
 			return 1
+		4:
+			return COMMODITIES.size()
 	return 1
 
 func _handle_dock_screen_key(keycode: int) -> void:
@@ -851,6 +872,15 @@ func _handle_dock_screen_key(keycode: int) -> void:
 		KEY_4:
 			dock_screen_tab = 3
 			dock_screen_cursor = 0
+		KEY_5:
+			dock_screen_tab = 4
+			dock_screen_cursor = 0
+		KEY_S:
+			# Toggle buy/sell mode (only meaningful on the MARKET tab).
+			if dock_screen_tab == 4:
+				market_sell_mode = not market_sell_mode
+				_msg("Market mode: %s" % ("SELL" if market_sell_mode else "BUY"))
+				if audio: audio.play("ui_recruit")
 		KEY_ESCAPE, KEY_J:
 			_toggle_dock_screen()
 
@@ -870,6 +900,17 @@ func _dock_screen_confirm() -> void:
 			_station_service()
 		3:  # Info: read-only, no action.
 			pass
+		4:  # Market: buy or sell 1 unit of the highlighted commodity at the docked station.
+			var svc_mkt: Node3D = _service_station()
+			if svc_mkt == null:
+				_msg("No friendly station in range — cannot trade.")
+				if audio: audio.play("ui_deny")
+				return
+			var comm_idx: int = clampi(dock_screen_cursor, 0, COMMODITIES.size() - 1)
+			if market_sell_mode:
+				_sell_commodity(comm_idx, String(svc_mkt.ship_name))
+			else:
+				_buy_commodity(comm_idx, String(svc_mkt.ship_name))
 
 func _build_dock_screen() -> Dictionary:
 	# Per-tab row data for the HUD overlay so hud.gd only renders (logic stays here).
@@ -915,7 +956,105 @@ func _build_dock_screen() -> Dictionary:
 		"captured": Game.captured_count,
 		"order": fleet_order.to_upper(),
 	}
+	var market_rows: Array = []
+	var prices: Dictionary = _commodity_prices(sname, current_system_index) if sname != "" else {}
+	for i in range(COMMODITIES.size()):
+		var comm: Dictionary = COMMODITIES[i]
+		var cid: String = String(comm.get("id", ""))
+		var pr: Dictionary = prices.get(cid, {})
+		market_rows.append({
+			"name": String(comm.get("name", cid)),
+			"buy": int(pr.get("buy", 0)),
+			"sell": int(pr.get("sell", 0)),
+			"held": int(cargo.get(cid, 0)),
+		})
+	d["market"] = {
+		"rows": market_rows,
+		"sell_mode": market_sell_mode,
+		"cargo_used": _cargo_used(),
+		"cargo_capacity": CARGO_CAPACITY,
+	}
 	return d
+
+# ---------------------------------------------------------------------------
+# COMMODITY TRADING ECONOMY
+# ---------------------------------------------------------------------------
+func _commodity_price_mult(station_name: String, sys_index: int, comm_id: String) -> float:
+	# Deterministic per-station/per-system/per-commodity price multiplier in ~0.6x..1.8x.
+	# Seeded from the string hashes so the same station always offers the same prices.
+	var seed_val: int = (station_name.hash() ^ (sys_index * 7919) ^ comm_id.hash()) & 0x7FFFFFFF
+	var rng_c: RandomNumberGenerator = RandomNumberGenerator.new()
+	rng_c.seed = seed_val
+	return rng_c.randf_range(0.6, 1.8)
+
+func _commodity_prices(station_name: String, sys_index: int) -> Dictionary:
+	# Returns {commodity_id: {"buy": int, "sell": int}} for all commodities. Buy is what the
+	# player pays to acquire a unit; sell is what the station pays to take one (buy >= sell so
+	# the spread discourages instant round-trip profit at a single station).
+	var out: Dictionary = {}
+	for comm in COMMODITIES:
+		var cid: String = String(comm.get("id", ""))
+		var base_price: int = int(comm.get("base_price", 0))
+		var mult: float = _commodity_price_mult(station_name, sys_index, cid)
+		var buy_price: int = max(1, int(round(float(base_price) * mult)))
+		var sell_price: int = max(1, int(round(float(buy_price) * 0.85)))
+		out[cid] = {"buy": buy_price, "sell": sell_price}
+	return out
+
+func _cargo_used() -> int:
+	# Total units currently held across all commodities.
+	var total: int = 0
+	for cid in cargo.keys():
+		total += int(cargo[cid])
+	return total
+
+func _cargo_remaining() -> int:
+	return CARGO_CAPACITY - _cargo_used()
+
+func _buy_commodity(comm_index: int, station_name: String) -> void:
+	if comm_index < 0 or comm_index >= COMMODITIES.size():
+		return
+	var comm: Dictionary = COMMODITIES[comm_index]
+	var cid: String = String(comm.get("id", ""))
+	var cname: String = String(comm.get("name", cid))
+	var prices: Dictionary = _commodity_prices(station_name, current_system_index)
+	var pr: Dictionary = prices.get(cid, {})
+	var buy_price: int = int(pr.get("buy", 0))
+	if _cargo_remaining() <= 0:
+		_msg("Cargo hold full (%d/%d)." % [_cargo_used(), CARGO_CAPACITY])
+		if audio: audio.play("ui_deny")
+		return
+	if Game.credits < buy_price:
+		_msg("Not enough credits for %s (%d cr)." % [cname, buy_price])
+		if audio: audio.play("ui_deny")
+		return
+	Game.credits -= buy_price
+	cargo[cid] = int(cargo.get(cid, 0)) + 1
+	_msg("Bought 1 %s for %d cr (cargo %d/%d)." % [cname, buy_price, _cargo_used(), CARGO_CAPACITY])
+	if audio: audio.play("ui_buy")
+
+func _sell_commodity(comm_index: int, station_name: String) -> void:
+	if comm_index < 0 or comm_index >= COMMODITIES.size():
+		return
+	var comm: Dictionary = COMMODITIES[comm_index]
+	var cid: String = String(comm.get("id", ""))
+	var cname: String = String(comm.get("name", cid))
+	var held: int = int(cargo.get(cid, 0))
+	if held <= 0:
+		_msg("No %s in cargo to sell." % cname)
+		if audio: audio.play("ui_deny")
+		return
+	var prices: Dictionary = _commodity_prices(station_name, current_system_index)
+	var pr: Dictionary = prices.get(cid, {})
+	var sell_price: int = int(pr.get("sell", 0))
+	Game.credits += sell_price
+	held -= 1
+	if held <= 0:
+		cargo.erase(cid)
+	else:
+		cargo[cid] = held
+	_msg("Sold 1 %s for %d cr (cargo %d/%d)." % [cname, sell_price, _cargo_used(), CARGO_CAPACITY])
+	if audio: audio.play("ui_buy")
 
 # ---------------------------------------------------------------------------
 # INPUT SOURCE GATING + CONTROL SETTINGS
@@ -4023,6 +4162,7 @@ func _build_save_dict() -> Dictionary:
 			"purchased_count": Game.purchased_count,
 			"crew_roster": Game.roster_to_save(),
 			"marine_roster": Game.marine_roster_to_save(),
+			"cargo": cargo.duplicate(),
 		},
 		"shipyard_index": shipyard_index,
 		"fleet_order": fleet_order,
@@ -4163,6 +4303,18 @@ func _validate_save(parsed: Variant) -> String:
 	for key in ["credits", "crew_pool", "marine_pool", "captured_count", "purchased_count"]:
 		if not econ.has(key):
 			return "missing economy.%s" % key
+	# Cargo is optional (backward compatible: old saves predate trading). If present it must be
+	# a Dictionary of non-negative integer quantities.
+	if econ.has("cargo"):
+		if typeof(econ["cargo"]) != TYPE_DICTIONARY:
+			return "economy.cargo not a dictionary"
+		var cargo_d: Dictionary = econ["cargo"]
+		for ck in cargo_d.keys():
+			var qv: Variant = cargo_d[ck]
+			if typeof(qv) != TYPE_FLOAT and typeof(qv) != TYPE_INT:
+				return "economy.cargo.%s non-numeric" % String(ck)
+			if float(qv) < 0.0:
+				return "economy.cargo.%s negative" % String(ck)
 	if typeof(d.get("ships")) != TYPE_ARRAY:
 		return "missing ships section"
 	# Missions are optional (backward compatible). If present, must be an Array.
@@ -4275,6 +4427,15 @@ func _apply_save(parsed: Dictionary) -> void:
 	Game.captured_count = int(econ["captured_count"])
 	Game.purchased_count = int(econ["purchased_count"])
 	shipyard_index = int(parsed.get("shipyard_index", 0))
+
+	# Restore cargo hold (backward-compatible: old saves without cargo load with an empty hold).
+	cargo = {}
+	if econ.has("cargo") and typeof(econ["cargo"]) == TYPE_DICTIONARY:
+		var cargo_src: Dictionary = econ["cargo"]
+		for ck in cargo_src.keys():
+			var qty: int = int(cargo_src[ck])
+			if qty > 0:
+				cargo[String(ck)] = qty
 
 	if econ.has("crew_roster"):
 		Game.roster_from_save(econ["crew_roster"])
@@ -4579,6 +4740,8 @@ func _update_hud() -> void:
 	var d: Dictionary = {}
 	d["mode"] = "deck" if deck_mode else "space"
 	d["credits"] = Game.credits
+	d["cargo_used"] = _cargo_used()
+	d["cargo_capacity"] = CARGO_CAPACITY
 	d["crew_pool"] = Game.crew_pool
 	d["marine_pool"] = Game.marine_pool
 	var marine_wounded: int = 0

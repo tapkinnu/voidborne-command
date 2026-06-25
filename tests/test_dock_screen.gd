@@ -52,12 +52,13 @@ func _initialize() -> void:
 		if int(main.get("dock_screen_cursor")) != 0:
 			_fail("dock_screen_cursor should reset to 0 on open")
 
-	# --- 3. LEFT wraps tab 0 -> 3 and resets cursor ----------------------------
+	# --- 3. LEFT wraps tab 0 -> last tab and resets cursor ---------------------
 	if not failed:
+		var last_tab: int = int(main.get("DOCK_SCREEN_TAB_COUNT")) - 1
 		main.set("dock_screen_cursor", 2)
 		main.call("_handle_dock_screen_key", KEY_LEFT)
-		if int(main.get("dock_screen_tab")) != 3:
-			_fail("LEFT from tab 0 should wrap to 3, got %d" % int(main.get("dock_screen_tab")))
+		if int(main.get("dock_screen_tab")) != last_tab:
+			_fail("LEFT from tab 0 should wrap to %d, got %d" % [last_tab, int(main.get("dock_screen_tab"))])
 		if int(main.get("dock_screen_cursor")) != 0:
 			_fail("cursor should reset to 0 after tab change")
 

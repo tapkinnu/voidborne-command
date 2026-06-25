@@ -88,7 +88,7 @@ func _draw() -> void:
 	var panel_h: float = (132.0 if not service.is_empty() else 114.0) + 16.0
 	draw_rect(Rect2(Vector2(8, 8), Vector2(250, panel_h)), C_BG, true)
 	_txt(Vector2(16, 28), "VOIDBORNE COMMAND", C_LINE, 14)
-	_txt(Vector2(16, 48), "Credits: %d" % int(data.get("credits", 0)), Color(1, 0.85, 0.4), 13)
+	_txt(Vector2(16, 48), "Credits: %d   Cargo: %d/%d" % [int(data.get("credits", 0)), int(data.get("cargo_used", 0)), int(data.get("cargo_capacity", 0))], Color(1, 0.85, 0.4), 13)
 	var role_str: String = String(data.get("crew_roles", ""))
 	if role_str != "":
 		_txt(Vector2(16, 64), "Crew: %d %s   %s" % [int(data.get("crew_pool", 0)), role_str, _marines_str(data)], C_DIM, 13)
@@ -593,7 +593,7 @@ func _draw_dock_screen(vp: Vector2) -> void:
 
 	var tab: int = int(data.get("dock_screen_tab", 0))
 	var cursor: int = int(data.get("dock_screen_cursor", 0))
-	var tab_names: Array = ["SHIPYARD", "CREW", "REPAIR", "INFO"]
+	var tab_names: Array = ["SHIPYARD", "CREW", "REPAIR", "INFO", "MARKET"]
 	var bright: Color = Color(1.0, 0.95, 0.5)
 	var dim: Color = Color(0.6, 0.78, 0.9)
 
@@ -606,7 +606,7 @@ func _draw_dock_screen(vp: Vector2) -> void:
 		var marker: String = "►" if active else " "
 		var label: String = "%s%s" % [marker, String(tab_names[i])]
 		_txt(Vector2(tab_x, tab_y), label, tcol, 14)
-		tab_x += 130.0
+		tab_x += 104.0
 	draw_line(Vector2(x + 14, tab_y + 10.0), Vector2(x + w - 14, tab_y + 10.0), C_LINE.darkened(0.3), 1.0)
 
 	var dock: Dictionary = data.get("dock_screen", {})
@@ -621,8 +621,13 @@ func _draw_dock_screen(vp: Vector2) -> void:
 			_dock_draw_repair(dock, bx, by, cursor, bright, dim)
 		3:
 			_dock_draw_info(dock, bx, by, dim)
+		4:
+			_dock_draw_market(dock, bx, by, cursor, bright, dim)
 
-	_txt(Vector2(x + 16, y + h - 18.0), "←→ tabs  ↑↓ select  Enter confirm  J/Esc close", Color(0.62, 0.82, 0.94, 0.85), 12)
+	var hint: String = "←→ tabs  ↑↓ select  Enter confirm  J/Esc close"
+	if tab == 4:
+		hint = "←→ tabs  ↑↓ select  Enter buy/sell  S toggle mode  J/Esc close"
+	_txt(Vector2(x + 16, y + h - 18.0), hint, Color(0.62, 0.82, 0.94, 0.85), 12)
 
 func _dock_draw_shipyard(dock: Dictionary, bx: float, by: float, bright: Color, dim: Color) -> void:
 	var rows: Array = dock.get("shipyard", [])
@@ -686,6 +691,34 @@ func _dock_draw_info(dock: Dictionary, bx: float, by: float, dim: Color) -> void
 	for ln in lines:
 		_txt(Vector2(bx, by), String(ln), dim, 13)
 		by += 22.0
+
+func _dock_draw_market(dock: Dictionary, bx: float, by: float, cursor: int, bright: Color, dim: Color) -> void:
+	var market: Dictionary = dock.get("market", {})
+	var rows: Array = market.get("rows", [])
+	var sell_mode: bool = bool(market.get("sell_mode", false))
+	var mode_str: String = "SELL" if sell_mode else "BUY"
+	var mode_col: Color = Color(1.0, 0.6, 0.4) if sell_mode else Color(0.55, 1.0, 0.72)
+	_txt(Vector2(bx, by), "Mode: ", dim, 12)
+	_txt(Vector2(bx + 44.0, by), mode_str, mode_col, 13)
+	_txt(Vector2(bx + 96.0, by), "(Enter trades 1 unit, S toggles BUY/SELL)", dim, 12)
+	by += 22.0
+	_txt(Vector2(bx, by), "%s%-13s %8s %8s %6s" % ["  ", "Commodity", "Buy", "Sell", "Held"], dim, 12)
+	by += 20.0
+	for i in range(rows.size()):
+		var row: Dictionary = rows[i]
+		var selected: bool = i == cursor
+		var rcol: Color = bright if selected else dim
+		var marker: String = "►" if selected else " "
+		var line: String = "%s %-13s %8d %8d %6d" % [
+			marker, String(row.get("name", "")),
+			int(row.get("buy", 0)), int(row.get("sell", 0)), int(row.get("held", 0)),
+		]
+		_txt(Vector2(bx, by), line, rcol, 13)
+		by += 22.0
+	by += 8.0
+	var used: int = int(market.get("cargo_used", 0))
+	var cap: int = int(market.get("cargo_capacity", 0))
+	_txt(Vector2(bx, by), "Cargo: %d / %d" % [used, cap], Color(1.0, 0.85, 0.4), 13)
 
 func _draw_pause_overlay(vp: Vector2) -> void:
 	# Centered banner shown while paused and the settings menu is closed.

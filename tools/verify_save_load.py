@@ -59,6 +59,17 @@ def validate(data):
     for key in ECONOMY_KEYS:
         if key not in econ:
             return "missing economy.%s" % key
+    # Cargo is optional (backward compatible: old saves predate commodity trading). When
+    # present it must be a dict of non-negative integer quantities.
+    if "cargo" in econ:
+        cargo = econ["cargo"]
+        if not isinstance(cargo, dict):
+            return "economy.cargo not a dictionary"
+        for ck, qv in cargo.items():
+            if isinstance(qv, bool) or not isinstance(qv, (int, float)):
+                return "economy.cargo.%s non-numeric" % ck
+            if qv < 0:
+                return "economy.cargo.%s negative" % ck
     ships = data.get("ships")
     if not isinstance(ships, list):
         return "missing ships section"
@@ -198,6 +209,19 @@ def _self_test():
     no_player = _minimal_valid()
     no_player["ships"][0]["is_player"] = False
     cases.append(("no player flagship", no_player, False))
+
+    # Cargo is optional and backward-compatible.
+    with_cargo = _minimal_valid()
+    with_cargo["economy"]["cargo"] = {"ore": 5, "tech": 2}
+    cases.append(("valid cargo dict", with_cargo, True))
+
+    bad_cargo = _minimal_valid()
+    bad_cargo["economy"]["cargo"] = ["not", "a", "dict"]
+    cases.append(("cargo not a dict", bad_cargo, False))
+
+    neg_cargo = _minimal_valid()
+    neg_cargo["economy"]["cargo"] = {"ore": -3}
+    cases.append(("negative cargo qty", neg_cargo, False))
 
     # A richer valid payload with several ships and a captured station.
     rich = _minimal_valid()

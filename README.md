@@ -113,7 +113,7 @@ it is rebuilt by scanning the slot files. While the menu is open, flight/AI/comb
 ### Command & economy (fly near the STATION)
 | Key | Action |
 | --- | --- |
-| `J` | Open the **station market/dock screen** (multi-tab: Shipyard / Crew / Repair / Info) — only at a friendly station |
+| `J` | Open the **station market/dock screen** (multi-tab: Shipyard / Crew / Repair / Info / Market) — only at a friendly station |
 | `R` | Recruit crew (120 cr) |
 | `N` | Recruit marine (180 cr) |
 | `G` | Cycle the station shipyard offer (fighter / corvette / frigate / capital) |
@@ -128,7 +128,9 @@ it is rebuilt by scanning the slot files. While the menu is open, flight/AI/comb
 
 Repair/refit works at the neutral **Halcyon** hub *and* at any station you have captured. Hostile stations refuse service until taken.
 
-Press `J` near a friendly station to open the **station market** — a multi-tab screen consolidating shipyard purchases, crew/marine recruitment, fleet repair/refit, and station info. Navigate tabs with `←`/`→` (or `Tab`), rows with `↑`/`↓`, and confirm with `Enter`. The screen freezes flight while open (the underlying single-key actions still work too).
+Press `J` near a friendly station to open the **station market** — a multi-tab screen consolidating shipyard purchases, crew/marine recruitment, fleet repair/refit, station info, and **commodity trading**. Navigate tabs with `←`/`→` (or `Tab`), rows with `↑`/`↓`, and confirm with `Enter` (jump straight to a tab with `1`–`5`). The screen freezes flight while open (the underlying single-key actions still work too).
+
+The **Market** tab (`5`) trades five commodities — **Ore, Alloy, Energy Cells, Med-Supplies, Tech Parts** — with deterministic per-station/per-system prices (each station has its own buy/sell quotes, so the same goods are cheap at one station and dear at another). `Enter` buys one unit of the highlighted commodity; press `S` to flip into **SELL** mode and `Enter` to sell. The flagship's cargo hold carries up to **50 units** total (shown as `Cargo: X/50` in the top-left HUD panel and on the Market tab). Buy low, haul it across the sector or jump to another system, and sell high — a classic arbitrage loop. Cargo persists through save/load.
 
 ### Crew deck (interior mode)
 | Key | Action |

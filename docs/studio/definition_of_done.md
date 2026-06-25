@@ -149,6 +149,20 @@
   closed with `J`/`Esc`. It is a UI consolidation layer that routes every action through the
   existing `_buy_ship` / `_recruit` / `_station_service` functions and freezes flight like
   `paused` while open. Covered by `tests/test_dock_screen.gd` (`DOCK_SCREEN_TEST_PASS`).
+- [x] Commodity trading economy with per-station prices and a cargo hold. Shipped: a fifth
+  **MARKET** tab on the dock screen (`J` → `5`) trading five commodities (Ore, Alloy, Energy
+  Cells, Med-Supplies, Tech Parts; `const COMMODITIES`). Each station offers deterministic
+  buy/sell prices derived from the station name + system index (`_commodity_price_mult` seeds an
+  RNG from the string hashes, range ~0.6×–1.8× of the commodity's `base_price`; sell = 85 % of
+  buy so a single-station round trip never profits), making arbitrage between stations/systems
+  the loop. The flagship carries a fixed `CARGO_CAPACITY = 50`-unit hold (`cargo` dict);
+  `_buy_commodity`/`_sell_commodity` move credits ↔ cargo one unit at a time with full-hold and
+  insufficient-credit guards, reusing the `ui_buy`/`ui_deny` SFX and emitting HUD messages.
+  `Enter` trades the highlighted row; `S` toggles BUY/SELL mode (shown in the tab header). The
+  economy HUD panel shows live `Cargo: X/Y`. Cargo round-trips through save/load as a
+  backward-compatible optional `economy.cargo` field (no `SAVE_VERSION` bump; old saves load with
+  an empty hold), validated in both `_validate_save` and `tools/verify_save_load.py`. Covered by
+  `tests/test_commodity_trading.gd` (`COMMODITY_TRADING_TEST_PASS`).
 - [x] Multiple stations / a small system map with travel and respawning threats.
   Shipped: the world now holds **four stations** spread hundreds of units apart — the neutral
   **Halcyon** hub (still the `station` reference / primary dock) and **Aurora Station**, plus
