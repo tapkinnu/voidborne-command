@@ -13,7 +13,7 @@ simplified, fully code-built form.
 1. **Fly your ship** — 6-DoF-ish arcade flight with throttle/boost/brake and yaw/pitch/roll.
 2. **Crew & marines** — recruit, see them as humanoids, order them to follow.
 3. **Disable → board → capture** — non-lethal takedown of ships and stations.
-4. **Buy & command** — purchase ships, man them, and issue fleet orders (follow / hold / escort / defend / dock / attack / patrol) from the `F` order menu.
+4. **Buy & command** — purchase ships, man them, and issue fleet orders (follow / hold / escort / defend / dock / attack / patrol / guard station) from the `F` order menu.
 5. **Distinct classes** — fighter / corvette / frigate / capital / station.
 6. **Live battle** — hostile wing + larger ships + neutral hub + hostile station, with weapons FX and a readable HUD.
 
@@ -121,12 +121,19 @@ the standing order (all routed through `_set_fleet_order()`):
   (`_ai_patrol()`). With the order active, `P` drops a waypoint at the flagship's position;
   pressing `[7]` again clears the route. With no waypoints set the order falls back to follow
   formation. Waypoints are sector-local (cleared on system jump) but persist in the save.
+- **`[8]` Guard Station** — with a friendly/neutral station as the current target, manned
+  escorts anchor in a ~25 u orbit of that station (`fleet_guard_station_name`, mirrored to each
+  escort's `guard_station_name`) and engage any hostile that closes within `weapon_range` of it
+  (`_ai_guard_station()`). An order without a valid station target reverts to follow, and the
+  order self-clears via `_validate_fleet_guard_station()` if the station is destroyed or turns
+  hostile. The station assignment round-trips through save/load.
 
 `Esc` (or `F`) closes the menu without changing the order. Attack and defend self-clear via
 `_validate_fleet_attack()` / `_validate_fleet_defend()` when their target is destroyed,
-captured, or flips faction, and every fallback resolves to **follow**. The fleet/economy panel
+captured, or flips faction, guard station self-clears via `_validate_fleet_guard_station()`,
+and every fallback resolves to **follow**. The fleet/economy panel
 and radar render the standing order as `FOLLOW`, `HOLD`, `ESCORT`, `DEFEND <target>`, `DOCK`,
-`ATTACK <target>`, or `PATROL (<n> wp)`.
+`ATTACK <target>`, `PATROL (<n> wp)`, or `GUARD STN <name>`.
 
 **Dock services (repair/refit).** While the flagship is within `SERVICE_RANGE` (70 u) of a
 **non-hostile** station — the neutral Halcyon hub or any captured/player-owned station —

@@ -67,6 +67,9 @@ var ai_state: String = "engage"
 # Wing sub-group membership for player-owned escorts. "" = unassigned (follows the global
 # fleet order); "alpha"/"beta"/"gamma" = follows that wing's independent standing order.
 var wing_id: String = ""
+# Persistent station assignment for the "guard_station" fleet order. Stored as the assigned
+# station's ship_name (resolved to a live node at runtime via guard_station_node()). "" = none.
+var guard_station_name: String = ""
 var board_progress: float = 0.0     # 0..1 when being boarded by player marines
 var being_boarded: bool = false
 
@@ -493,6 +496,22 @@ func eff_accel() -> float:
 
 func eff_turn_rate() -> float:
 	return turn_rate * _engine_turn_mult()
+
+func guard_station_node() -> Node3D:
+	# Resolve the assigned guard station by name. The ships registry lives on Main (this
+	# ship's parent), not in a group, so we duck-type _find_ship_by_name() on the parent.
+	# Returns null unless the named node is a live, non-hostile station.
+	if guard_station_name == "":
+		return null
+	var p: Node = get_parent()
+	if p == null or not p.has_method("_find_ship_by_name"):
+		return null
+	var st: Node3D = p.call("_find_ship_by_name", guard_station_name)
+	if not is_instance_valid(st):
+		return null
+	if String(st.ship_class) != "station" or bool(st.destroyed) or String(st.faction) == "hostile":
+		return null
+	return st
 
 # Weapons: OFFLINE -> cannot fire; DAMAGED -> fire cooldown doubled (half rate).
 func can_fire() -> bool:

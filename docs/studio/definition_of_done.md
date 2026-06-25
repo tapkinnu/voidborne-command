@@ -266,8 +266,8 @@
   (`1.0 - wounds*0.25` each), survivors keep their wounds, and docking at a friendly station
   heals the whole squad. The crew deck and HUD economy panel surface wounded marines
   (`SHIPPED`, validated by `MARINE_WOUNDS_TEST_PASS`).
-- Fleet AI is a seven-order command set (follow, hold, escort, defend, dock, attack, and
-  now **patrol**) issued through the `F` fleet order menu. **Patrol routes are shipped**:
+- Fleet AI is an eight-order command set (follow, hold, escort, defend, dock, attack,
+  **patrol**, and **guard station**) issued through the `F` fleet order menu. **Patrol routes are shipped**:
   set the `[7]` Patrol order, drop up to eight waypoints with `P`, and manned escorts cycle
   the route while engaging hostiles en route (`_ai_patrol()`, saved with the game, validated
   by `PATROL_ORDER_TEST_PASS`). **Wing sub-grouping is shipped**: manned escorts can be
@@ -276,7 +276,16 @@
   (`F` → `W`). Unassigned escorts keep the global fleet order. Wing formation offsets group
   wingmates tightly; wing orders, targets, and membership round-trip through save/load
   (backward-compatible). Covered by `tests/test_wing_groups.gd` (`WING_GROUPS_TEST_PASS`).
-  Per-ship station assignment remains future work.
+- Fleet AI now ships an eighth order — **Guard Station** (`[8]` in the fleet menu and the wing
+  sub-menu). With a friendly/neutral station as the current target, the order anchors manned
+  escorts in a ~25u orbit of that station and has them engage any hostile that closes within
+  weapon range of it, falling back to follow if the station is missing, destroyed, or turns
+  hostile (`_ai_guard_station()`, `_validate_fleet_guard_station()`). Each escort carries a
+  per-ship `guard_station_name` assignment so fleet- and wing-level guard orders resolve their
+  own station; the order, the station name, and the per-ship assignment all round-trip through
+  save/load (backward-compatible — old saves default to no guard order), and the HUD/wing
+  summary render `GUARD STN <name>`. Covered by `tests/test_guard_station_order.gd`
+  (`GUARD_STATION_TEST_PASS`).
 - Target cycling prioritizes hostiles; neutral assets are fallback targets only after the
   hostile force is cleared.
 - Three hand-seeded star systems reachable via the `K` jump layer. Within a run, the battle

@@ -120,8 +120,8 @@ it is rebuilt by scanning the slot files. While the menu is open, flight/AI/comb
 | `Y` | Buy the selected shipyard class (auto-mans if crew available) |
 | `H` | **Repair / refit**: restore hull, shields, and energy across your flagship and manned fleet (cost scales with damage; partial work if short on credits) |
 | `F` | Man any unmanned owned ships; if none need crew, open/close the **fleet order menu** |
-| `1`–`7` | While the fleet order menu is open: `[1]` Follow · `[2]` Hold · `[3]` Escort · `[4]` Defend target · `[5]` Dock · `[6]` Attack target · `[7]` Patrol (press `[7]` again to clear the route) |
-| `W` | While the fleet order menu is open: enter **wing order mode** — `↑`/`↓` select a wing (Alpha/Beta/Gamma), `1`–`7` set that wing's order independently, `W`/`Esc` back to the fleet menu |
+| `1`–`8` | While the fleet order menu is open: `[1]` Follow · `[2]` Hold · `[3]` Escort · `[4]` Defend target · `[5]` Dock · `[6]` Attack target · `[7]` Patrol (press `[7]` again to clear the route) · `[8]` Guard Station (orbit & screen the current station target) |
+| `W` | While the fleet order menu is open: enter **wing order mode** — `↑`/`↓` select a wing (Alpha/Beta/Gamma), `1`–`8` set that wing's order independently, `W`/`Esc` back to the fleet menu |
 | `P` | While on the **Patrol** order: drop a patrol waypoint at the flagship's current position (otherwise `P` pauses/resumes) |
 | `Esc` | Close the fleet order menu without changing the order |
 | `C` | Toggle the **crew deck** interior view |
@@ -186,16 +186,19 @@ current tactical positions while covering nearby hostiles), `[3]` **Escort** (a 
 defensive ring that shoots any hostile closing on the captain but never chases far), `[4]`
 **Defend** (orbit and screen your current target), `[5]` **Dock** (head to the nearest
 friendly station and auto-repair at half the manual rate), `[6]` **Attack** (focus-fire
-the current target — the same order as the `T` hotkey), or `[7]` **Patrol** (described
-below). `Esc` closes the menu without changing the order. Attack and defend orders
-self-clear when their target is destroyed, captured, or turns friendly/hostile, and dock
-reverts to follow if no station is in range — in each case the fleet falls back to follow.
+the current target — the same order as the `T` hotkey), `[7]` **Patrol** (described
+below), or `[8]` **Guard Station** (with a friendly/neutral station as the current target,
+anchor manned escorts in a tight orbit of that station and engage any hostile that closes
+on it). `Esc` closes the menu without changing the order. Attack and defend orders
+self-clear when their target is destroyed, captured, or turns friendly/hostile, dock
+reverts to follow if no station is in range, and guard station reverts to follow if its
+station is destroyed or turns hostile — in each case the fleet falls back to follow.
 The fleet/economy panel and radar ping show the standing order (`FOLLOW`, `HOLD`, `ESCORT`,
-`DEFEND <target>`, `DOCK`, `ATTACK <target>`, or `PATROL (<n> wp)`) and the wing membership
-counts (`Wings: A:n B:n G:n`).
+`DEFEND <target>`, `DOCK`, `ATTACK <target>`, `PATROL (<n> wp)`, or `GUARD STN <name>`) and
+the wing membership counts (`Wings: A:n B:n G:n`).
 
 **Wing sub-grouping.** Press `F` to open the fleet order menu, then `W` to enter **wing
-order mode**. Use `↑`/`↓` to select a wing (Alpha / Beta / Gamma) and `1`–`7` to set that
+order mode**. Use `↑`/`↓` to select a wing (Alpha / Beta / Gamma) and `1`–`8` to set that
 wing's independent standing order. Ships assigned to a wing follow the wing's order instead
 of the global fleet order — so Alpha can attack a capital while Beta escorts the flagship
 and Gamma holds position, all simultaneously. Unassigned escorts keep the global order. Wing
