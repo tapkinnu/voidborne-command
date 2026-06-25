@@ -42,16 +42,25 @@ var _voice_idx: int = 0
 var _ambient_player: AudioStreamPlayer = null   # dedicated looping drone (never in the voice pool)
 var enabled: bool = true
 
-# True when running under the headless display driver (the GDScript test harness uses
-# --headless). There is no audio output device, so actually starting playbacks only
-# creates AudioServer playback objects that never finish (the ambient drone loops),
-# which surface as leaked AudioStreamWAV/AudioStreamPlaybackWAV instances at exit.
-# Gameplay/capture runs use a real display driver, so audio is unaffected there.
-func _is_headless() -> bool:
-	return DisplayServer.get_name() == "headless"
+# True when there is no real audio output device: either the headless display driver
+# (the GDScript test harness uses --headless) or the Dummy audio driver (the smoke run
+# and screenshot capture pass --audio-driver Dummy under a real display driver). In both
+# cases actually starting playbacks only creates AudioServer playback objects that never
+# finish (the ambient drone loops), which surface as leaked AudioStreamWAV/
+# AudioStreamPlaybackWAV instances at exit. Real gameplay has a live device, so audio
+# plays normally there.
+func _audio_unavailable() -> bool:
+	if DisplayServer.get_name() == "headless":
+		return true
+	# The Dummy audio driver reports zero output latency (no real ring buffer). A live
+	# device always reports a positive latency, so this distinguishes the capture/smoke
+	# runs (which never have a working output device) from real gameplay.
+	if AudioServer.get_output_latency() <= 0.0:
+		return true
+	return false
 
 func _ready() -> void:
-	if _is_headless():
+	if _audio_unavailable():
 		enabled = false
 	for key in SOUNDS.keys():
 		_streams[key] = _build_stream(SOUNDS[key])

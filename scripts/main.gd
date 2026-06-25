@@ -2798,6 +2798,9 @@ func _destroy_ship(s: Node3D) -> void:
 	for other in ships:
 		if is_instance_valid(other) and other.target == s:
 			other.target = null
+	# Also null the dying ship's own target so it does not keep another instance
+	# referenced through the about-to-be-freed node (ObjectDB leak on player death).
+	s.target = null
 	if s.ship_class == "station" and s.faction == "player":
 		var sys_key: int = current_system_index
 		if captured_station_names.has(sys_key):
@@ -3072,6 +3075,10 @@ func _stage_capture_demo() -> void:
 	player.max_energy = max(player.max_energy, 500.0)
 	player.energy = player.max_energy
 	player.disabled = false
+	# Caps alone are not enough — the hostile wing out-damages them within ~3 s and
+	# destroys the flagship mid-capture. Make the capture flagship invulnerable so it
+	# survives the entire screenshot window (scoped to auto_demo staging only).
+	player.invulnerable = true
 	frigate.global_position = Vector3(-16, -2, -78)
 	# Give the capture-demo frigate enough temporary durability to stay on target
 	# through all space screenshots while still starting visibly under attack.
@@ -5375,7 +5382,9 @@ func _update_hud() -> void:
 			"class": target.ship_class,
 			"hull_frac": target.hull / max(1.0, target.max_hull),
 			"shield_frac": target.shield / max(1.0, target.max_shield),
-			"dist": _pdist(target),
+			# Only emit a real distance when the player exists; otherwise -1.0 signals
+			# "unknown" so the HUD never renders the _pdist 1e9 sentinel as a world value.
+			"dist": _pdist(target) if is_instance_valid(player) else -1.0,
 			"disabled": target.disabled,
 			"sub_engine": target.sub_engine,
 			"sub_weapon": target.sub_weapon,
