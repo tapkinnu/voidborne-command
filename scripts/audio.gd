@@ -32,6 +32,8 @@ const SOUNDS: Dictionary = {
 	"weapon_overheat": {"freq0": 300.0, "freq1": 150.0, "dur": 0.30, "wave": "saw",    "vol": 0.25},
 	"hull_alarm":      {"freq0": 880.0, "freq1": 440.0, "dur": 0.40, "wave": "square", "vol": 0.30},
 	"engine_hit":      {"freq0": 200.0, "freq1": 80.0,  "dur": 0.15, "wave": "noise",  "vol": 0.35},
+	"mining_hit":      {"freq0": 180.0, "freq1": 120.0, "dur": 0.10, "wave": "noise",  "vol": 0.30},
+	"asteroid_break":  {"freq0": 140.0, "freq1": 50.0,  "dur": 0.40, "wave": "noise",  "vol": 0.45},
 }
 
 var _streams: Dictionary = {}      # trigger -> AudioStreamWAV

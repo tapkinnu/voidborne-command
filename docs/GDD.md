@@ -193,6 +193,27 @@ persist, and unmanned prizes stay unmanned. A producer-side Python verifier,
 `tools/verify_save_load.py`, mirrors this schema policy independently (wired into
 `tools/validate_build.sh`) so drift is caught even without running the engine.
 
+### 4.5c Asteroid mining (ore harvesting)
+Each system seeds a procedural **asteroid field** (`_spawn_asteroids()`), data-driven from an
+optional `asteroids` key on each `STAR_SYSTEMS` entry (a list of `{pos, count, radius}` cluster
+specs; systems without the key get a small default field offset well clear of the player spawn).
+Each rock is a lightweight grey-brown `MeshInstance3D` sphere (no `_process`) with `hull`
+scaling to its radius (`radius * 6`) and an `ore_yield` rolled **once at spawn** (`max(1,
+radius/2)`, ~1–4 units) so it is deterministic per rock rather than per destruction. The field is
+capped at ~20 rocks for perf and placed so it never overlaps a ship or station (system 0 stays
+bit-for-bit identical apart from the added distant field).
+
+Any projectile or beam — from **any** faction, no target lock required — chips an asteroid's hull
+(`_damage_asteroid()`); projectile hits are checked in `_update_projectiles()`, beams via a
+fire-time segment-vs-sphere test (`_beam_hit_asteroids()`, mirroring how ship-beam hull damage is
+applied at fire time). When a rock's hull reaches zero (`_destroy_asteroid()`) it spawns an
+explosion and deposits its `ore_yield` into the flagship's **Ore** cargo (the same commodity sold
+on the Market tab), clamped by `_cargo_remaining()` — overflow ore is lost with a HUD warning.
+Flying a ship into a rock (`_integrate_motion()`) grazes the hull for collision damage, damages
+the rock, and bounces the ship clear. Asteroids are **environmental and never persisted** — they
+rebuild from `STAR_SYSTEMS` + `rng` on system build, jump, and load (`SAVE_VERSION` unchanged).
+SFX: `mining_hit` on each chip, `asteroid_break` on destruction.
+
 ### 4.6 Ship classes
 See the table in `README.md` and the authoritative `SHIP_CLASSES` dictionary in
 `scripts/game_state.gd`. Each class has distinct stats, silhouette scale, and a unique

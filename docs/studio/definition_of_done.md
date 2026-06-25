@@ -249,6 +249,23 @@
       navigation, accept/abandon, full mission tree) are shipped and covered by
       `tests/test_mission_giver.gd` (`MISSION_GIVER_TEST_PASS`).
 
+### Environment & mining
+- [x] Procedural **asteroid fields with ore mining** that feed the commodity economy. Shipped:
+  every system seeds a drifting asteroid field via `_spawn_asteroids()`, data-driven from an
+  optional `asteroids` cluster list on each `STAR_SYSTEMS` entry (systems without it get a small
+  default field offset well clear of every spawn, so **Halcyon Reach stays bit-for-bit identical**
+  apart from the added distant rocks). Each rock is a lightweight grey-brown `MeshInstance3D`
+  sphere (no `_process`, ~20 cap) with hull scaling to its radius and an `ore_yield` rolled once at
+  spawn for determinism. Any projectile or beam — any faction, no lock needed — chips a rock
+  (`_damage_asteroid()`; projectiles in `_update_projectiles()`, beams via fire-time
+  `_beam_hit_asteroids()` segment-vs-sphere); on destruction (`_destroy_asteroid()`) it explodes
+  and drops **Ore** into the flagship's cargo hold, clamped by `_cargo_remaining()` (overflow lost
+  with a HUD warning). Ship-asteroid collision in `_integrate_motion()` grazes the hull and bounces
+  the ship clear. Two procedural SFX (`mining_hit`, `asteroid_break`) wired in. Asteroids are
+  environmental and never persisted — they rebuild from `STAR_SYSTEMS` + `rng` on build/jump/load
+  (`SAVE_VERSION` unchanged). Covered by `tests/test_asteroid_mining.gd`
+  (`ASTEROID_MINING_TEST_PASS`).
+
 ### Production pipeline
 - [x] Real (or higher-fidelity procedural) art + an authored audio pass. Shipped: (1)
   ship hull greebles — small panel/antenna/vent detail meshes on every class (fighter wing panels

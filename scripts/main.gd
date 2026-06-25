@@ -16,6 +16,7 @@ var station: Node3D = null
 var projectiles: Array = []        # Array of dicts {node, vel, dmg, ttl, faction}
 var beams: Array = []              # Array of dicts {node, ttl}
 var explosions: Array = []         # Array of dicts {node, mat, ttl, life, scale}
+var asteroids: Array = []          # Array of dicts {node, pos, radius, hull, max_hull, ore_yield} — mineable ore rocks
 var _muzzle_flashes: Array = []    # Array of dicts {node, mat, ttl, life, start_scale, end_scale}
 var _shield_impacts: Array = []    # Array of dicts {node, mat, ttl, life, start_scale, end_scale}
 var _debris: Array = []            # Array of dicts {node, vel, rot_vel, ttl, life, mat}
@@ -257,6 +258,10 @@ const STAR_SYSTEMS: Array = [
 			{"class": "corvette", "name": "Cleaver", "pos": Vector3(40, 6, -90), "ai": "engage"},
 			{"class": "frigate", "name": "Ironclaw", "pos": Vector3(-20, -4, -150), "ai": "engage"},
 			{"class": "capital", "name": "Dread Maw", "pos": Vector3(60, 10, -200), "ai": "engage"},
+		],
+		"asteroids": [
+			{"pos": Vector3(-220, 0, 40), "count": 9, "radius": 6.0},
+			{"pos": Vector3(-160, 10, 120), "count": 5, "radius": 5.0},
 		],
 	},
 	{
@@ -1625,6 +1630,124 @@ func _build_system_battle(sys_index: int, spawn_wing: bool = true) -> void:
 			hst.manned = false
 			hst.crew_assigned = 0
 
+	# Environmental asteroid field (mineable ore). Spawned last so it never displaces
+	# a ship/station; placed well clear of every spawn (see STAR_SYSTEMS "asteroids").
+	_spawn_asteroids(idx)
+
+# ---------------------------------------------------------------------------
+# ASTEROID FIELDS / MINING
+# ---------------------------------------------------------------------------
+func _spawn_asteroids(sys_index: int) -> void:
+	# Build the system's mineable asteroid field. Data-driven from STAR_SYSTEMS[idx].asteroids
+	# (a list of cluster specs {pos, count, radius}); systems without the key get a small default
+	# field offset well away from the player spawn so it never overlaps ships/stations. Each rock
+	# is a simple MeshInstance3D sphere (no _process) with hull and a deterministic ore_yield rolled
+	# at spawn time. Capped at ~20 rocks for perf.
+	var idx: int = clampi(sys_index, 0, STAR_SYSTEMS.size() - 1)
+	var sys: Dictionary = STAR_SYSTEMS[idx]
+	var clusters: Array = []
+	if sys.has("asteroids"):
+		clusters = sys.get("asteroids", [])
+	else:
+		var pspawn: Vector3 = sys.get("player_spawn", Vector3(0, 4, 80))
+		clusters = [{"pos": pspawn + Vector3(-150, 0, -250), "count": 12, "radius": 6.0}]
+	var spawned: int = 0
+	for c in clusters:
+		if spawned >= 20:
+			break
+		var cd: Dictionary = c
+		var center: Vector3 = cd.get("pos", Vector3.ZERO)
+		var count: int = int(cd.get("count", 8))
+		var spread: float = float(cd.get("radius", 6.0)) * 6.0   # cluster scatter radius
+		for i in range(count):
+			if spawned >= 20:
+				break
+			var r: float = rng.randf_range(3.0, 8.0)
+			var jitter: Vector3 = Vector3(
+				rng.randf_range(-spread, spread),
+				rng.randf_range(-spread * 0.4, spread * 0.4),
+				rng.randf_range(-spread, spread))
+			var pos: Vector3 = center + jitter
+			_make_asteroid(pos, r)
+			spawned += 1
+
+func _make_asteroid(pos: Vector3, r: float) -> void:
+	# Create one asteroid node + its dict record. hull scales with radius (bigger = tougher),
+	# and ore_yield is rolled once here so it is deterministic per rock (not per destruction).
+	var mi: MeshInstance3D = MeshInstance3D.new()
+	var sm: SphereMesh = SphereMesh.new()
+	sm.radius = r
+	sm.height = r * 2.0
+	mi.mesh = sm
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
+	mat.albedo_color = Color(0.42, 0.38, 0.34, 1.0)
+	mat.roughness = 0.95
+	mat.metallic = 0.1
+	mi.material_override = mat
+	# Non-uniform scale + random rotation for cheap visual variety (no vertex displacement).
+	mi.scale = Vector3(rng.randf_range(0.85, 1.15), rng.randf_range(0.8, 1.1), rng.randf_range(0.85, 1.15))
+	mi.rotation = Vector3(rng.randf_range(0.0, TAU), rng.randf_range(0.0, TAU), rng.randf_range(0.0, TAU))
+	add_child(mi)
+	mi.global_position = pos
+	var h: float = r * 6.0
+	var yld: int = max(1, int(r / 2.0))
+	asteroids.append({"node": mi, "pos": pos, "radius": r, "hull": h, "max_hull": h, "ore_yield": yld})
+
+func _clear_asteroids() -> void:
+	for a in asteroids:
+		var ad: Dictionary = a
+		if is_instance_valid(ad.get("node")):
+			ad["node"].queue_free()
+	asteroids.clear()
+
+func _damage_asteroid(a: Dictionary, dmg: float, impact_pos: Vector3) -> void:
+	if not is_instance_valid(a["node"]):
+		return
+	a["hull"] = float(a["hull"]) - dmg
+	if audio:
+		audio.play("mining_hit")
+	if float(a["hull"]) <= 0.0:
+		_destroy_asteroid(a)
+
+func _destroy_asteroid(a: Dictionary) -> void:
+	if not is_instance_valid(a["node"]):
+		return
+	_spawn_explosion(Vector3(a["pos"]), float(a["radius"]))
+	if audio:
+		audio.play("asteroid_break")
+	var yield_amt: int = int(a["ore_yield"])
+	var free: int = _cargo_remaining()
+	if yield_amt > free:
+		yield_amt = free
+	if yield_amt > 0:
+		cargo["ore"] = int(cargo.get("ore", 0)) + yield_amt
+		_msg("Mined %d Ore (cargo %d/%d)." % [yield_amt, _cargo_used() + yield_amt, CARGO_CAPACITY])
+	else:
+		_msg("Asteroid destroyed — cargo hold full, ore lost.")
+	a["node"].queue_free()
+	asteroids.erase(a)
+
+func _beam_hit_asteroids(origin: Vector3, dest: Vector3, dmg: float) -> void:
+	# Beam segment vs asteroid spheres. Damages only the nearest intersected rock (ship beams
+	# don't pierce). Applied at fire time, mirroring how ship-beam hull damage is applied in
+	# _fire_beam/_fire_beam_from (the beams[] entries are visual-only, decayed by _update_beams).
+	var best: Dictionary = {}
+	var best_d: float = INF
+	var best_cp: Vector3 = Vector3.ZERO
+	for a in asteroids:
+		if not is_instance_valid(a["node"]):
+			continue
+		var ap: Vector3 = Vector3(a["pos"])
+		var cp: Vector3 = Geometry3D.get_closest_point_to_segment(ap, origin, dest)
+		if cp.distance_to(ap) < float(a["radius"]):
+			var d: float = origin.distance_to(cp)
+			if d < best_d:
+				best_d = d
+				best = a
+				best_cp = cp
+	if not best.is_empty():
+		_damage_asteroid(best, dmg, best_cp)
+
 # ---------------------------------------------------------------------------
 # INTER-SYSTEM JUMP
 # ---------------------------------------------------------------------------
@@ -2422,6 +2545,26 @@ func _integrate_motion(delta: float) -> void:
 		if s.ship_class == "station":
 			continue
 		s.global_position += s.velocity * delta
+		# Ship-asteroid collision: graze a rock and the ship takes hull damage + bounces, the
+		# rock takes damage too. One asteroid per ship per frame (break after the first hit).
+		var sr: float = s.radius()
+		for a in asteroids:
+			if not is_instance_valid(a["node"]):
+				continue
+			var ap: Vector3 = Vector3(a["pos"])
+			var ar: float = float(a["radius"])
+			if s.global_position.distance_to(ap) < ar + sr:
+				_deal_damage(s, 8.0, "", ap)
+				_damage_asteroid(a, 12.0, s.global_position)
+				var push: Vector3 = (s.global_position - ap)
+				if push.length() < 0.001:
+					push = Vector3.UP
+				push = push.normalized()
+				s.global_position = ap + push * (ar + sr + 0.5)
+				s.velocity = s.velocity.bounce(push) * 0.5
+				if audio and s.is_player:
+					audio.play("hit")
+				break
 
 # ---------------------------------------------------------------------------
 # WEAPONS
@@ -2554,6 +2697,7 @@ func _fire_beam(s: Node3D, aim_target: Node3D) -> void:
 	beams.append({"node": node, "ttl": 0.3})
 	# Hitscan damage.
 	_apply_damage(s, aim_target, s.weapon_dmg)
+	_beam_hit_asteroids(origin, dest, s.weapon_dmg)
 	if audio:
 		audio.play("beam")
 
@@ -2618,6 +2762,7 @@ func _fire_beam_from(s: Node3D, aim_target: Node3D, origin: Vector3, fire_dir: V
 	_spawn_muzzle_flash(origin, s.faction)
 	beams.append({"node": node, "ttl": 0.3})
 	_apply_damage(s, aim_target, s.weapon_dmg)
+	_beam_hit_asteroids(origin, dest, s.weapon_dmg)
 	if audio:
 		audio.play("beam")
 
@@ -2642,6 +2787,15 @@ func _update_projectiles(delta: float) -> void:
 				_deal_damage(s, float(pd["dmg"]), String(pd.get("subsystem", "")), node.global_position)
 				hit = true
 				break
+		# Asteroid mining: any projectile (any faction) can chip ore-bearing rocks.
+		if not hit:
+			for a in asteroids:
+				if not is_instance_valid(a["node"]):
+					continue
+				if node.global_position.distance_to(Vector3(a["pos"])) < float(a["radius"]):
+					_damage_asteroid(a, float(pd["dmg"]), node.global_position)
+					hit = true
+					break   # safe: _damage_asteroid may erase from asteroids, but we stop here
 		if hit or float(pd["ttl"]) <= 0.0:
 			node.queue_free()
 		else:
@@ -4880,6 +5034,10 @@ func _apply_save(parsed: Dictionary) -> void:
 	for entry in parsed["ships"]:
 		_ship_from_dict(entry, used_names)
 
+	# Asteroids are environmental (never persisted) — _clear_transient_nodes() removed the old
+	# field above; rebuild the loaded system's field from STAR_SYSTEMS + rng so mining works.
+	_spawn_asteroids(current_system_index)
+
 	station = _pick_station_ref()
 
 	# Fleet order: orders whose required focus/station is missing fall back to follow.
@@ -5102,6 +5260,7 @@ func _clear_transient_nodes() -> void:
 		if is_instance_valid(ed.get("node")):
 			ed["node"].queue_free()
 	explosions.clear()
+	_clear_asteroids()
 
 func _find_ship_by_name(nm: String) -> Node3D:
 	if nm == "":
