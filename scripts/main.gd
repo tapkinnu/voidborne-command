@@ -8,6 +8,10 @@ const ShipScript: GDScript = preload("res://scripts/ship.gd")
 const HudScript: GDScript = preload("res://scripts/hud.gd")
 const DeckScript: GDScript = preload("res://scripts/crew_deck.gd")
 const AudioScript: GDScript = preload("res://scripts/audio.gd")
+# Centralised balance knobs. Also an autoload ("GameConstants"); preloaded here so the
+# values are available in const context. The consts below re-export GC under main.gd's
+# established public names, keeping external callers/tests (e.g. main.SERVICE_RANGE) stable.
+const GC: GDScript = preload("res://scripts/game_constants.gd")
 
 # --- World object registries ------------------------------------------------
 var ships: Array = []              # all live Ship nodes (player, allies, hostiles, station)
@@ -116,7 +120,7 @@ const DOCK_HULL_PER_SEC: float = 12.0
 const DOCK_SHIELD_PER_SEC: float = 10.0
 const DOCK_ENERGY_PER_SEC: float = 8.0
 const DOCK_COST_MULT: float = 0.5          # dock auto-repair costs half the manual service rate
-const FLEET_DOCK_RANGE: float = 500.0      # max distance a station can be for a dock order to hold
+const FLEET_DOCK_RANGE: float = GC.FLEET_DOCK_RANGE  # max station distance for a dock order to hold
 var _dock_cost_accum: float = 0.0          # fractional credits owed for in-progress dock repairs
 var _dock_broke_msg: bool = false          # set once when dock repairs stall for lack of credits
 
@@ -138,31 +142,31 @@ var boarding_round_count: int = 0
 var boarding_failed: bool = false         # set briefly so the HUD can flag a failed assault
 const BOARD_ROUND_INTERVAL: float = 0.5   # seconds of game time per combat round
 const BOARD_EXCHANGE_RATE: float = 0.15   # casualty fraction inflicted per round
-const GARRISON_ASSIGN_RANGE: float = 120.0 # range for assigning reserve marines to owned prizes
+const GARRISON_ASSIGN_RANGE: float = GC.GARRISON_ASSIGN_RANGE # assigning reserve marines to prizes
 
-# Economy costs.
-const COST_CREW: int = 120
-const COST_MARINE: int = 180
+# Economy costs. (see GameConstants)
+const COST_CREW: int = GC.COST_CREW
+const COST_MARINE: int = GC.COST_MARINE
 const SHIPYARD_CLASSES: Array = ["corvette", "fighter", "frigate", "capital"]
 var shipyard_index: int = 0
 
 # Station repair/refit service. Cost scales with the hull/shield/energy actually
 # restored across the manned, player-owned fleet; partial work is applied when the
 # player cannot afford a full service.
-const SERVICE_RANGE: float = 70.0
+const SERVICE_RANGE: float = GC.SERVICE_RANGE
 const SERVICE_MIN_CHARGE: int = 40
 const SERVICE_HULL_RATE: float = 0.6
 const SERVICE_SHIELD_RATE: float = 0.35
 const SERVICE_ENERGY_RATE: float = 0.15
 const SERVICE_SUBSYS_RATE: float = 20.0   # per full subsystem (0..1) restored during refit
-const DISABLE_FRAC: float = 0.22   # hull fraction at/below which a ship is "disabled"
+const DISABLE_FRAC: float = GC.DISABLE_FRAC   # hull fraction at/below which a ship is "disabled"
 
 # Combat economy. Capturing hostile assets pays better than destroying them so the
-# requested disable/board/capture loop feeds the shipyard and fleet-growth economy.
-const CAPTURE_BOUNTY_RATE: float = 0.18
-const DESTROY_SALVAGE_RATE: float = 0.08
-const MIN_CAPTURE_BOUNTY: int = 100
-const MIN_DESTROY_SALVAGE: int = 40
+# requested disable/board/capture loop feeds the shipyard and fleet-growth economy. (see GameConstants)
+const CAPTURE_BOUNTY_RATE: float = GC.CAPTURE_BOUNTY_RATE
+const DESTROY_SALVAGE_RATE: float = GC.DESTROY_SALVAGE_RATE
+const MIN_CAPTURE_BOUNTY: int = GC.MIN_CAPTURE_BOUNTY
+const MIN_DESTROY_SALVAGE: int = GC.MIN_DESTROY_SALVAGE
 
 # Capture/demo: when launched for screenshots, the player auto-fights so frames are lively.
 var auto_demo: bool = false
@@ -3587,7 +3591,7 @@ func _handle_station_actions() -> void:
 	if Input.is_action_just_pressed("toggle_deck"):
 		_set_deck_mode(not deck_mode)
 		return
-	var near_station: bool = is_instance_valid(station) and _pdist(station) < 70.0
+	var near_station: bool = is_instance_valid(station) and _pdist(station) < SERVICE_RANGE
 	if Input.is_action_just_pressed("cycle_shipyard"):
 		_cycle_shipyard_class(near_station)
 	if Input.is_action_just_pressed("recruit_crew"):
@@ -5661,7 +5665,7 @@ func _context_prompt() -> String:
 		return "STATION MARKET: ←→ tabs  ↑↓ select  Enter confirm  J/Esc close"
 	if fleet_menu_open:
 		return "FLEET ORDERS: [1]Follow [2]Hold [3]Escort [4]Defend [5]Dock [6]Attack  [F/Esc close]"
-	if is_instance_valid(station) and _pdist(station) < 70.0:
+	if is_instance_valid(station) and _pdist(station) < SERVICE_RANGE:
 		return "STATION: [G] %s %dcr  [Y] buy  [R] crew  [N] marine  [H] repair  [C] deck  [M] map  [V]save [L]load" % [_shipyard_class().to_upper(), _shipyard_cost()]
 	var svc: Node3D = _service_station()
 	if svc != null:

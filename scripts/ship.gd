@@ -2,6 +2,10 @@ extends Node3D
 # Ship: a single space vessel (player, ally, hostile or neutral). Procedurally
 # code-built mesh per class. No class_name (avoids circular imports). Driven by main.gd.
 
+# Centralised balance knobs (also the "GameConstants" autoload). Preloaded for const-context
+# access so the disable threshold stays in lockstep with main.gd / GameConstants.
+const GC: GDScript = preload("res://scripts/game_constants.gd")
+
 const FACTION_TINTS: Dictionary = {
 	"player": Color(0.40, 1.00, 0.62),
 	"ally": Color(0.42, 0.72, 1.00),
@@ -494,8 +498,8 @@ func take_damage(amount: float, subsystem: String = "") -> Dictionary:
 			_damage_subsystem(subsystem, sub_dmg)
 			result["subsystem_hit"] = true
 		hull -= hull_dmg
-	# Disable threshold: 22% hull. Stations/capitals can be disabled then boarded.
-	if not disabled and hull <= max_hull * 0.22 and hull > 0.0:
+	# Disable threshold (GameConstants.DISABLE_FRAC). Stations/capitals can be disabled then boarded.
+	if not disabled and hull <= max_hull * GC.DISABLE_FRAC and hull > 0.0:
 		disabled = true
 		result["disabled"] = true
 		# Disabling fight costs the defenders half their garrison (rounded down).
