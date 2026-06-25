@@ -138,6 +138,7 @@ var boarding_round_count: int = 0
 var boarding_failed: bool = false         # set briefly so the HUD can flag a failed assault
 const BOARD_ROUND_INTERVAL: float = 0.5   # seconds of game time per combat round
 const BOARD_EXCHANGE_RATE: float = 0.15   # casualty fraction inflicted per round
+const GARRISON_ASSIGN_RANGE: float = 120.0 # range for assigning reserve marines to owned prizes
 
 # Economy costs.
 const COST_CREW: int = 120
@@ -2885,6 +2886,12 @@ func _destroy_ship(s: Node3D) -> void:
 		var assigned_crew: Array = s.get_meta("assigned_crew", [])
 		Game.unassign_crew(assigned_crew)
 		s.remove_meta("assigned_crew")
+	if s.has_meta("garrisoned_marines"):
+		var garrisoned_marines: Array = s.get_meta("garrisoned_marines", [])
+		for gm in garrisoned_marines:
+			if typeof(gm) == TYPE_DICTIONARY:
+				Game.marine_roster.erase(gm)
+		s.remove_meta("garrisoned_marines")
 	if s == target:
 		target = null
 	if boarding_target == s:
@@ -3257,6 +3264,68 @@ func _nearest(from: Node3D, faction: String) -> Node3D:
 # ---------------------------------------------------------------------------
 # BOARDING & CAPTURE
 # ---------------------------------------------------------------------------
+func _garrison_cap(s: Node3D) -> int:
+	# Class table garrison is the intended defensive capacity. Fighters have no
+	# hostile garrison, but player escorts can still carry one marine as a guard.
+	if not is_instance_valid(s):
+		return 0
+	return max(1, int(Game.class_stat(String(s.ship_class), "garrison")))
+
+func _garrison_candidate() -> Node3D:
+	# Prefer the current owned target (the common post-capture case), then fall back
+	# to the nearest owned non-flagship asset in range so the action remains playable
+	# after the player cycles targets away from a captured ship or station.
+	if is_instance_valid(target) and target.faction == "player" and not target.is_player and not target.destroyed:
+		if _pdist(target) <= GARRISON_ASSIGN_RANGE:
+			return target
+	var best: Node3D = null
+	var bd: float = GARRISON_ASSIGN_RANGE + 0.001
+	for s in ships:
+		if not is_instance_valid(s) or s.destroyed or s.faction != "player" or s.is_player:
+			continue
+		var d: float = _pdist(s)
+		if d <= bd:
+			bd = d
+			best = s
+	return best
+
+func _assign_marine_garrison() -> bool:
+	# Assign one available marine from the reserve pool to defend a captured/purchased
+	# player asset. This consumes a named marine (marked assigned in Game.marine_roster)
+	# and increments the target's marine_garrison used by future boarding defence.
+	var s: Node3D = _garrison_candidate()
+	if s == null:
+		_msg("No owned ship/station in garrison range — capture or buy a target first.")
+		if audio: audio.play("ui_deny")
+		return false
+	if Game.marine_pool <= 0:
+		_msg("No reserve marines available for garrison duty. Recruit at a station [N].")
+		if audio: audio.play("ui_deny")
+		return false
+	var cap: int = _garrison_cap(s)
+	if int(s.marine_garrison) >= cap:
+		_msg("%s already has a full marine garrison (%d/%d)." % [s.ship_name, int(s.marine_garrison), cap])
+		if audio: audio.play("ui_deny")
+		return false
+	var drawn: Array = Game.draw_boarding_marines(1)
+	if drawn.is_empty():
+		_msg("No reserve marines available for garrison duty.")
+		if audio: audio.play("ui_deny")
+		return false
+	s.marine_garrison = min(cap, int(s.marine_garrison) + drawn.size())
+	var stored: Array = []
+	if s.has_meta("garrisoned_marines"):
+		var existing: Variant = s.get_meta("garrisoned_marines")
+		if existing is Array:
+			stored = existing
+	for m in drawn:
+		stored.append(m)
+	s.set_meta("garrisoned_marines", stored)
+	_msg("Assigned marine garrison to %s (%d/%d). Reserve marines: %d." % [s.ship_name, int(s.marine_garrison), cap, Game.marine_pool])
+	if audio: audio.play("ui_recruit")
+	_do_autosave()
+	return true
+
 func _try_start_boarding() -> void:
 	if boarding_active:
 		return
@@ -3524,6 +3593,8 @@ func _handle_station_actions() -> void:
 		fleet_menu_open = false
 		wing_menu_open = false
 		_order_fleet_attack()
+	if Input.is_action_just_pressed("assign_garrison"):
+		_assign_marine_garrison()
 	# [P] drops a patrol waypoint at the flagship's position (anywhere in space). Outside the
 	# PATROL order, P pauses instead — see the KEY_P branch in _input. _drop_patrol_waypoint
 	# itself guards on the order, so this poll is safe even when not patrolling.
@@ -4766,6 +4837,16 @@ func _ship_to_dict(s: Node3D) -> Dictionary:
 	}
 	if String(s.guard_station_name) != "":
 		d["guard_station_name"] = String(s.guard_station_name)
+	if s.has_meta("garrisoned_marines"):
+		var garrison_names: Array = []
+		var garrison_meta: Variant = s.get_meta("garrisoned_marines")
+		if garrison_meta is Array:
+			for gm in (garrison_meta as Array):
+				if typeof(gm) == TYPE_DICTIONARY:
+					var gmd: Dictionary = gm
+					garrison_names.append(String(gmd.get("name", "")))
+		if not garrison_names.is_empty():
+			d["garrisoned_marine_names"] = garrison_names
 	# Independent turret state is only saved for ships that actually have turrets.
 	if s.has_turrets():
 		d["turrets"] = s.turret_state_to_array()
@@ -4935,6 +5016,8 @@ func _validate_save(parsed: Variant) -> String:
 				return "ship %s marine_garrison non-numeric" % String(sd.get("ship_name", "?"))
 			if float(garr_val) < 0.0:
 				return "ship %s marine_garrison negative" % String(sd.get("ship_name", "?"))
+		if sd.has("garrisoned_marine_names") and typeof(sd["garrisoned_marine_names"]) != TYPE_ARRAY:
+			return "ship %s garrisoned_marine_names not an array" % String(sd.get("ship_name", "?"))
 		# Subsystem health is optional (backward compatible). If present, must be a 0..1 float.
 		for sub_key in ["sub_engine", "sub_weapon", "sub_shield"]:
 			if sd.has(sub_key):
@@ -5195,6 +5278,28 @@ func _restore_wing_state(parsed: Dictionary) -> void:
 				wing_orders[wid] = "follow"
 				wing_guard_station_names.erase(wid)
 
+func _restore_garrisoned_marine_meta(s: Node3D, names_v: Variant) -> void:
+	# Re-link saved garrison name strings back to the live marine roster so future
+	# destruction can remove those assigned marines. Old saves without names still keep
+	# the integer marine_garrison count and are accepted.
+	if not is_instance_valid(s) or typeof(names_v) != TYPE_ARRAY:
+		return
+	var restored: Array = []
+	for name_v in (names_v as Array):
+		var wanted: String = String(name_v)
+		if wanted == "":
+			continue
+		for m in Game.marine_roster:
+			if typeof(m) != TYPE_DICTIONARY:
+				continue
+			var md: Dictionary = m
+			if String(md.get("name", "")) == wanted:
+				md["assigned"] = true
+				restored.append(md)
+				break
+	if not restored.is_empty():
+		s.set_meta("garrisoned_marines", restored)
+
 func _ship_from_dict(entry: Variant, used_names: Dictionary) -> Node3D:
 	var sd: Dictionary = entry
 	var p_class: String = String(sd["ship_class"])
@@ -5220,6 +5325,8 @@ func _ship_from_dict(entry: Variant, used_names: Dictionary) -> Node3D:
 	s.crew_assigned = int(sd.get("crew_assigned", 0))
 	# Marine garrison: absent in pre-garrison saves, so default to 0 for backward compat.
 	s.marine_garrison = max(0, int(sd.get("marine_garrison", 0)))
+	if sd.has("garrisoned_marine_names"):
+		_restore_garrisoned_marine_meta(s, sd.get("garrisoned_marine_names", []))
 	# Upgrade levels: optional/backward-compatible. Restored and applied BEFORE hull/shield/
 	# energy so the upgraded base_* stats are in place; the saved max_* and pool values
 	# (recorded at the upgraded scale) then overwrite the recomputed maxes exactly.
@@ -5506,6 +5613,8 @@ func _update_hud() -> void:
 			"sub_weapon": target.sub_weapon,
 			"sub_shield": target.sub_shield,
 			"sub_focus": subsystem_focus,
+			"garrison": int(target.marine_garrison),
+			"garrison_cap": _garrison_cap(target),
 		}
 	# Boarding block: squad combat state for the HUD bar + ATK/DEF readout.
 	if boarding_active and is_instance_valid(boarding_target):
@@ -5549,6 +5658,9 @@ func _context_prompt() -> String:
 	var sub_label: String = subsystem_focus if subsystem_focus != "" else "none"
 	if is_instance_valid(target) and target.disabled and target.faction != "player":
 		return "[B] board %s with marines   [Z] sub: %s   [V]save [L]load" % [target.ship_name, sub_label]
+	var gar: Node3D = _garrison_candidate()
+	if gar != null:
+		return "[I] assign marine garrison to %s (%d/%d)   [F] fleet orders  [V]save [L]load" % [gar.ship_name, int(gar.marine_garrison), _garrison_cap(gar)]
 	var order_label: String = fleet_order.to_upper()
 	if fleet_order == "attack" and is_instance_valid(fleet_attack_target):
 		order_label = "ATTACK %s" % fleet_attack_target.ship_name

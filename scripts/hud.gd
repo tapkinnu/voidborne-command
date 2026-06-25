@@ -181,6 +181,8 @@ func _draw() -> void:
 		# Subsystem strip: ENG / WPN / SHD, colored by status, focused one marked with '>'.
 		_draw_subsystems(tx + 12, 86, tgt)
 		var status: String = "DIST %d" % int(float(tgt.get("dist", 0.0)))
+		if tgt.has("garrison"):
+			status += "  GAR %d/%d" % [int(tgt.get("garrison", 0)), int(tgt.get("garrison_cap", 0))]
 		if bool(tgt.get("disabled", false)):
 			status += "  *DISABLED - BOARD [B]*"
 		_txt(Vector2(tx + 12, 124), status, Color(1, 0.9, 0.5), 12)

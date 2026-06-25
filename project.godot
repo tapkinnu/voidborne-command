@@ -89,6 +89,10 @@ board_ship={
 "deadzone": 0.5,
 "events": [{"type":"key","keycode":66,"unicode":98},{"type":"joypad_button","button_index":3}]
 }
+assign_garrison={
+"deadzone": 0.5,
+"events": [{"type":"key","keycode":73,"unicode":105}]
+}
 recruit_crew={
 "deadzone": 0.5,
 "events": [{"type":"key","keycode":82,"unicode":114}]

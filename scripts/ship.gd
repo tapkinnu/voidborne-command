@@ -61,8 +61,8 @@ var crew_assigned: int = 0
 var manned: bool = true
 
 # Marines stationed aboard for defense against boarding. Set by class in setup(); halved
-# when the ship is disabled (some defenders are casualties of the disabling fight); zeroed
-# on capture (the new owner must garrison it themselves — out of scope this increment).
+# when the ship is disabled (some defenders are casualties of the disabling fight). Player-owned
+# prizes can be reinforced later via the [I] assign-garrison action.
 var marine_garrison: int = 0
 
 var velocity: Vector3 = Vector3.ZERO

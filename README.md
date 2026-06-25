@@ -50,6 +50,7 @@ Screenshots are written to `artifacts/screenshots/` (plus a `contact_sheet.jpg`)
 | `Tab` | Cycle hostile targets first (neutral assets only after hostiles are cleared) |
 | `T` | Order your manned fleet to **attack / focus-fire** the current target (same as menu `[6]`) |
 | `B` | Board a **disabled** target with marines |
+| `I` | Assign one reserve marine as a **defensive garrison** to the current/nearest owned non-flagship ship or station (captured/purchased assets) |
 | `V` / `L` | **Quick save / quick load** the current battle (versioned `user://voidborne_save.json`) |
 | `F5` | Open the **save/load slot menu** — 6 named slots (`user://saves/slot_N.json`) with an in-game overlay to save, load, rename, or delete |
 | (auto) | **Autosave** every 60 s of active flight + on jump/capture (separate `user://voidborne_autosave.json`) |
@@ -120,6 +121,7 @@ it is rebuilt by scanning the slot files. While the menu is open, flight/AI/comb
 | `N` | Recruit marine (180 cr) |
 | `G` | Cycle the station shipyard offer (fighter / corvette / frigate / capital) |
 | `Y` | Buy the selected shipyard class (auto-mans if crew available) |
+| `I` | Assign one reserve marine to garrison the current/nearest owned non-flagship ship or station; the target panel shows `GAR current/cap`, and save/load preserves the count |
 | `H` | **Repair / refit**: restore hull, shields, and energy across your flagship and manned fleet (cost scales with damage; partial work if short on credits) |
 | `F` | Man any unmanned owned ships; if none need crew, open/close the **fleet order menu** |
 | `1`–`8` | While the fleet order menu is open: `[1]` Follow · `[2]` Hold · `[3]` Escort · `[4]` Defend target · `[5]` Dock · `[6]` Attack target · `[7]` Patrol (press `[7]` again to clear the route) · `[8]` Guard Station (orbit & screen the current station target) |

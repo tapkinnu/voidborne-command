@@ -79,8 +79,11 @@ casualty per round so small forces never stalemate). Boarding **succeeds** when 
 defenders reach 0 — the surviving attackers become the new `marine_pool` and the asset
 `set_faction("player")`. Boarding **fails** if the attackers reach 0 first: all your
 marines are lost, the boarding is cancelled, and the target stays hostile (still disabled).
-A captured asset starts with garrison 0 (the new owner must garrison it themselves —
-out of scope this increment). The HUD boarding bar shows nearness to capture (defenders
+A captured asset starts with garrison 0, but the captain can press `I` near the current
+or nearest owned non-flagship ship/station to assign one reserve marine as a defensive
+garrison up to the class cap (fighter 1, corvette 2, frigate 4, capital 8, station 12).
+The target panel shows `GAR current/cap`, and garrison count plus linked marine names
+round-trip through save/load. The HUD boarding bar shows nearness to capture (defenders
 remaining vs initial) with an `ATK: N  DEF: M` readout; a failed assault prints a
 red-tinted `BOARDING FAILED` line.
 
