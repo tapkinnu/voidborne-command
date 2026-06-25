@@ -2684,8 +2684,10 @@ func _destroy_ship(s: Node3D) -> void:
 		var reward: int = _destroy_salvage_reward(s)
 		Game.credits += reward
 		_msg("%s destroyed — salvage +%d cr." % [s.ship_name, reward])
+		_adjust_morale(0.05)   # victory: a hostile kill lifts the outfit's spirits
 	else:
 		_msg("%s destroyed." % s.ship_name)
+		_adjust_morale(-0.15)  # loss of comrades: a friendly ship lost dents morale
 	if s.has_meta("assigned_crew"):
 		var assigned_crew: Array = s.get_meta("assigned_crew", [])
 		Game.unassign_crew(assigned_crew)
@@ -3170,7 +3172,9 @@ func _marine_effective_strength(marines: Array) -> int:
 			continue
 		var md: Dictionary = m
 		var w: int = clampi(int(md.get("wounds", 0)), 0, 3)
-		total += 1.0 - float(w) * 0.25
+		var morale: float = float(md.get("morale", 1.0))
+		var morale_mult: float = 0.5 + morale * 0.5
+		total += (1.0 - float(w) * 0.25) * morale_mult
 	return int(round(total))
 
 # Apply `casualties` hits to a drawn boarding party. Each hit wounds the least-wounded
@@ -3216,6 +3220,7 @@ func _fail_boarding() -> void:
 	boarding_drawn_marines = []
 	boarding_failed = true
 	_msg("BOARDING FAILED — all %d marines lost. %s holds with %d defenders." % [lost, nm, holders])
+	_adjust_morale(-0.10)  # boarding failure: losing a marine party hits morale hard
 	if audio: audio.play("boarding_fail")
 	_cancel_boarding()
 
@@ -3240,6 +3245,7 @@ func _complete_capture(s: Node3D) -> void:
 	var attackers_lost: int = max(0, boarding_initial_attacker - boarding_attacker_strength)
 	var defenders_lost: int = max(0, boarding_initial_defender - boarding_defender_strength)
 	s.set_faction("player")
+	_adjust_morale(0.10)  # big victory: capturing a prize boosts the whole outfit
 	# Record the captured station so it survives future jumps/teardowns of this system.
 	if s.ship_class == "station":
 		var sys_key: int = current_system_index
@@ -3878,6 +3884,18 @@ func _service_estimate() -> Dictionary:
 		cost = max(SERVICE_MIN_CHARGE, int(ceil(raw)))
 	return {"station": svc.ship_name, "cost": cost}
 
+# Adjust morale of every crew member and marine by `delta` (clamped 0.0..1.0).
+# Positive deltas for victories, negative for losses. Returns nothing.
+func _adjust_morale(delta: float) -> void:
+	for c in Game.crew_roster:
+		if typeof(c) == TYPE_DICTIONARY:
+			var cd: Dictionary = c
+			cd["morale"] = clampf(float(cd.get("morale", 1.0)) + delta, 0.0, 1.0)
+	for m in Game.marine_roster:
+		if typeof(m) == TYPE_DICTIONARY:
+			var md: Dictionary = m
+			md["morale"] = clampf(float(md.get("morale", 1.0)) + delta, 0.0, 1.0)
+
 # Heal every wounded marine in the roster back to full health. Used by station docking
 # (the medic) and the test harness. Emits a HUD message only when someone was wounded.
 func _heal_marines_at_station(station_name: String) -> int:
@@ -3891,6 +3909,7 @@ func _heal_marines_at_station(station_name: String) -> int:
 			healed += 1
 	if healed > 0:
 		_msg("Marine squad patched up at %s." % station_name)
+		_adjust_morale(0.10)  # R&R / medical care lifts the squad's spirits
 	return healed
 
 func _station_service() -> void:
@@ -3949,6 +3968,16 @@ func _station_service() -> void:
 		_msg("%s serviced %d ship(s): hull/shield/energy restored. Cost %d cr." % [svc.ship_name, serviced, charge])
 	else:
 		_msg("%s partial refit (%d%%) on %d ship(s) — credits limited. Spent %d cr." % [svc.ship_name, int(round(fraction * 100.0)), serviced, charge])
+	if fraction >= 1.0:
+		# Full repair/refit doubles as full shore leave: morale restored completely.
+		for c in Game.crew_roster:
+			if typeof(c) == TYPE_DICTIONARY:
+				(c as Dictionary)["morale"] = 1.0
+		for m in Game.marine_roster:
+			if typeof(m) == TYPE_DICTIONARY:
+				(m as Dictionary)["morale"] = 1.0
+	else:
+		_adjust_morale(0.20)  # partial service: some shore leave, morale recovers a bit
 	if audio: audio.play("ui_buy")
 
 func _order_fleet_attack() -> void:
@@ -4951,6 +4980,22 @@ func _update_hud() -> void:
 		if typeof(m) == TYPE_DICTIONARY and int((m as Dictionary).get("wounds", 0)) > 0:
 			marine_wounded += 1
 	d["marine_wounded"] = marine_wounded
+	var crew_morale_sum: float = 0.0
+	var crew_morale_count: int = 0
+	for c in Game.crew_roster:
+		if typeof(c) == TYPE_DICTIONARY:
+			crew_morale_sum += float((c as Dictionary).get("morale", 1.0))
+			crew_morale_count += 1
+	var crew_morale_avg: float = crew_morale_sum / float(max(1, crew_morale_count))
+	var marine_morale_sum: float = 0.0
+	var marine_morale_count: int = 0
+	for m in Game.marine_roster:
+		if typeof(m) == TYPE_DICTIONARY:
+			marine_morale_sum += float((m as Dictionary).get("morale", 1.0))
+			marine_morale_count += 1
+	var marine_morale_avg: float = marine_morale_sum / float(max(1, marine_morale_count))
+	d["crew_morale"] = crew_morale_avg
+	d["marine_morale"] = marine_morale_avg
 	var avail: Array = Game.available_crew()
 	var p_count: int = 0
 	var e_count: int = 0

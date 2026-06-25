@@ -96,6 +96,17 @@
   seeded `0.7–1.3` roll), capturing when defenders hit 0 and failing — losing all marines —
   if attackers hit 0 first. HUD shows `ATK/DEF` and capture nearness; garrison saves/loads.
   Regression: `tests/test_boarding_squad.gd` (`BOARDING_SQUAD_TEST_PASS`).
+- [x] Morale wired into gameplay: crew/marine morale (0..1) now modulates performance and
+  reacts to outcomes. Shipped: each crew member's skill bonus and each marine's boarding
+  strength are scaled by `0.5 + morale*0.5` (morale 1.0 = full effect, 0.0 = half), so a
+  demoralized outfit fights and flies worse. `main._adjust_morale(delta)` shifts the whole
+  roster's morale (clamped 0..1) at event sites: hostile kill `+0.05`, friendly loss `-0.15`,
+  capture `+0.10`, boarding failure `-0.10`, marine medic `+0.10`. A full repair/refit at a
+  station restores all morale to 1.0 (shore leave); a budget-limited partial service bumps
+  `+0.20`. The HUD economy panel shows average crew/marine morale (`Morale: C%% M%%`,
+  color-coded), and crew-deck Label3Ds append each individual's morale. Backward-compatible:
+  entries without a morale key default to 1.0 everywhere. Covered by
+  `tests/test_morale_system.gd` (`MORALE_SYSTEM_TEST_PASS`).
 - [x] Deck navigation across multiple rooms / multiple owned ships. Shipped: 3 named rooms
   (Bridge, Crew Quarters, Marine Barracks) with distinct colors and greeble layouts;
   door-trigger walk transitions at room boundaries; R key cycles owned ships; HUD shows

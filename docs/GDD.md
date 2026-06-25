@@ -98,6 +98,21 @@ The **crew deck** (`C`) is a walkable interior that instantiates one procedural 
 per pooled crew/marine. The captain avatar walks (WASD) and orders the nearest humanoid
 to follow (`F`); followers trail the captain in a loose formation.
 
+#### 4.4a Morale
+Each named crew member and marine carries a `morale` float (0..1). Morale is a performance
+multiplier: a crew member's skill bonus and a marine's boarding strength are each scaled by
+`0.5 + morale*0.5`, so morale 1.0 yields full effect, 0.5 yields ×0.75, and 0.0 yields the
+×0.5 floor (a demoralized outfit still functions, just poorly). `main._adjust_morale(delta)`
+applies a clamped (0..1) shift to the **entire** roster at gameplay event sites: a hostile
+kill `+0.05`, a friendly ship lost `-0.15`, a capture `+0.10`, a boarding failure `-0.10`,
+and a marine medic visit `+0.10`. Station service is the morale economy's sink-and-restore:
+a **full** repair/refit (`fraction >= 1.0`) sets all morale to 1.0 (shore leave), while a
+budget-limited **partial** service bumps `+0.20`. Average crew/marine morale surfaces on the
+HUD economy panel and each individual's morale is shown on their crew-deck label. Morale
+already round-trips through the existing save schema, so no `SAVE_VERSION` change was needed;
+entries lacking a morale key default to 1.0 for backward compatibility. Regression coverage:
+`tests/test_morale_system.gd` (`MORALE_SYSTEM_TEST_PASS`).
+
 ### 4.5 Economy & fleet
 At the station: recruit crew (120) / marines (180), cycle the shipyard offer with `G`,
 and buy the selected class with `Y` (fighter 800, corvette 2200, frigate 5200,

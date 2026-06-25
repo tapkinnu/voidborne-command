@@ -85,7 +85,7 @@ func _draw() -> void:
 
 	# Top-left: economy / fleet / shipyard
 	var service: Dictionary = data.get("service", {})
-	var panel_h: float = (132.0 if not service.is_empty() else 114.0) + 16.0
+	var panel_h: float = (148.0 if not service.is_empty() else 130.0) + 16.0
 	draw_rect(Rect2(Vector2(8, 8), Vector2(250, panel_h)), C_BG, true)
 	_txt(Vector2(16, 28), "VOIDBORNE COMMAND", C_LINE, 14)
 	_txt(Vector2(16, 48), "Credits: %d   Cargo: %d/%d" % [int(data.get("credits", 0)), int(data.get("cargo_used", 0)), int(data.get("cargo_capacity", 0))], Color(1, 0.85, 0.4), 13)
@@ -122,13 +122,17 @@ func _draw() -> void:
 			order_txt = "GUARD STN %s" % gst_name if gst_name != "" else "GUARD STN"
 			order_col = Color(0.6, 0.85, 1.0)
 	_txt(Vector2(16, 96), "Order: %s" % order_txt, order_col, 12)
-	_txt(Vector2(16, 112), "Shipyard: %s %dcr   Mode: %s" % [String(data.get("shipyard_class", "corvette")).to_upper(), int(data.get("shipyard_cost", 0)), mode.to_upper()], C_DIM, 12)
+	var crew_mor: int = int(round(float(data.get("crew_morale", 1.0)) * 100.0))
+	var mar_mor: int = int(round(float(data.get("marine_morale", 1.0)) * 100.0))
+	var mor_col: Color = Color(0.5, 1.0, 0.5) if crew_mor >= 70 else (Color(1.0, 0.85, 0.3) if crew_mor >= 40 else Color(1.0, 0.4, 0.3))
+	_txt(Vector2(16, 112), "Morale: C%d%%  M%d%%" % [crew_mor, mar_mor], mor_col, 12)
+	_txt(Vector2(16, 128), "Shipyard: %s %dcr   Mode: %s" % [String(data.get("shipyard_class", "corvette")).to_upper(), int(data.get("shipyard_cost", 0)), mode.to_upper()], C_DIM, 12)
 	if not service.is_empty():
 		var svc_cost: int = int(service.get("cost", 0))
 		var svc_txt: String = "[H] Repair/refit: %d cr" % svc_cost if svc_cost > 0 else "[H] Repair/refit: nominal"
-		_txt(Vector2(16, 128), svc_txt, Color(0.55, 1.0, 0.72), 12)
+		_txt(Vector2(16, 144), svc_txt, Color(0.55, 1.0, 0.72), 12)
 	# Mouse-aim + control-scheme indicator (bottom of the economy panel).
-	var ma_y: float = (144.0 if not service.is_empty() else 128.0)
+	var ma_y: float = (160.0 if not service.is_empty() else 144.0)
 	var ma_on: bool = bool(data.get("mouse_aim", false))
 	var scheme: String = String(data.get("control_scheme", "auto")).to_upper()
 	var ma_col: Color = Color(0.5, 1.0, 0.72) if ma_on else C_DIM

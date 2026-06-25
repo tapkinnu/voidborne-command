@@ -150,6 +150,19 @@ Walk through the door gaps at the room boundaries to move between rooms. The HUD
 the current ship and room. Press `R` to step onto a different owned ship's deck (when
 you have captured or purchased additional ships).
 
+### Morale
+
+Every crew member and marine carries a **morale** rating (0–100%) that now drives
+performance. Crew skill bonuses (pilot speed/turn, engineer accel, gunner damage/fire-rate)
+and marine boarding strength are scaled by morale — a demoralized outfit flies and fights
+noticeably worse, while a high-morale crew gets the full benefit of their skills. Morale
+**rises** with victories (destroying hostiles, capturing prizes, marine R&R at a station's
+medic) and **falls** with losses (friendly ships destroyed, a failed boarding that costs your
+marines). Docking at a friendly station for a **full repair/refit** doubles as shore leave and
+**restores morale completely**; a budget-limited partial service still lifts spirits a little.
+The HUD economy panel shows average crew/marine morale (colour-coded), and each individual's
+morale appears on their crew-deck label.
+
 ---
 
 ## The loop in one paragraph

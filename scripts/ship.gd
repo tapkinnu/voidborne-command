@@ -146,14 +146,16 @@ func apply_crew_bonuses(crew_list: Array) -> void:
 			continue
 		var role: String = String(c.get("role", ""))
 		var skill: float = float(c.get("skill", 1))
+		var morale: float = float(c.get("morale", 1.0))
+		var morale_mult: float = 0.5 + morale * 0.5
 		match role:
 			"pilot":
-				pilot_bonus += skill * 0.03
+				pilot_bonus += skill * 0.03 * morale_mult
 			"engineer":
-				engineer_bonus += skill * 0.03
+				engineer_bonus += skill * 0.03 * morale_mult
 			"gunner":
-				gunner_bonus += skill * 0.03
-				gunner_rate_bonus += skill * 0.02
+				gunner_bonus += skill * 0.03 * morale_mult
+				gunner_rate_bonus += skill * 0.02 * morale_mult
 	max_speed = base_max_speed * (1.0 + pilot_bonus)
 	turn_rate = base_turn_rate * (1.0 + pilot_bonus)
 	accel = base_accel * (1.0 + engineer_bonus)

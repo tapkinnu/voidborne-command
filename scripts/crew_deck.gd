@@ -384,7 +384,8 @@ func _spawn_crew_detail(crew_dict: Dictionary, idx: int, total: int) -> void:
 	hh.position = home
 	_crew_container.add_child(hh)
 	var label: Label3D = Label3D.new()
-	label.text = "%s [%s] S%d" % [String(crew_dict.get("name", "?")), Game.ROLE_ABBR.get(role, "?"), int(crew_dict.get("skill", 1))]
+	var morale: int = int(round(float(crew_dict.get("morale", 1.0)) * 100.0))
+	label.text = "%s [%s] S%d M%d%%" % [String(crew_dict.get("name", "?")), Game.ROLE_ABBR.get(role, "?"), int(crew_dict.get("skill", 1)), morale]
 	label.font_size = 48
 	label.pixel_size = 0.01
 	label.no_depth_test = true
@@ -411,11 +412,12 @@ func _spawn_crew_marine_named(marine_dict: Dictionary, idx: int, total: int) -> 
 	var mname: String = String(marine_dict.get("name", "Marine"))
 	var skill: int = int(marine_dict.get("skill", 1))
 	var wounds: int = int(marine_dict.get("wounds", 0))
+	var morale: int = int(round(float(marine_dict.get("morale", 1.0)) * 100.0))
 	var label: Label3D = Label3D.new()
 	if wounds > 0:
-		label.text = "%s [MAR] S%d W%d" % [mname, skill, wounds]
+		label.text = "%s [MAR] S%d W%d M%d%%" % [mname, skill, wounds, morale]
 	else:
-		label.text = "%s [MAR] S%d" % [mname, skill]
+		label.text = "%s [MAR] S%d M%d%%" % [mname, skill, morale]
 	label.font_size = 48
 	label.pixel_size = 0.01
 	label.no_depth_test = true

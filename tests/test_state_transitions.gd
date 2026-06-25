@@ -309,6 +309,11 @@ func _initialize() -> void:
 			if not bool(ba4.disabled):
 				_fail("Ironclaw should be disabled")
 			ba4.global_position = player.global_position + Vector3(0, 0, -10)
+			# Full-morale roster so attacker strength reflects squad size (morale modulates it).
+			var full_marines2: Array = []
+			for mi in range(8):
+				full_marines2.append({"name": "Boarder%d" % mi, "skill": 5, "wounds": 0, "morale": 1.0, "assigned": false})
+			game.set("marine_roster", full_marines2)
 			game.set("marine_pool", 8)
 			main.set("target", ba4)
 			main.call("_try_start_boarding")

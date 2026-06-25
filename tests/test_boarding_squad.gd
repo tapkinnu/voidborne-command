@@ -84,6 +84,12 @@ func _initialize() -> void:
 			_fail("player ship missing")
 		else:
 			frig.global_position = player.global_position + Vector3(0, 0, -10)
+			# Build a deterministic 20-marine roster at full morale so the attacker
+			# strength assertion reflects squad size (morale modulates strength).
+			var full_marines: Array = []
+			for mi in range(20):
+				full_marines.append({"name": "Boarder%d" % mi, "skill": 5, "wounds": 0, "morale": 1.0, "assigned": false})
+			game.set("marine_roster", full_marines)
 			game.set("marine_pool", 20)
 			main.set("target", frig)
 			var before_captured: int = int(game.get("captured_count"))
