@@ -141,6 +141,17 @@ func _build_current_room() -> void:
 	_clear_room()
 	_build_room_geometry(current_room_index)
 	refresh_roster()
+	_update_camera_for_room()
+
+func _update_camera_for_room() -> void:
+	# Capture and live deck play need the camera centered on the active room.
+	# A static x=0 camera looked at the doorway between rooms and could miss all
+	# crew/marines in the Bridge (x=-10) and Barracks (x=10).
+	if camera == null:
+		return
+	var cx: float = float(ROOM_CENTERS[current_room_index])
+	camera.position = Vector3(cx, 6, 13)
+	camera.rotation_degrees = Vector3(-19, 0, 0)
 
 func _clear_room() -> void:
 	for c in _room_container.get_children():

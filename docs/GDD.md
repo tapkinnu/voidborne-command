@@ -239,10 +239,11 @@ screenshots stay deterministic.
 ### 4.8 Mission system
 The slice ships a set of named **missions** (`main.gd _init_missions`), each a Dictionary with
 an `id`, `title`, `desc`, `reward`, a `state` (`active` / `complete` / `failed`), and a list of
-`objectives` carrying a `check` tag the per-frame evaluator reads. The five starting missions are:
+`objectives` carrying a `check` tag the per-frame evaluator reads. The six starting missions are:
 **Capture Kryos Relay** (3000 cr), **Capture Ironhold** (5000 cr), **Break the Raiders** —
 destroy 5 hostile mobile ships, cumulative (1500 cr), **Commission a Frigate** — buy a frigate
-at the shipyard (800 cr), and **Build a Fleet** — command 3 manned fleet ships at once (2000 cr).
+at the shipyard (800 cr), **Prospector's Run** — mine 6 Ore from asteroid fields, cumulative
+(900 cr), and **Build a Fleet** — command 3 manned fleet ships at once (2000 cr).
 
 Pressing `O` (`_cycle_mission`) advances the tracked mission through the open ones, wrapping and
 skipping completed/failed entries; the **top-center objective string** is derived from the tracked

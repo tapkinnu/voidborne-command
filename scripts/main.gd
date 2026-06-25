@@ -214,6 +214,7 @@ var missions: Array = []
 var current_mission_index: int = 0
 var _destroyed_hostile_count: int = 0   # cumulative mobile hostiles destroyed (mission tracking)
 var _purchased_frigate: bool = false    # set true once the player buys a frigate at the shipyard
+var _ore_mined_count: int = 0           # cumulative Ore actually mined from asteroids (mission tracking)
 var _mission_check_accum: float = 0.0   # throttle accumulator for periodic mission evaluation
 const MISSION_CHECK_INTERVAL: float = 0.5
 var mission_giver_open: bool = false
@@ -1721,6 +1722,7 @@ func _destroy_asteroid(a: Dictionary) -> void:
 		yield_amt = free
 	if yield_amt > 0:
 		cargo["ore"] = int(cargo.get("ore", 0)) + yield_amt
+		_ore_mined_count += yield_amt
 		_msg("Mined %d Ore (cargo %d/%d)." % [yield_amt, _cargo_used(), CARGO_CAPACITY])
 	else:
 		_msg("Asteroid destroyed — cargo hold full, ore lost.")
@@ -3627,6 +3629,16 @@ func _init_missions() -> void:
 			],
 		},
 		{
+			"id": "prospector_run",
+			"title": "Prospector's Run",
+			"desc": "Mine 6 Ore from asteroid fields to feed the station market.",
+			"reward": 900,
+			"state": "active",
+			"objectives": [
+				{"text": "Mine 6 Ore from asteroids", "check": "mine_ore", "arg": 6, "done": false},
+			],
+		},
+		{
 			"id": "fleet_of_three",
 			"title": "Build a Fleet",
 			"desc": "Command 3 manned fleet ships at once.",
@@ -3807,6 +3819,8 @@ func _evaluate_objective(od: Dictionary) -> bool:
 			return _destroyed_hostile_count >= int(od.get("arg", 0))
 		"buy_frigate":
 			return _purchased_frigate and Game.purchased_count > 0
+		"mine_ore":
+			return _ore_mined_count >= int(od.get("arg", 0))
 		"fleet_of_three":
 			return _count_fleet() >= int(od.get("arg", 3))
 		"destroy_count_10":
@@ -3899,6 +3913,7 @@ func _missions_from_save(parsed: Dictionary) -> void:
 					break
 	_destroyed_hostile_count = int(parsed.get("destroyed_hostile_count", _destroyed_hostile_count))
 	_purchased_frigate = bool(parsed.get("purchased_frigate", _purchased_frigate))
+	_ore_mined_count = max(0, int(parsed.get("ore_mined_count", _ore_mined_count)))
 	current_mission_index = int(parsed.get("current_mission_index", _first_active_mission_index()))
 	if current_mission_index < 0 or current_mission_index >= missions.size():
 		current_mission_index = _first_active_mission_index()
@@ -4718,6 +4733,7 @@ func _build_save_dict() -> Dictionary:
 		"current_mission_index": current_mission_index,
 		"destroyed_hostile_count": _destroyed_hostile_count,
 		"purchased_frigate": _purchased_frigate,
+		"ore_mined_count": _ore_mined_count,
 		"bounties": _bounties_to_save(),
 		"hostile_kills_by_class": _hostile_kills_by_class.duplicate(true),
 		"bounty_seq": _bounty_seq,

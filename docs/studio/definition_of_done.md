@@ -240,11 +240,12 @@
   bumped to **v2** (`current_system_index` round-trips; v1 saves load as system 0). Covered by
   `tests/test_jump_system.gd` (`JUMP_SYSTEM_TEST_PASS`).
 - [x] Mission/objective system beyond the single seeded scenario. `main.gd _init_missions`
-      defines five trackable missions (capture Kryos Relay / Ironhold, destroy 5 raiders, buy a
-      frigate, command a 3-ship fleet) with credit rewards; `O` cycles the tracked mission,
+      defines six trackable missions (capture Kryos Relay / Ironhold, destroy 5 raiders, buy a
+      frigate, mine 6 Ore from asteroids, command a 3-ship fleet) with credit rewards; `O` cycles the tracked mission,
       `_check_missions` evaluates and pays them on a throttle, the HUD shows a top-right mission
       panel, and mission state persists through quick save/load (old saves stay compatible).
-      Covered by `tests/test_mission_system.gd` (`MISSION_SYSTEM_TEST_PASS`). Branching/chained
+      Covered by `tests/test_mission_system.gd` (`MISSION_SYSTEM_TEST_PASS`) and the mining objective is covered by
+      `tests/test_mining_mission.gd` (`MINING_MISSION_TEST_PASS`). Branching/chained
       missions (`next` field, locked/unlock flow) and the mission-giver overlay (`U` key, cursor
       navigation, accept/abandon, full mission tree) are shipped and covered by
       `tests/test_mission_giver.gd` (`MISSION_GIVER_TEST_PASS`).
