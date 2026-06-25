@@ -1,0 +1,14 @@
+== capture attempt: driver=vulkan ==
+[capture] active, out_dir=/home/ganomix/projects/voidborne-command/artifacts/screenshots
+[capture] saved /home/ganomix/projects/voidborne-command/artifacts/screenshots/01_space_battle.png
+[capture] saved /home/ganomix/projects/voidborne-command/artifacts/screenshots/02_dogfight.png
+[capture] saved /home/ganomix/projects/voidborne-command/artifacts/screenshots/03_target_lock.png
+[capture] saved /home/ganomix/projects/voidborne-command/artifacts/screenshots/04_crew_deck.png
+[capture] saved /home/ganomix/projects/voidborne-command/artifacts/screenshots/05_fleet.png
+[capture] done, saved 5 screenshots; quitting.
+PASS: wrote 5 screenshot(s) to /home/ganomix/projects/voidborne-command/artifacts/screenshots
+-rw-rw-r-- 1 ganomix ganomix 285953 Jun 25 19:17 /home/ganomix/projects/voidborne-command/artifacts/screenshots/01_space_battle.png
+-rw-rw-r-- 1 ganomix ganomix 302641 Jun 25 19:17 /home/ganomix/projects/voidborne-command/artifacts/screenshots/02_dogfight.png
+-rw-rw-r-- 1 ganomix ganomix 290855 Jun 25 19:17 /home/ganomix/projects/voidborne-command/artifacts/screenshots/03_target_lock.png
+-rw-rw-r-- 1 ganomix ganomix 175810 Jun 25 19:17 /home/ganomix/projects/voidborne-command/artifacts/screenshots/04_crew_deck.png
+-rw-rw-r-- 1 ganomix ganomix 298303 Jun 25 19:17 /home/ganomix/projects/voidborne-command/artifacts/screenshots/05_fleet.png

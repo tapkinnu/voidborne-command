@@ -1,0 +1,7 @@
+per-image mean luma (0-255):
+  01_space_battle.png           97.54
+  02_dogfight.png               91.35
+  03_target_lock.png            90.12
+  04_crew_deck.png              66.73
+  05_fleet.png                  87.51
+PASS: contact sheet written to artifacts/screenshots/contact_sheet.jpg (1304x1112, 5 tiles)
