@@ -74,6 +74,10 @@ var throttle: float = 0.0           # 0..1 commanded throttle
 var boosting: bool = false
 var disabled: bool = false
 var destroyed: bool = false
+# Capture/auto-demo only: when true the ship ignores all incoming damage so the
+# flagship stays alive and framed for the entire screenshot window. Never set in
+# normal gameplay.
+var invulnerable: bool = false
 
 var target: Node3D = null
 var ai_state: String = "engage"
@@ -482,6 +486,11 @@ func take_damage(amount: float, subsystem: String = "") -> Dictionary:
 	# damage is routed into that subsystem's health and 50% to the hull as normal.
 	var result: Dictionary = {"shield_hit": false, "disabled": false, "destroyed": false, "subsystem_hit": false}
 	if destroyed:
+		return result
+	if invulnerable:
+		# Demo/capture flagship: report a shield flash for VFX but absorb everything.
+		result["shield_hit"] = true
+		_shield_flash = 0.35
 		return result
 	var dmg: float = amount
 	if shield > 0.0:

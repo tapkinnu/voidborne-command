@@ -180,7 +180,10 @@ func _draw() -> void:
 		_bar(Vector2(tx + 12, 68), 218, 12, float(tgt.get("shield_frac", 0.0)), Color(0.4, 0.7, 1.0), "SHIELD")
 		# Subsystem strip: ENG / WPN / SHD, colored by status, focused one marked with '>'.
 		_draw_subsystems(tx + 12, 86, tgt)
-		var status: String = "DIST %d" % int(float(tgt.get("dist", 0.0)))
+		# Guard against an unknown/invalid distance (-1.0 or the _pdist 1e9 sentinel):
+		# render a safe placeholder instead of "DIST 1000000000".
+		var dval: float = float(tgt.get("dist", -1.0))
+		var status: String = ("DIST —" if (dval < 0.0 or dval >= 1e8) else "DIST %d" % int(dval))
 		if tgt.has("garrison"):
 			status += "  GAR %d/%d" % [int(tgt.get("garrison", 0)), int(tgt.get("garrison_cap", 0))]
 		if bool(tgt.get("disabled", false)):
