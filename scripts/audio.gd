@@ -42,7 +42,17 @@ var _voice_idx: int = 0
 var _ambient_player: AudioStreamPlayer = null   # dedicated looping drone (never in the voice pool)
 var enabled: bool = true
 
+# True when running under the headless display driver (the GDScript test harness uses
+# --headless). There is no audio output device, so actually starting playbacks only
+# creates AudioServer playback objects that never finish (the ambient drone loops),
+# which surface as leaked AudioStreamWAV/AudioStreamPlaybackWAV instances at exit.
+# Gameplay/capture runs use a real display driver, so audio is unaffected there.
+func _is_headless() -> bool:
+	return DisplayServer.get_name() == "headless"
+
 func _ready() -> void:
+	if _is_headless():
+		enabled = false
 	for key in SOUNDS.keys():
 		_streams[key] = _build_stream(SOUNDS[key])
 	for i in range(10):
@@ -142,3 +152,16 @@ func stop_all() -> void:
 	for p in _voices:
 		if p != null:
 			p.stop()
+
+# Full teardown on tree exit: stop every voice, detach the procedural streams so the
+# AudioServer releases its playbacks, and drop our stream references. Without this the
+# looping ambient playback (and its AudioStreamWAV) survives engine shutdown and shows
+# up as an "ObjectDB instances leaked at exit" warning during headless test runs.
+func _exit_tree() -> void:
+	stop_all()
+	for p in _voices:
+		if is_instance_valid(p):
+			p.stream = null
+	if is_instance_valid(_ambient_player):
+		_ambient_player.stream = null
+	_streams.clear()
