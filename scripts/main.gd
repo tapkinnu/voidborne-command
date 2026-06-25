@@ -1721,7 +1721,7 @@ func _destroy_asteroid(a: Dictionary) -> void:
 		yield_amt = free
 	if yield_amt > 0:
 		cargo["ore"] = int(cargo.get("ore", 0)) + yield_amt
-		_msg("Mined %d Ore (cargo %d/%d)." % [yield_amt, _cargo_used() + yield_amt, CARGO_CAPACITY])
+		_msg("Mined %d Ore (cargo %d/%d)." % [yield_amt, _cargo_used(), CARGO_CAPACITY])
 	else:
 		_msg("Asteroid destroyed — cargo hold full, ore lost.")
 	a["node"].queue_free()
