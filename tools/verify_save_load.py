@@ -70,6 +70,26 @@ def validate(data):
                 return "economy.cargo.%s non-numeric" % ck
             if qv < 0:
                 return "economy.cargo.%s negative" % ck
+    # Bounties are optional (backward compatible: old saves predate the bounty board). When
+    # present `bounties` must be a list, `hostile_kills_by_class` a dict of non-negative ints,
+    # and `bounty_seq` a non-negative number.
+    if "bounties" in data and not isinstance(data["bounties"], list):
+        return "bounties not an array"
+    if "hostile_kills_by_class" in data:
+        kills = data["hostile_kills_by_class"]
+        if not isinstance(kills, dict):
+            return "hostile_kills_by_class not a dictionary"
+        for kk, kv in kills.items():
+            if isinstance(kv, bool) or not isinstance(kv, (int, float)):
+                return "hostile_kills_by_class.%s non-numeric" % kk
+            if kv < 0:
+                return "hostile_kills_by_class.%s negative" % kk
+    if "bounty_seq" in data:
+        seq = data["bounty_seq"]
+        if isinstance(seq, bool) or not isinstance(seq, (int, float)):
+            return "bounty_seq non-numeric"
+        if seq < 0:
+            return "bounty_seq negative"
     ships = data.get("ships")
     if not isinstance(ships, list):
         return "missing ships section"
@@ -291,6 +311,38 @@ def _self_test():
     nonnum_garrison = _minimal_valid()
     nonnum_garrison["ships"][0]["marine_garrison"] = "platoon"
     cases.append(("non-numeric marine garrison", nonnum_garrison, False))
+
+    # Bounty board is optional and backward-compatible.
+    with_bounties = _minimal_valid()
+    with_bounties["bounties"] = [
+        {"id": "bty_0", "target_class": "fighter", "kill_target": 3, "kills_so_far": 1,
+         "reward": 600, "state": "active", "kill_baseline": 0},
+        {"id": "bty_1", "target_class": "capital", "kill_target": 2, "kills_so_far": 0,
+         "reward": 8000, "state": "available", "kill_baseline": 0},
+    ]
+    with_bounties["hostile_kills_by_class"] = {"fighter": 1, "corvette": 0, "frigate": 0, "capital": 0}
+    with_bounties["bounty_seq"] = 2
+    cases.append(("valid bounty board", with_bounties, True))
+
+    # Backward compatibility: a save WITHOUT the bounty fields is still accepted.
+    without_bounties = _minimal_valid()
+    cases.append(("save without bounty board", without_bounties, True))
+
+    bad_bounties = _minimal_valid()
+    bad_bounties["bounties"] = {"not": "a list"}
+    cases.append(("bounties not an array", bad_bounties, False))
+
+    neg_kills = _minimal_valid()
+    neg_kills["hostile_kills_by_class"] = {"fighter": -2}
+    cases.append(("negative hostile kill count", neg_kills, False))
+
+    bad_kills_type = _minimal_valid()
+    bad_kills_type["hostile_kills_by_class"] = ["fighter", 3]
+    cases.append(("hostile_kills_by_class not a dict", bad_kills_type, False))
+
+    neg_seq = _minimal_valid()
+    neg_seq["bounty_seq"] = -1
+    cases.append(("negative bounty_seq", neg_seq, False))
 
     # Round-trip through JSON text to mimic the on-disk path.
     failures = []

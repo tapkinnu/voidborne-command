@@ -218,6 +218,20 @@ const MISSION_CHECK_INTERVAL: float = 0.5
 var mission_giver_open: bool = false
 var mission_giver_cursor: int = 0
 
+# --- Bounty board (repeatable procedural contracts) -------------------------
+# Unlike the static `missions` list, bounties regenerate so the board always has work.
+# Each bounty is a Dictionary: {id, title, desc, target_class, kill_target, kills_so_far,
+# reward, state, kill_baseline}. State flows available -> active -> complete -> (claimed/removed).
+# Progress tracks per-class hostile kills made AFTER acceptance via a kill_baseline snapshot.
+var bounties: Array = []
+const BOUNTY_MAX_ACTIVE: int = 4        # bounties held on the board at once (available + active)
+const BOUNTY_MIN_REWARD: int = 200
+const BOUNTY_CLASSES: Array = ["fighter", "corvette", "frigate", "capital"]
+# Cumulative per-class mobile hostile kills (fighter/corvette/frigate/capital -> int). Never
+# reset on claim; new bounties baseline against the current count. Round-tripped through save.
+var _hostile_kills_by_class: Dictionary = {}
+var _bounty_seq: int = 0                # monotonic sequence for unique bounty ids
+
 # --- Multi-system / inter-system jump layer ---------------------------------
 # Each star system is a self-contained battle layout: stations (neutral hub + capturable
 # hostile relays), the player spawn, and a hostile composition. System 0 reproduces the
@@ -316,10 +330,10 @@ var system_map_open: bool = false
 # station info) into one navigable interface. It freezes flight like `paused` while open and
 # routes every action through the existing _buy_ship/_recruit/_station_service functions.
 var dock_screen_open: bool = false
-var dock_screen_tab: int = 0          # 0=Shipyard, 1=Crew, 2=Repair, 3=Info, 4=Market, 5=Upgrades
+var dock_screen_tab: int = 0          # 0=Shipyard, 1=Crew, 2=Repair, 3=Info, 4=Market, 5=Upgrades, 6=Bounties
 var dock_screen_cursor: int = 0       # row cursor within the current tab
-const DOCK_SCREEN_TAB_COUNT: int = 6
-const DOCK_SCREEN_TAB_NAMES: Array = ["SHIPYARD", "CREW", "REPAIR", "INFO", "MARKET", "UPGRADES"]
+const DOCK_SCREEN_TAB_COUNT: int = 7
+const DOCK_SCREEN_TAB_NAMES: Array = ["SHIPYARD", "CREW", "REPAIR", "INFO", "MARKET", "UPGRADES", "BOUNTIES"]
 # Market sell/buy toggle (transient UI; not saved). The MARKET tab buys at the station's
 # buy price by default; pressing [S] flips it to sell at the (lower) sell price.
 var market_sell_mode: bool = false
@@ -379,6 +393,7 @@ func _ready() -> void:
 	_build_stars()
 	_build_battle()
 	_init_missions()
+	_init_bounties()
 	if auto_demo:
 		_stage_capture_demo()
 	_build_hud()
@@ -856,6 +871,8 @@ func _dock_screen_row_count(tab: int) -> int:
 			return COMMODITIES.size()
 		5:
 			return UPGRADE_CATEGORIES.size()
+		6:
+			return bounties.size()
 	return 1
 
 func _handle_dock_screen_key(keycode: int) -> void:
@@ -893,6 +910,9 @@ func _handle_dock_screen_key(keycode: int) -> void:
 			dock_screen_cursor = 0
 		KEY_6:
 			dock_screen_tab = 5
+			dock_screen_cursor = 0
+		KEY_7:
+			dock_screen_tab = 6
 			dock_screen_cursor = 0
 		KEY_S:
 			# Toggle buy/sell mode (only meaningful on the MARKET tab).
@@ -937,6 +957,8 @@ func _dock_screen_confirm() -> void:
 				_buy_commodity(comm_idx, String(svc_mkt.ship_name))
 		5:  # Upgrades: buy the next level of the highlighted flagship upgrade category.
 			_buy_upgrade(dock_screen_cursor)
+		6:  # Bounties: accept an available contract or claim a completed one.
+			_dock_screen_bounty_action(dock_screen_cursor)
 
 func _build_dock_screen() -> Dictionary:
 	# Per-tab row data for the HUD overlay so hud.gd only renders (logic stays here).
@@ -1013,6 +1035,18 @@ func _build_dock_screen() -> Dictionary:
 			"maxed": lvl >= UPGRADE_MAX_LEVEL,
 		})
 	d["upgrades"] = {"rows": upgrade_rows, "ship": String(player.ship_name) if is_instance_valid(player) else ""}
+	var bounty_rows: Array = []
+	for b in bounties:
+		var bd: Dictionary = b
+		bounty_rows.append({
+			"title": String(bd.get("title", "")),
+			"target_class": String(bd.get("target_class", "")),
+			"kill_target": int(bd.get("kill_target", 0)),
+			"kills_so_far": int(bd.get("kills_so_far", 0)),
+			"reward": int(bd.get("reward", 0)),
+			"state": String(bd.get("state", "available")),
+		})
+	d["bounties"] = {"rows": bounty_rows}
 	return d
 
 # ---------------------------------------------------------------------------
@@ -2681,6 +2715,9 @@ func _destroy_ship(s: Node3D) -> void:
 	if s.faction == "hostile":
 		if s.ship_class != "station":
 			_destroyed_hostile_count += 1   # mission tracking: cumulative mobile hostiles destroyed
+			var kc: String = String(s.ship_class)
+			_hostile_kills_by_class[kc] = int(_hostile_kills_by_class.get(kc, 0)) + 1
+			_check_bounties()   # advance/complete any active bounty for this class
 		var reward: int = _destroy_salvage_reward(s)
 		Game.credits += reward
 		_msg("%s destroyed — salvage +%d cr." % [s.ship_name, reward])
@@ -3714,6 +3751,151 @@ func _missions_from_save(parsed: Dictionary) -> void:
 	objective = _current_objective_text()
 
 # ---------------------------------------------------------------------------
+# BOUNTY BOARD (repeatable procedural contracts)
+# ---------------------------------------------------------------------------
+func _init_bounties() -> void:
+	# Seed the per-class kill counter and fill the board with BOUNTY_MAX_ACTIVE available
+	# bounties. Called from _ready() alongside _init_missions().
+	for cls in BOUNTY_CLASSES:
+		if not _hostile_kills_by_class.has(cls):
+			_hostile_kills_by_class[String(cls)] = 0
+	bounties = []
+	_refill_bounties()
+
+func _generate_bounty() -> Dictionary:
+	# Procedurally build one "available" bounty. Generation is deterministic per system via
+	# an RNG seeded from current_system_index + _bounty_seq (mirrors _commodity_price_mult).
+	var seed_val: int = ((current_system_index + 1) * 7919 ^ (_bounty_seq * 131)) & 0x7FFFFFFF
+	var rng_b: RandomNumberGenerator = RandomNumberGenerator.new()
+	rng_b.seed = seed_val
+	var target_class: String = String(BOUNTY_CLASSES[rng_b.randi_range(0, BOUNTY_CLASSES.size() - 1)])
+	var kill_target: int = rng_b.randi_range(2, 6)
+	var class_value: float = Game.class_stat(target_class, "value")
+	var reward: int = max(BOUNTY_MIN_REWARD, int(class_value * float(kill_target) * 0.25))
+	var info: Dictionary = Game.class_info(target_class)
+	var display_name: String = String(info.get("display", target_class.capitalize()))
+	var bounty: Dictionary = {
+		"id": "bty_%d" % _bounty_seq,
+		"title": "Bounty: %dx %s" % [kill_target, display_name],
+		"desc": "Destroy %d hostile %s-class ships for %d cr." % [kill_target, display_name, reward],
+		"target_class": target_class,
+		"kill_target": kill_target,
+		"kills_so_far": 0,
+		"reward": reward,
+		"state": "available",
+		"kill_baseline": 0,
+	}
+	_bounty_seq += 1
+	return bounty
+
+func _refill_bounties() -> void:
+	# Top the board back up to BOUNTY_MAX_ACTIVE available/active bounties by generating
+	# fresh "available" contracts. Called on init and after a bounty is claimed/removed.
+	while bounties.size() < BOUNTY_MAX_ACTIVE:
+		bounties.append(_generate_bounty())
+
+func _check_bounties() -> void:
+	# Advance each active bounty's kills_so_far (kills made since acceptance = current per-class
+	# count minus the recorded baseline) and mark it complete when it reaches the target.
+	for b in bounties:
+		var bd: Dictionary = b
+		if String(bd.get("state", "")) != "active":
+			continue
+		var tc: String = String(bd.get("target_class", ""))
+		var current: int = int(_hostile_kills_by_class.get(tc, 0))
+		var baseline: int = int(bd.get("kill_baseline", 0))
+		var target_n: int = int(bd.get("kill_target", 0))
+		var progress: int = clampi(current - baseline, 0, target_n)
+		bd["kills_so_far"] = progress
+		if progress >= target_n and target_n > 0:
+			bd["state"] = "complete"
+			_msg("Bounty complete: %s — claim at a station." % String(bd.get("title", "")))
+			if audio: audio.play("ui_buy")
+
+func _dock_screen_bounty_action(cursor: int) -> void:
+	# Accept an available contract or claim a completed one at the highlighted row.
+	if cursor < 0 or cursor >= bounties.size():
+		if audio: audio.play("ui_deny")
+		return
+	var bd: Dictionary = bounties[cursor]
+	var state: String = String(bd.get("state", "available"))
+	if state == "available":
+		# Accept: snapshot the current per-class kill count as the baseline so progress only
+		# counts kills made AFTER acceptance.
+		var tc: String = String(bd.get("target_class", ""))
+		bd["state"] = "active"
+		bd["kill_baseline"] = int(_hostile_kills_by_class.get(tc, 0))
+		bd["kills_so_far"] = 0
+		_refill_bounties()
+		_msg("Bounty accepted: %s" % String(bd.get("title", "")))
+		if audio: audio.play("ui_recruit")
+	elif state == "complete":
+		# Claim: pay the reward, remove the bounty, and refill the board.
+		var reward: int = int(bd.get("reward", 0))
+		Game.credits += reward
+		_msg("Bounty claimed: %s +%d cr." % [String(bd.get("title", "")), reward])
+		if audio: audio.play("ui_buy")
+		bounties.remove_at(cursor)
+		_refill_bounties()
+	else:
+		# Active but not yet complete.
+		if audio: audio.play("ui_deny")
+		_msg("Bounty in progress: %d/%d." % [int(bd.get("kills_so_far", 0)), int(bd.get("kill_target", 0))])
+
+func _bounties_to_save() -> Array:
+	# Serialize each bounty's mutable state; the static parts are rebuilt with the saved values.
+	var out: Array = []
+	for b in bounties:
+		var bd: Dictionary = b
+		out.append({
+			"id": String(bd.get("id", "")),
+			"title": String(bd.get("title", "")),
+			"desc": String(bd.get("desc", "")),
+			"target_class": String(bd.get("target_class", "")),
+			"kill_target": int(bd.get("kill_target", 0)),
+			"kills_so_far": int(bd.get("kills_so_far", 0)),
+			"reward": int(bd.get("reward", 0)),
+			"state": String(bd.get("state", "available")),
+			"kill_baseline": int(bd.get("kill_baseline", 0)),
+		})
+	return out
+
+func _bounties_from_save(parsed: Dictionary) -> void:
+	# Restore the board from a save. Missing/old saves leave the freshly-init'd board intact
+	# (backward compatible — mirrors _missions_from_save).
+	if parsed.has("hostile_kills_by_class"):
+		var saved_kills: Variant = parsed.get("hostile_kills_by_class", {})
+		if typeof(saved_kills) == TYPE_DICTIONARY:
+			for cls in BOUNTY_CLASSES:
+				var k: String = String(cls)
+				_hostile_kills_by_class[k] = int((saved_kills as Dictionary).get(k, 0))
+	if parsed.has("bounty_seq"):
+		_bounty_seq = int(parsed.get("bounty_seq", _bounty_seq))
+	if not parsed.has("bounties"):
+		return
+	var saved: Variant = parsed.get("bounties", [])
+	if typeof(saved) != TYPE_ARRAY:
+		return
+	var restored: Array = []
+	for entry in saved:
+		if typeof(entry) != TYPE_DICTIONARY:
+			continue
+		var ed: Dictionary = entry
+		restored.append({
+			"id": String(ed.get("id", "")),
+			"title": String(ed.get("title", "")),
+			"desc": String(ed.get("desc", "")),
+			"target_class": String(ed.get("target_class", "")),
+			"kill_target": int(ed.get("kill_target", 0)),
+			"kills_so_far": int(ed.get("kills_so_far", 0)),
+			"reward": int(ed.get("reward", 0)),
+			"state": String(ed.get("state", "available")),
+			"kill_baseline": int(ed.get("kill_baseline", 0)),
+		})
+	bounties = restored
+	_refill_bounties()
+
+# ---------------------------------------------------------------------------
 # RESPAWNING HOSTILE THREATS
 # ---------------------------------------------------------------------------
 func _count_live_hostiles() -> int:
@@ -4382,6 +4564,9 @@ func _build_save_dict() -> Dictionary:
 		"current_mission_index": current_mission_index,
 		"destroyed_hostile_count": _destroyed_hostile_count,
 		"purchased_frigate": _purchased_frigate,
+		"bounties": _bounties_to_save(),
+		"hostile_kills_by_class": _hostile_kills_by_class.duplicate(true),
+		"bounty_seq": _bounty_seq,
 	}
 
 func _ship_to_dict(s: Node3D) -> Dictionary:
@@ -4528,6 +4713,26 @@ func _validate_save(parsed: Variant) -> String:
 	# Missions are optional (backward compatible). If present, must be an Array.
 	if d.has("missions") and typeof(d["missions"]) != TYPE_ARRAY:
 		return "missions not an array"
+	# Bounties are optional (backward compatible: old saves predate the bounty board). If
+	# present, must be an Array; the per-class kill counter a Dictionary of non-negative ints.
+	if d.has("bounties") and typeof(d["bounties"]) != TYPE_ARRAY:
+		return "bounties not an array"
+	if d.has("hostile_kills_by_class"):
+		if typeof(d["hostile_kills_by_class"]) != TYPE_DICTIONARY:
+			return "hostile_kills_by_class not a dictionary"
+		var kills_d: Dictionary = d["hostile_kills_by_class"]
+		for kk in kills_d.keys():
+			var kv: Variant = kills_d[kk]
+			if typeof(kv) != TYPE_FLOAT and typeof(kv) != TYPE_INT:
+				return "hostile_kills_by_class.%s non-numeric" % String(kk)
+			if float(kv) < 0.0:
+				return "hostile_kills_by_class.%s negative" % String(kk)
+	if d.has("bounty_seq"):
+		var seq_val: Variant = d["bounty_seq"]
+		if typeof(seq_val) != TYPE_FLOAT and typeof(seq_val) != TYPE_INT:
+			return "bounty_seq non-numeric"
+		if float(seq_val) < 0.0:
+			return "bounty_seq negative"
 	# System index is optional (v1 saves predate it). If present, an int in range.
 	if d.has("current_system_index"):
 		var sys_val: Variant = d["current_system_index"]
@@ -4744,6 +4949,7 @@ func _apply_save(parsed: Dictionary) -> void:
 	# progress on top (backward compatible: old saves leave the freshly-initialised state intact).
 	_apply_system_missions(current_system_index)
 	_missions_from_save(parsed)
+	_bounties_from_save(parsed)
 
 	if is_instance_valid(player):
 		_update_camera(0.001, true)

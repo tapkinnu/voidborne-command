@@ -191,6 +191,24 @@
   per-ship `upgrades` field (no `SAVE_VERSION` bump; old saves load at level 0), validated in
   `_validate_save` and restored before hull/shield/energy in `_ship_from_dict`. Covered by
   `tests/test_ship_upgrades.gd` (`SHIP_UPGRADES_TEST_PASS`).
+- [x] Repeatable procedural **bounty board** for an endless content loop. Shipped: a seventh
+  **BOUNTIES** tab on the dock screen (`J` → `7`) holding up to `BOUNTY_MAX_ACTIVE = 4`
+  procedurally-generated "Destroy N hostile <class> ships for R credits" contracts (`bounties`
+  array). `_generate_bounty()` seeds an RNG from `current_system_index` + a monotonic
+  `_bounty_seq` (mirroring `_commodity_price_mult`) to pick a target class (fighter/corvette/
+  frigate/capital — never station), a `kill_target` in 2..6, and a reward of
+  `max(BOUNTY_MIN_REWARD = 200, class value × kill_target × 0.25)`. A contract flows
+  available → active → complete → claimed: `Enter` on an available row accepts it (snapshotting
+  the current per-class kill count as a `kill_baseline` so only kills made *after* acceptance
+  count), `Enter` on a completed row pays the reward and refills the board. A cumulative
+  per-class kill counter (`_hostile_kills_by_class`) is incremented in `_destroy_ship` alongside
+  the mission counter and never reset on claim, so later bounties baseline against the running
+  total; `_check_bounties()` advances `kills_so_far = current − baseline` (clamped) and marks a
+  bounty complete at target, reusing the `ui_recruit`/`ui_buy`/`ui_deny` SFX with HUD messages.
+  The board round-trips through save/load as backward-compatible optional `bounties`,
+  `hostile_kills_by_class`, and `bounty_seq` fields (no `SAVE_VERSION` bump; old saves load with
+  a freshly-generated board), validated in both `_validate_save` and `tools/verify_save_load.py`.
+  Covered by `tests/test_bounty_board.gd` (`BOUNTY_BOARD_TEST_PASS`).
 - [x] Multiple stations / a small system map with travel and respawning threats.
   Shipped: the world now holds **four stations** spread hundreds of units apart — the neutral
   **Halcyon** hub (still the `station` reference / primary dock) and **Aurora Station**, plus

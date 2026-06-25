@@ -597,7 +597,7 @@ func _draw_dock_screen(vp: Vector2) -> void:
 
 	var tab: int = int(data.get("dock_screen_tab", 0))
 	var cursor: int = int(data.get("dock_screen_cursor", 0))
-	var tab_names: Array = ["SHIPYARD", "CREW", "REPAIR", "INFO", "MARKET", "UPGRADES"]
+	var tab_names: Array = ["SHIPYARD", "CREW", "REPAIR", "INFO", "MARKET", "UPGRADES", "BOUNTIES"]
 	var bright: Color = Color(1.0, 0.95, 0.5)
 	var dim: Color = Color(0.6, 0.78, 0.9)
 
@@ -610,7 +610,7 @@ func _draw_dock_screen(vp: Vector2) -> void:
 		var marker: String = "►" if active else " "
 		var label: String = "%s%s" % [marker, String(tab_names[i])]
 		_txt(Vector2(tab_x, tab_y), label, tcol, 14)
-		tab_x += 88.0
+		tab_x += 74.0
 	draw_line(Vector2(x + 14, tab_y + 10.0), Vector2(x + w - 14, tab_y + 10.0), C_LINE.darkened(0.3), 1.0)
 
 	var dock: Dictionary = data.get("dock_screen", {})
@@ -629,12 +629,16 @@ func _draw_dock_screen(vp: Vector2) -> void:
 			_dock_draw_market(dock, bx, by, cursor, bright, dim)
 		5:
 			_dock_draw_upgrades(dock, bx, by, cursor, bright, dim)
+		6:
+			_dock_draw_bounties(dock, bx, by, cursor, bright, dim)
 
 	var hint: String = "←→ tabs  ↑↓ select  Enter confirm  J/Esc close"
 	if tab == 4:
 		hint = "←→ tabs  ↑↓ select  Enter buy/sell  S toggle mode  J/Esc close"
 	elif tab == 5:
 		hint = "←→ tabs  ↑↓ select  Enter upgrade  J/Esc close"
+	elif tab == 6:
+		hint = "←→ tabs  ↑↓ select  Enter accept/claim  J/Esc close"
 	_txt(Vector2(x + 16, y + h - 18.0), hint, Color(0.62, 0.82, 0.94, 0.85), 12)
 
 func _dock_draw_shipyard(dock: Dictionary, bx: float, by: float, bright: Color, dim: Color) -> void:
@@ -751,6 +755,42 @@ func _dock_draw_upgrades(dock: Dictionary, bx: float, by: float, cursor: int, br
 			cost_str, eff,
 		]
 		_txt(Vector2(bx, by), line, rcol, 13)
+		by += 22.0
+
+func _dock_draw_bounties(dock: Dictionary, bx: float, by: float, cursor: int, bright: Color, dim: Color) -> void:
+	var bounties: Dictionary = dock.get("bounties", {})
+	var rows: Array = bounties.get("rows", [])
+	_txt(Vector2(bx, by), "Bounty Board — accept a contract, then claim when complete:", dim, 12)
+	by += 24.0
+	if rows.is_empty():
+		_txt(Vector2(bx, by), "No bounties posted.", dim, 12)
+		return
+	for i in range(rows.size()):
+		var row: Dictionary = rows[i]
+		var selected: bool = i == cursor
+		var marker: String = "►" if selected else " "
+		var state: String = String(row.get("state", "available"))
+		var tag: String = "[AVAIL]"
+		var tag_col: Color = Color(0.5, 0.85, 0.6)
+		match state:
+			"active":
+				tag = "[ACTIVE]"
+				tag_col = Color(1.0, 0.85, 0.4)
+			"complete":
+				tag = "[DONE]"
+				tag_col = Color(0.45, 1.0, 0.55)
+			"claimed":
+				tag = "[CLAIMD]"
+				tag_col = Color(0.6, 0.6, 0.6)
+		var rcol: Color = bright if selected else dim
+		# Tint the state tag, then the rest of the line in the row color.
+		_txt(Vector2(bx, by), "%s " % marker, rcol, 13)
+		_txt(Vector2(bx + 16.0, by), tag, tag_col, 13)
+		_txt(Vector2(bx + 84.0, by), "%-22s %d/%d   %dcr" % [
+			String(row.get("title", "")),
+			int(row.get("kills_so_far", 0)), int(row.get("kill_target", 0)),
+			int(row.get("reward", 0)),
+		], rcol, 13)
 		by += 22.0
 
 func _draw_pause_overlay(vp: Vector2) -> void:

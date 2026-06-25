@@ -61,14 +61,14 @@ func _initialize() -> void:
 	if int(main.get("UPGRADE_MAX_LEVEL")) != 5:
 		_fail("UPGRADE_MAX_LEVEL should be 5, got %d" % int(main.get("UPGRADE_MAX_LEVEL")))
 
-	# --- 3. DOCK_SCREEN_TAB_COUNT is 6, names end with UPGRADES ---------------
-	if int(main.get("DOCK_SCREEN_TAB_COUNT")) != 6:
-		_fail("DOCK_SCREEN_TAB_COUNT should be 6, got %d" % int(main.get("DOCK_SCREEN_TAB_COUNT")))
+	# --- 3. DOCK_SCREEN_TAB_COUNT is 7 (bounties added); UPGRADES at index 5 ---
+	if int(main.get("DOCK_SCREEN_TAB_COUNT")) != 7:
+		_fail("DOCK_SCREEN_TAB_COUNT should be 7, got %d" % int(main.get("DOCK_SCREEN_TAB_COUNT")))
 	var tab_names: Array = main.get("DOCK_SCREEN_TAB_NAMES")
-	if tab_names.size() != 6:
-		_fail("DOCK_SCREEN_TAB_NAMES should have 6 entries, got %d" % tab_names.size())
+	if tab_names.size() != 7:
+		_fail("DOCK_SCREEN_TAB_NAMES should have 7 entries, got %d" % tab_names.size())
 	elif String(tab_names[5]) != "UPGRADES":
-		_fail("last dock tab should be UPGRADES, got %s" % String(tab_names[5]))
+		_fail("dock tab 5 should be UPGRADES, got %s" % String(tab_names[5]))
 
 	# --- 4. _dock_screen_row_count(5) returns 5 ------------------------------
 	if int(main.call("_dock_screen_row_count", 5)) != 5:
