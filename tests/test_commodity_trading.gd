@@ -191,7 +191,63 @@ func _initialize() -> void:
 		if bool(main.get("market_sell_mode")):
 			_fail("KEY_S again should toggle sell mode off")
 
-	# --- 16. _update_hud while dock screen open includes market data ----------
+	# --- 16. KEY_M bulk-buys max affordable units on the market tab -----------
+	if not failed:
+		var player_node: Node3D = main.get("player")
+		var station_node: Node3D = main.get("station")
+		if not is_instance_valid(player_node) or not is_instance_valid(station_node):
+			_fail("player/station missing for bulk trade test")
+		else:
+			player_node.global_position = station_node.global_position + Vector3(0, 0, 20)
+			var st_name: String = String(station_node.ship_name)
+			var bulk_prices: Dictionary = main.call("_commodity_prices", st_name, int(main.get("current_system_index")))
+			var ore_id4: String = String((commodities[0] as Dictionary).get("id", ""))
+			var ore_price: int = int((bulk_prices.get(ore_id4, {}) as Dictionary).get("buy", 0))
+			main.set("cargo", {})
+			Game.credits = ore_price * 3 + 1
+			main.set("dock_screen_open", true)
+			main.set("dock_screen_tab", 4)
+			main.set("dock_screen_cursor", 0)
+			main.set("market_sell_mode", false)
+			main.call("_handle_dock_screen_key", KEY_M)
+			var cargo_bulk: Dictionary = main.get("cargo")
+			if int(cargo_bulk.get(ore_id4, 0)) != 3:
+				_fail("KEY_M bulk buy should buy exactly 3 affordable ore units, got %s" % str(cargo_bulk))
+			if Game.credits != 1:
+				_fail("KEY_M bulk buy should leave 1 credit, got %d" % Game.credits)
+
+	# --- 17. KEY_M bulk-buy respects remaining cargo capacity -----------------
+	if not failed:
+		var alloy_id: String = String((commodities[1] as Dictionary).get("id", ""))
+		var ore_id5: String = String((commodities[0] as Dictionary).get("id", ""))
+		main.set("cargo", {ore_id5: 49})
+		Game.credits = 100000
+		main.set("dock_screen_cursor", 1)
+		main.set("market_sell_mode", false)
+		main.call("_handle_dock_screen_key", KEY_M)
+		var cargo_cap: Dictionary = main.get("cargo")
+		if int(cargo_cap.get(alloy_id, 0)) != 1:
+			_fail("KEY_M bulk buy should fill only 1 remaining cargo slot, got %s" % str(cargo_cap))
+		if int(main.call("_cargo_used")) != 50:
+			_fail("KEY_M bulk buy should stop at cargo capacity 50")
+
+	# --- 18. KEY_M bulk-sells all held units in SELL mode ---------------------
+	if not failed:
+		var ore_id6: String = String((commodities[0] as Dictionary).get("id", ""))
+		var sell_prices: Dictionary = main.call("_commodity_prices", String((main.get("station") as Node3D).ship_name), int(main.get("current_system_index")))
+		var ore_sell: int = int((sell_prices.get(ore_id6, {}) as Dictionary).get("sell", 0))
+		main.set("cargo", {ore_id6: 4})
+		Game.credits = 10
+		main.set("dock_screen_cursor", 0)
+		main.set("market_sell_mode", true)
+		main.call("_handle_dock_screen_key", KEY_M)
+		var cargo_sell_bulk: Dictionary = main.get("cargo")
+		if cargo_sell_bulk.has(ore_id6):
+			_fail("KEY_M bulk sell should sell all held ore, got %s" % str(cargo_sell_bulk))
+		if Game.credits != 10 + ore_sell * 4:
+			_fail("KEY_M bulk sell should pay for all 4 units, got credits %d" % Game.credits)
+
+	# --- 19. _update_hud while dock screen open includes market data ----------
 	if not failed:
 		main.set("dock_screen_open", true)
 		main.set("dock_screen_tab", 4)

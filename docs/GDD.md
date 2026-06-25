@@ -102,6 +102,12 @@ to follow (`F`); followers trail the captain in a loose formation.
 At the station: recruit crew (120) / marines (180), cycle the shipyard offer with `G`,
 and buy the selected class with `Y` (fighter 800, corvette 2200, frigate 5200,
 capital 16000). Purchased and captured ships need `crew_needed` crew to be **manned**.
+The `J` station-market overlay centralizes shipyard / crew / repair / info / market tabs;
+its commodity tab trades Ore, Alloy, Energy Cells, Med-Supplies, and Tech Parts with
+per-station/per-system deterministic prices and a 50-unit cargo hold. `Enter` trades one
+unit, `S` toggles BUY/SELL, and `M` bulk-trades the selected row (max affordable/cargo in
+BUY mode, all held units in SELL mode) so hauling routes are playable without repeated
+single-unit keypresses.
 Once no unmanned owned ships need crew, `F` opens the **fleet order menu**; number keys set
 the standing order (all routed through `_set_fleet_order()`):
 
