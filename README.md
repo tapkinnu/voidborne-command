@@ -113,7 +113,8 @@ it is rebuilt by scanning the slot files. While the menu is open, flight/AI/comb
 ### Command & economy (fly near the STATION)
 | Key | Action |
 | --- | --- |
-| `J` | Open the **station market/dock screen** (multi-tab: Shipyard / Crew / Repair / Info / Market) — only at a friendly station |
+| `J` | Open the **station market/dock screen** (multi-tab: Shipyard / Crew / Repair / Info / Market / Upgrades) — only at a friendly station |
+| `6` | While the dock screen is open: jump to the **UPGRADES** tab (upgrade the flagship's weapons/shields/hull/engines/reactor for credits) |
 | `R` | Recruit crew (120 cr) |
 | `N` | Recruit marine (180 cr) |
 | `G` | Cycle the station shipyard offer (fighter / corvette / frigate / capital) |
@@ -128,9 +129,11 @@ it is rebuilt by scanning the slot files. While the menu is open, flight/AI/comb
 
 Repair/refit works at the neutral **Halcyon** hub *and* at any station you have captured. Hostile stations refuse service until taken.
 
-Press `J` near a friendly station to open the **station market** — a multi-tab screen consolidating shipyard purchases, crew/marine recruitment, fleet repair/refit, station info, and **commodity trading**. Navigate tabs with `←`/`→` (or `Tab`), rows with `↑`/`↓`, and confirm with `Enter` (jump straight to a tab with `1`–`5`). The screen freezes flight while open (the underlying single-key actions still work too).
+Press `J` near a friendly station to open the **station market** — a multi-tab screen consolidating shipyard purchases, crew/marine recruitment, fleet repair/refit, station info, commodity trading, and flagship upgrades. Navigate tabs with `←`/`→` (or `Tab`), rows with `↑`/`↓`, and confirm with `Enter` (jump straight to a tab with `1`–`6`). The screen freezes flight while open.
 
-The **Market** tab (`5`) trades five commodities — **Ore, Alloy, Energy Cells, Med-Supplies, Tech Parts** — with deterministic per-station/per-system prices (each station has its own buy/sell quotes, so the same goods are cheap at one station and dear at another). `Enter` buys one unit of the highlighted commodity; press `S` to flip into **SELL** mode and `Enter` to sell. The flagship's cargo hold carries up to **50 units** total (shown as `Cargo: X/50` in the top-left HUD panel and on the Market tab). Buy low, haul it across the sector or jump to another system, and sell high — a classic arbitrage loop. Cargo persists through save/load.
+The **Upgrades** tab (`6`) buys permanent stat upgrades for your flagship across five categories — **Weapons, Shields, Hull, Engines, Reactor** — each with up to **5 levels**. Every level adds a multiplicative bonus to the matching base stat (weapons also fire faster, hull/shield/reactor grow the live pool by the gained capacity), and each successive level costs more (`cost = base_cost × (current_level + 1)`). Upgrades apply only to the flagship and persist through save/load.
+
+The **Market** tab (`5`) trades five commodities — **Ore, Alloy, Energy Cells, Med-Supplies, Tech Parts** — with deterministic per-station/per-system prices (each station has its own buy/sell quotes, so the same goods are cheap at one station and dear at another). `Enter` buys one unit of the highlighted commodity; press `S` to flip into **SELL** mode and `Enter` to sell. Press `M` on the Market tab to trade the **maximum** possible amount of the highlighted commodity: in BUY mode it fills as much of the hold as your credits allow, and in SELL mode it unloads every held unit of that commodity. The flagship's cargo hold carries up to **50 units** total (shown as `Cargo: X/50` in the top-left HUD panel and on the Market tab). Buy low, haul it across the sector or jump to another system, and sell high — a classic arbitrage loop. Cargo persists through save/load.
 
 ### Crew deck (interior mode)
 | Key | Action |

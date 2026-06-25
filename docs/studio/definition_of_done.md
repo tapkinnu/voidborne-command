@@ -157,12 +157,29 @@
   buy so a single-station round trip never profits), making arbitrage between stations/systems
   the loop. The flagship carries a fixed `CARGO_CAPACITY = 50`-unit hold (`cargo` dict);
   `_buy_commodity`/`_sell_commodity` move credits ↔ cargo one unit at a time with full-hold and
-  insufficient-credit guards, reusing the `ui_buy`/`ui_deny` SFX and emitting HUD messages.
-  `Enter` trades the highlighted row; `S` toggles BUY/SELL mode (shown in the tab header). The
+  insufficient-credit guards, while the Market tab's `M` bulk-trade command buys as many selected
+  units as credits/cargo permit or sells all held selected units in SELL mode. Both paths reuse
+  the `ui_buy`/`ui_deny` SFX and emit HUD messages.
+  `Enter` trades one unit of the highlighted row; `S` toggles BUY/SELL mode and `M` trades
+  the maximum possible amount (shown in the tab header). The
   economy HUD panel shows live `Cargo: X/Y`. Cargo round-trips through save/load as a
   backward-compatible optional `economy.cargo` field (no `SAVE_VERSION` bump; old saves load with
   an empty hold), validated in both `_validate_save` and `tools/verify_save_load.py`. Covered by
   `tests/test_commodity_trading.gd` (`COMMODITY_TRADING_TEST_PASS`).
+- [x] Flagship ship-upgrade system with station-bought permanent stat upgrades. Shipped: a sixth
+  **UPGRADES** tab on the dock screen (`J` → `6`) offering five categories (Weapons, Shields, Hull,
+  Engines, Reactor; `const UPGRADE_CATEGORIES`), each buyable 0..`UPGRADE_MAX_LEVEL = 5` times only
+  at a friendly station and only for the player flagship. Each level adds a multiplicative bonus to
+  the matching base stat via `Ship.apply_upgrades()` (weapons: +15 % damage and −5 % fire interval
+  per level; engines: +8 % speed/accel/turn; hull/shield/reactor: +12 %/+15 %/+12 % max with the
+  live pool grown by the gained capacity), recomputed from the class defaults and re-stacking crew
+  bonuses. Cost scales as `base_cost × (current_level + 1)` so each step is dearer; `_buy_upgrade`
+  guards station range, valid flagship, max level, and credits, and reuses the `ui_buy`/`ui_deny`
+  SFX with HUD messages. Levels live on the ship (`upg_weapons`/`upg_shields`/`upg_hull`/
+  `upg_engines`/`upg_reactor`) and round-trip through save/load as a backward-compatible optional
+  per-ship `upgrades` field (no `SAVE_VERSION` bump; old saves load at level 0), validated in
+  `_validate_save` and restored before hull/shield/energy in `_ship_from_dict`. Covered by
+  `tests/test_ship_upgrades.gd` (`SHIP_UPGRADES_TEST_PASS`).
 - [x] Multiple stations / a small system map with travel and respawning threats.
   Shipped: the world now holds **four stations** spread hundreds of units apart — the neutral
   **Halcyon** hub (still the `station` reference / primary dock) and **Aurora Station**, plus

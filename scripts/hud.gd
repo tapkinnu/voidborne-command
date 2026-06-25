@@ -593,7 +593,7 @@ func _draw_dock_screen(vp: Vector2) -> void:
 
 	var tab: int = int(data.get("dock_screen_tab", 0))
 	var cursor: int = int(data.get("dock_screen_cursor", 0))
-	var tab_names: Array = ["SHIPYARD", "CREW", "REPAIR", "INFO", "MARKET"]
+	var tab_names: Array = ["SHIPYARD", "CREW", "REPAIR", "INFO", "MARKET", "UPGRADES"]
 	var bright: Color = Color(1.0, 0.95, 0.5)
 	var dim: Color = Color(0.6, 0.78, 0.9)
 
@@ -606,7 +606,7 @@ func _draw_dock_screen(vp: Vector2) -> void:
 		var marker: String = "►" if active else " "
 		var label: String = "%s%s" % [marker, String(tab_names[i])]
 		_txt(Vector2(tab_x, tab_y), label, tcol, 14)
-		tab_x += 104.0
+		tab_x += 88.0
 	draw_line(Vector2(x + 14, tab_y + 10.0), Vector2(x + w - 14, tab_y + 10.0), C_LINE.darkened(0.3), 1.0)
 
 	var dock: Dictionary = data.get("dock_screen", {})
@@ -623,10 +623,14 @@ func _draw_dock_screen(vp: Vector2) -> void:
 			_dock_draw_info(dock, bx, by, dim)
 		4:
 			_dock_draw_market(dock, bx, by, cursor, bright, dim)
+		5:
+			_dock_draw_upgrades(dock, bx, by, cursor, bright, dim)
 
 	var hint: String = "←→ tabs  ↑↓ select  Enter confirm  J/Esc close"
 	if tab == 4:
 		hint = "←→ tabs  ↑↓ select  Enter buy/sell  S toggle mode  J/Esc close"
+	elif tab == 5:
+		hint = "←→ tabs  ↑↓ select  Enter upgrade  J/Esc close"
 	_txt(Vector2(x + 16, y + h - 18.0), hint, Color(0.62, 0.82, 0.94, 0.85), 12)
 
 func _dock_draw_shipyard(dock: Dictionary, bx: float, by: float, bright: Color, dim: Color) -> void:
@@ -700,7 +704,7 @@ func _dock_draw_market(dock: Dictionary, bx: float, by: float, cursor: int, brig
 	var mode_col: Color = Color(1.0, 0.6, 0.4) if sell_mode else Color(0.55, 1.0, 0.72)
 	_txt(Vector2(bx, by), "Mode: ", dim, 12)
 	_txt(Vector2(bx + 44.0, by), mode_str, mode_col, 13)
-	_txt(Vector2(bx + 96.0, by), "(Enter trades 1 unit, S toggles BUY/SELL)", dim, 12)
+	_txt(Vector2(bx + 96.0, by), "(Enter trades 1, M max, S toggles BUY/SELL)", dim, 12)
 	by += 22.0
 	_txt(Vector2(bx, by), "%s%-13s %8s %8s %6s" % ["  ", "Commodity", "Buy", "Sell", "Held"], dim, 12)
 	by += 20.0
@@ -719,6 +723,31 @@ func _dock_draw_market(dock: Dictionary, bx: float, by: float, cursor: int, brig
 	var used: int = int(market.get("cargo_used", 0))
 	var cap: int = int(market.get("cargo_capacity", 0))
 	_txt(Vector2(bx, by), "Cargo: %d / %d" % [used, cap], Color(1.0, 0.85, 0.4), 13)
+
+func _dock_draw_upgrades(dock: Dictionary, bx: float, by: float, cursor: int, bright: Color, dim: Color) -> void:
+	var upg: Dictionary = dock.get("upgrades", {})
+	var rows: Array = upg.get("rows", [])
+	var ship_name: String = String(upg.get("ship", ""))
+	var maxed_col: Color = Color(0.45, 1.0, 0.55)
+	_txt(Vector2(bx, by), "Flagship upgrades — %s" % ship_name, dim, 12)
+	by += 24.0
+	# Static per-category effect descriptors (row order matches UPGRADE_CATEGORIES).
+	var effects: Array = ["+15%/lvl damage", "+15% per level", "+12% per level", "+8% speed/turn", "+12% energy"]
+	for i in range(rows.size()):
+		var row: Dictionary = rows[i]
+		var selected: bool = i == cursor
+		var maxed: bool = bool(row.get("maxed", false))
+		var rcol: Color = maxed_col if maxed else (bright if selected else dim)
+		var marker: String = "►" if selected else " "
+		var cost_str: String = "MAX" if maxed else "%d cr" % int(row.get("cost", 0))
+		var eff: String = String(effects[i]) if i < effects.size() else ""
+		var line: String = "%s %-9s Lvl %d/%d  %-8s %s" % [
+			marker, String(row.get("name", "")),
+			int(row.get("level", 0)), int(row.get("max_level", 5)),
+			cost_str, eff,
+		]
+		_txt(Vector2(bx, by), line, rcol, 13)
+		by += 22.0
 
 func _draw_pause_overlay(vp: Vector2) -> void:
 	# Centered banner shown while paused and the settings menu is closed.

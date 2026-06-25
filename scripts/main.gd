@@ -316,13 +316,27 @@ var system_map_open: bool = false
 # station info) into one navigable interface. It freezes flight like `paused` while open and
 # routes every action through the existing _buy_ship/_recruit/_station_service functions.
 var dock_screen_open: bool = false
-var dock_screen_tab: int = 0          # 0=Shipyard, 1=Crew, 2=Repair, 3=Info, 4=Market
+var dock_screen_tab: int = 0          # 0=Shipyard, 1=Crew, 2=Repair, 3=Info, 4=Market, 5=Upgrades
 var dock_screen_cursor: int = 0       # row cursor within the current tab
-const DOCK_SCREEN_TAB_COUNT: int = 5
-const DOCK_SCREEN_TAB_NAMES: Array = ["SHIPYARD", "CREW", "REPAIR", "INFO", "MARKET"]
+const DOCK_SCREEN_TAB_COUNT: int = 6
+const DOCK_SCREEN_TAB_NAMES: Array = ["SHIPYARD", "CREW", "REPAIR", "INFO", "MARKET", "UPGRADES"]
 # Market sell/buy toggle (transient UI; not saved). The MARKET tab buys at the station's
 # buy price by default; pressing [S] flips it to sell at the (lower) sell price.
 var market_sell_mode: bool = false
+
+# --- Ship upgrade system ----------------------------------------------------
+# Five permanent flagship upgrade categories, each buyable 0..UPGRADE_MAX_LEVEL times at a
+# friendly station. Each purchased level adds a multiplicative bonus to the matching base
+# stat (applied via Ship.apply_upgrades). Cost scales with the current level so each step is
+# more expensive: cost = base_cost * (current_level + 1). Only the player flagship upgrades.
+const UPGRADE_CATEGORIES: Array = [
+	{"id": "weapons",  "name": "Weapons",  "stat": "weapon",   "bonus_per_level": 0.15, "base_cost": 800},
+	{"id": "shields",  "name": "Shields",  "stat": "shield",   "bonus_per_level": 0.15, "base_cost": 700},
+	{"id": "hull",     "name": "Hull",     "stat": "hull",     "bonus_per_level": 0.12, "base_cost": 600},
+	{"id": "engines",  "name": "Engines",  "stat": "engine",   "bonus_per_level": 0.08, "base_cost": 900},
+	{"id": "reactor",  "name": "Reactor",  "stat": "reactor",  "bonus_per_level": 0.12, "base_cost": 500},
+]
+const UPGRADE_MAX_LEVEL: int = 5
 
 # --- Commodity trading economy ----------------------------------------------
 # Five tradeable goods with a credit anchor (base_price). Per-station buy/sell prices are
@@ -840,6 +854,8 @@ func _dock_screen_row_count(tab: int) -> int:
 			return 1
 		4:
 			return COMMODITIES.size()
+		5:
+			return UPGRADE_CATEGORIES.size()
 	return 1
 
 func _handle_dock_screen_key(keycode: int) -> void:
@@ -875,12 +891,20 @@ func _handle_dock_screen_key(keycode: int) -> void:
 		KEY_5:
 			dock_screen_tab = 4
 			dock_screen_cursor = 0
+		KEY_6:
+			dock_screen_tab = 5
+			dock_screen_cursor = 0
 		KEY_S:
 			# Toggle buy/sell mode (only meaningful on the MARKET tab).
 			if dock_screen_tab == 4:
 				market_sell_mode = not market_sell_mode
 				_msg("Market mode: %s" % ("SELL" if market_sell_mode else "BUY"))
 				if audio: audio.play("ui_recruit")
+		KEY_M:
+			# Bulk trade on the MARKET tab: buy as many as credits/cargo allow, or sell
+			# every held unit of the highlighted commodity in SELL mode.
+			if dock_screen_tab == 4:
+				_dock_screen_trade_max()
 		KEY_ESCAPE, KEY_J:
 			_toggle_dock_screen()
 
@@ -911,6 +935,8 @@ func _dock_screen_confirm() -> void:
 				_sell_commodity(comm_idx, String(svc_mkt.ship_name))
 			else:
 				_buy_commodity(comm_idx, String(svc_mkt.ship_name))
+		5:  # Upgrades: buy the next level of the highlighted flagship upgrade category.
+			_buy_upgrade(dock_screen_cursor)
 
 func _build_dock_screen() -> Dictionary:
 	# Per-tab row data for the HUD overlay so hud.gd only renders (logic stays here).
@@ -974,7 +1000,87 @@ func _build_dock_screen() -> Dictionary:
 		"cargo_used": _cargo_used(),
 		"cargo_capacity": CARGO_CAPACITY,
 	}
+	var upgrade_rows: Array = []
+	for i in range(UPGRADE_CATEGORIES.size()):
+		var cat: Dictionary = UPGRADE_CATEGORIES[i]
+		var lvl: int = _player_upgrade_level(String(cat.get("id", "")))
+		var cost: int = int(cat.get("base_cost", 0)) * (lvl + 1)
+		upgrade_rows.append({
+			"name": String(cat.get("name", "")),
+			"level": lvl,
+			"max_level": UPGRADE_MAX_LEVEL,
+			"cost": cost,
+			"maxed": lvl >= UPGRADE_MAX_LEVEL,
+		})
+	d["upgrades"] = {"rows": upgrade_rows, "ship": String(player.ship_name) if is_instance_valid(player) else ""}
 	return d
+
+# ---------------------------------------------------------------------------
+# SHIP UPGRADE SYSTEM
+# ---------------------------------------------------------------------------
+func _player_upgrade_level(cat_id: String) -> int:
+	# Current installed level for a category, read off the flagship. 0 when no valid player.
+	if not is_instance_valid(player):
+		return 0
+	match cat_id:
+		"weapons":
+			return int(player.upg_weapons)
+		"shields":
+			return int(player.upg_shields)
+		"hull":
+			return int(player.upg_hull)
+		"engines":
+			return int(player.upg_engines)
+		"reactor":
+			return int(player.upg_reactor)
+	return 0
+
+func _set_player_upgrade_level(cat_id: String, lvl: int) -> void:
+	if not is_instance_valid(player):
+		return
+	match cat_id:
+		"weapons":
+			player.upg_weapons = lvl
+		"shields":
+			player.upg_shields = lvl
+		"hull":
+			player.upg_hull = lvl
+		"engines":
+			player.upg_engines = lvl
+		"reactor":
+			player.upg_reactor = lvl
+
+func _buy_upgrade(category_index: int) -> void:
+	# Buy the next level of a flagship upgrade category. Gated to a friendly station in range
+	# and the player flagship only. Cost = base_cost * (current_level + 1).
+	if not is_instance_valid(player):
+		if audio: audio.play("ui_deny")
+		return
+	if category_index < 0 or category_index >= UPGRADE_CATEGORIES.size():
+		if audio: audio.play("ui_deny")
+		return
+	if _service_station() == null:
+		_msg("No friendly station in range — dock to install upgrades.")
+		if audio: audio.play("ui_deny")
+		return
+	var cat: Dictionary = UPGRADE_CATEGORIES[category_index]
+	var cat_id: String = String(cat.get("id", ""))
+	var cat_name: String = String(cat.get("name", cat_id))
+	var lvl: int = _player_upgrade_level(cat_id)
+	if lvl >= UPGRADE_MAX_LEVEL:
+		_msg("%s upgrade already at max level (%d/%d)." % [cat_name, UPGRADE_MAX_LEVEL, UPGRADE_MAX_LEVEL])
+		if audio: audio.play("ui_deny")
+		return
+	var cost: int = int(cat.get("base_cost", 0)) * (lvl + 1)
+	if Game.credits < cost:
+		_msg("Not enough credits to upgrade %s (%d cr)." % [cat_name, cost])
+		if audio: audio.play("ui_deny")
+		return
+	Game.credits -= cost
+	_set_player_upgrade_level(cat_id, lvl + 1)
+	player.apply_upgrades()
+	_msg("Upgrade installed: %s Lvl %d/%d (-%d cr)." % [cat_name, lvl + 1, UPGRADE_MAX_LEVEL, cost])
+	if audio: audio.play("ui_buy")
 
 # ---------------------------------------------------------------------------
 # COMMODITY TRADING ECONOMY
@@ -1010,6 +1116,20 @@ func _cargo_used() -> int:
 
 func _cargo_remaining() -> int:
 	return CARGO_CAPACITY - _cargo_used()
+
+func _dock_screen_trade_max() -> void:
+	# MARKET-tab helper for the M key. Keeps all station/range validation identical to
+	# single-unit Enter trades, then executes the bulk buy/sell path for the selected row.
+	var svc_mkt: Node3D = _service_station()
+	if svc_mkt == null:
+		_msg("No friendly station in range — cannot trade.")
+		if audio: audio.play("ui_deny")
+		return
+	var comm_idx: int = clampi(dock_screen_cursor, 0, COMMODITIES.size() - 1)
+	if market_sell_mode:
+		_sell_commodity_bulk(comm_idx, String(svc_mkt.ship_name))
+	else:
+		_buy_commodity_bulk(comm_idx, String(svc_mkt.ship_name))
 
 func _buy_commodity(comm_index: int, station_name: String) -> void:
 	if comm_index < 0 or comm_index >= COMMODITIES.size():
@@ -1054,6 +1174,56 @@ func _sell_commodity(comm_index: int, station_name: String) -> void:
 	else:
 		cargo[cid] = held
 	_msg("Sold 1 %s for %d cr (cargo %d/%d)." % [cname, sell_price, _cargo_used(), CARGO_CAPACITY])
+	if audio: audio.play("ui_buy")
+
+func _buy_commodity_bulk(comm_index: int, station_name: String) -> void:
+	if comm_index < 0 or comm_index >= COMMODITIES.size():
+		return
+	var comm: Dictionary = COMMODITIES[comm_index]
+	var cid: String = String(comm.get("id", ""))
+	var cname: String = String(comm.get("name", cid))
+	var prices: Dictionary = _commodity_prices(station_name, current_system_index)
+	var pr: Dictionary = prices.get(cid, {})
+	var buy_price: int = int(pr.get("buy", 0))
+	if buy_price <= 0:
+		_msg("No market quote for %s." % cname)
+		if audio: audio.play("ui_deny")
+		return
+	var remaining: int = _cargo_remaining()
+	if remaining <= 0:
+		_msg("Cargo hold full (%d/%d)." % [_cargo_used(), CARGO_CAPACITY])
+		if audio: audio.play("ui_deny")
+		return
+	var affordable: int = int(floor(float(Game.credits) / float(buy_price)))
+	if affordable <= 0:
+		_msg("Not enough credits for %s (%d cr)." % [cname, buy_price])
+		if audio: audio.play("ui_deny")
+		return
+	var qty: int = remaining if remaining < affordable else affordable
+	var cost: int = buy_price * qty
+	Game.credits -= cost
+	cargo[cid] = int(cargo.get(cid, 0)) + qty
+	_msg("Bought %d %s for %d cr (cargo %d/%d)." % [qty, cname, cost, _cargo_used(), CARGO_CAPACITY])
+	if audio: audio.play("ui_buy")
+
+func _sell_commodity_bulk(comm_index: int, station_name: String) -> void:
+	if comm_index < 0 or comm_index >= COMMODITIES.size():
+		return
+	var comm: Dictionary = COMMODITIES[comm_index]
+	var cid: String = String(comm.get("id", ""))
+	var cname: String = String(comm.get("name", cid))
+	var held: int = int(cargo.get(cid, 0))
+	if held <= 0:
+		_msg("No %s in cargo to sell." % cname)
+		if audio: audio.play("ui_deny")
+		return
+	var prices: Dictionary = _commodity_prices(station_name, current_system_index)
+	var pr: Dictionary = prices.get(cid, {})
+	var sell_price: int = int(pr.get("sell", 0))
+	var revenue: int = sell_price * held
+	Game.credits += revenue
+	cargo.erase(cid)
+	_msg("Sold %d %s for %d cr (cargo %d/%d)." % [held, cname, revenue, _cargo_used(), CARGO_CAPACITY])
 	if audio: audio.play("ui_buy")
 
 # ---------------------------------------------------------------------------
@@ -4215,6 +4385,15 @@ func _ship_to_dict(s: Node3D) -> Dictionary:
 	# Independent turret state is only saved for ships that actually have turrets.
 	if s.has_turrets():
 		d["turrets"] = s.turret_state_to_array()
+	# Permanent upgrades are optional/backward-compatible: only written when any level is set.
+	if s.upg_weapons > 0 or s.upg_shields > 0 or s.upg_hull > 0 or s.upg_engines > 0 or s.upg_reactor > 0:
+		d["upgrades"] = {
+			"weapons": s.upg_weapons,
+			"shields": s.upg_shields,
+			"hull": s.upg_hull,
+			"engines": s.upg_engines,
+			"reactor": s.upg_reactor,
+		}
 	return d
 
 func _quick_load() -> bool:
@@ -4364,6 +4543,18 @@ func _validate_save(parsed: Variant) -> String:
 		# Turret state is optional (backward compatible). If present, must be an Array.
 		if sd.has("turrets") and typeof(sd["turrets"]) != TYPE_ARRAY:
 			return "ship %s turrets not an array" % String(sd.get("ship_name", "?"))
+		# Upgrades are optional (backward compatible). If present, a dict of 0..5 levels.
+		if sd.has("upgrades"):
+			if typeof(sd["upgrades"]) != TYPE_DICTIONARY:
+				return "ship %s upgrades not a dictionary" % String(sd.get("ship_name", "?"))
+			var upg_d: Dictionary = sd["upgrades"]
+			for uk in ["weapons", "shields", "hull", "engines", "reactor"]:
+				if upg_d.has(uk):
+					var uv: Variant = upg_d[uk]
+					if typeof(uv) != TYPE_FLOAT and typeof(uv) != TYPE_INT:
+						return "ship %s upgrades.%s non-numeric" % [String(sd.get("ship_name", "?")), uk]
+					if float(uv) < 0.0 or float(uv) > 5.0:
+						return "ship %s upgrades.%s out of range" % [String(sd.get("ship_name", "?")), uk]
 		if bool(sd.get("is_player", false)):
 			player_count += 1
 	if player_count == 0:
@@ -4620,6 +4811,17 @@ func _ship_from_dict(entry: Variant, used_names: Dictionary) -> Node3D:
 	s.crew_assigned = int(sd.get("crew_assigned", 0))
 	# Marine garrison: absent in pre-garrison saves, so default to 0 for backward compat.
 	s.marine_garrison = max(0, int(sd.get("marine_garrison", 0)))
+	# Upgrade levels: optional/backward-compatible. Restored and applied BEFORE hull/shield/
+	# energy so the upgraded base_* stats are in place; the saved max_* and pool values
+	# (recorded at the upgraded scale) then overwrite the recomputed maxes exactly.
+	if sd.has("upgrades") and typeof(sd["upgrades"]) == TYPE_DICTIONARY:
+		var upg_s: Dictionary = sd["upgrades"]
+		s.upg_weapons = clampi(int(upg_s.get("weapons", 0)), 0, 5)
+		s.upg_shields = clampi(int(upg_s.get("shields", 0)), 0, 5)
+		s.upg_hull = clampi(int(upg_s.get("hull", 0)), 0, 5)
+		s.upg_engines = clampi(int(upg_s.get("engines", 0)), 0, 5)
+		s.upg_reactor = clampi(int(upg_s.get("reactor", 0)), 0, 5)
+		s.apply_upgrades()
 	s.max_hull = float(sd.get("max_hull", s.max_hull))
 	s.hull = float(sd.get("hull", s.hull))
 	s.max_shield = float(sd.get("max_shield", s.max_shield))

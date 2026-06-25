@@ -37,6 +37,15 @@ var base_fire_rate: float = 0.2
 var weapon_range: float = 220.0
 var weapon_cd: float = 0.0
 
+# Permanent station-bought upgrades (0..UPGRADE_MAX_LEVEL). Each level adds a
+# multiplicative bonus to the corresponding base stat. Stored on the ship so they
+# survive save/load and apply to the flagship. Re-applied via apply_upgrades().
+var upg_weapons: int = 0
+var upg_shields: int = 0
+var upg_hull: int = 0
+var upg_engines: int = 0
+var upg_reactor: int = 0
+
 # Subsystem targeting. Each subsystem is a 0..1 health fraction. They never regen on
 # their own (only station refit restores them). A subsystem at 0 is OFFLINE; below
 # SUB_DAMAGED_FRAC it is DAMAGED; otherwise OK. The player can focus-fire one subsystem
@@ -150,6 +159,50 @@ func apply_crew_bonuses(crew_list: Array) -> void:
 	accel = base_accel * (1.0 + engineer_bonus)
 	weapon_dmg = base_weapon_dmg * (1.0 + gunner_bonus)
 	fire_rate = max(0.1, base_fire_rate * (1.0 - gunner_rate_bonus))
+
+func apply_upgrades() -> void:
+	# Recompute every base_* stat (and max_hull/shield/energy) from the class defaults scaled
+	# by the permanent upgrade levels, then re-apply crew bonuses on top. Class defaults are
+	# read fresh from Game.class_info() each call (the table is the source of truth). Current
+	# hull/shield/energy grow by the delta so installing an upgrade adds usable capacity.
+	var info: Dictionary = Game.class_info(ship_class)
+	var class_wdmg: float = float(info.get("weapon_dmg", 7.0))
+	var class_fire_rate: float = float(info.get("fire_rate", 0.2))
+	var class_speed: float = float(info.get("max_speed", 40.0))
+	var class_accel: float = float(info.get("accel", 20.0))
+	var class_turn: float = float(info.get("turn_rate", 2.0))
+	var class_hull: float = float(info.get("hull", 60.0))
+	var class_shield: float = float(info.get("shield", 30.0))
+	var class_energy: float = float(info.get("energy", 80.0))
+
+	# Weapons: more damage and a faster fire interval (lower cooldown is better, floor 0.1).
+	base_weapon_dmg = class_wdmg * (1.0 + float(upg_weapons) * 0.15)
+	base_fire_rate = max(0.1, class_fire_rate * (1.0 - float(upg_weapons) * 0.05))
+
+	# Engines: speed, acceleration and turn rate all scale together.
+	base_max_speed = class_speed * (1.0 + float(upg_engines) * 0.08)
+	base_accel = class_accel * (1.0 + float(upg_engines) * 0.08)
+	base_turn_rate = class_turn * (1.0 + float(upg_engines) * 0.08)
+
+	# Hull/shield/reactor: grow the max and add the delta to the live pool.
+	var new_max_hull: float = class_hull * (1.0 + float(upg_hull) * 0.12)
+	hull += new_max_hull - max_hull
+	max_hull = new_max_hull
+	var new_max_shield: float = class_shield * (1.0 + float(upg_shields) * 0.15)
+	shield += new_max_shield - max_shield
+	max_shield = new_max_shield
+	var new_max_energy: float = class_energy * (1.0 + float(upg_reactor) * 0.12)
+	energy += new_max_energy - max_energy
+	max_energy = new_max_energy
+
+	# Re-apply crew bonuses so they stack on top of the upgraded base stats. The
+	# assigned_crew meta may be absent (e.g. during load) — guard against null/non-Array.
+	var crew_list: Array = []
+	if has_meta("assigned_crew"):
+		var crew_meta: Variant = get_meta("assigned_crew")
+		if typeof(crew_meta) == TYPE_ARRAY:
+			crew_list = crew_meta
+	apply_crew_bonuses(crew_list)
 
 func radius() -> float:
 	return float(Game.class_info(ship_class).get("scale", 1.0)) * 3.0
