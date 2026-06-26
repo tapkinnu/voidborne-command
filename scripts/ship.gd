@@ -480,6 +480,86 @@ func _build_mesh() -> void:
 	_shield_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	_shield_mesh.material_override = _shield_mat
 	add_child(_shield_mesh)
+	_try_load_meshy_visual()
+
+func _try_load_meshy_visual() -> void:
+	# Opt-in swap: replace the procedural Hull visual with the Meshy GLB for
+	# the 5 hard-scoped hero classes. All other entities (frigate, neutral
+	# station, friendly fighter, etc.) keep their procedural visual.
+	# Falls back silently to the procedural build if the GLB is missing or
+	# Godot fails to import it (e.g. before meshy_generate.py has finished).
+	if not Game.MESHY_VISUAL_UPGRADE_ENABLED:
+		return
+	var key: String = "%s|%s" % [ship_class, faction]
+	var basename: Variant = Game.MESHY_SHIP_GLB.get(key, null)
+	if basename == null:
+		return
+	var path: String = "res://assets/models/meshy_visual_upgrade/%s.repacked.glb" % String(basename)
+	var packed: PackedScene = load(path)
+	if packed == null:
+		push_warning("[meshy] %s: GLB missing or failed to import — keeping procedural visual" % path)
+		return
+	var glb_root: Node = packed.instantiate()
+	if glb_root == null:
+		push_warning("[meshy] %s: GLB instantiate() returned null — keeping procedural" % path)
+		return
+	# The visual child we want is the first MeshInstance3D in the GLB tree;
+	# for rigged GLBs it lives under a Skeleton3D. Pull it up so its
+	# transforms (scale, rotation) compose directly with the ship node and
+	# we don't double-render the Skeleton3D's empty child meshes.
+	var mi: MeshInstance3D = _detach_first_mesh_instance(glb_root)
+	glb_root.queue_free()
+	if mi == null:
+		push_warning("[meshy] %s: GLB has no MeshInstance3D child — keeping procedural" % path)
+		return
+	mi.name = "%sMeshy" % String(basename).capitalize()
+	mi.scale = Vector3.ONE  # Meshy ships are ~1m-class; matches procedural scale
+	# Reparent the mesh out of glb_root BEFORE freeing the root, otherwise
+	# queue_free cascades and our visual gets destroyed with it.
+	if mi.get_parent() != null:
+		mi.get_parent().remove_child(mi)
+	glb_root.queue_free()
+	add_child(mi)
+	# Bring the Meshy visual in front of the procedural Hull so it renders
+	# on top. The procedural mesh remains attached (for raycast hitboxes
+	# that depend on the original Node3D layout) but is hidden from view.
+	_hide_procedural_visual()
+
+func _detach_first_mesh_instance(node: Node) -> MeshInstance3D:
+	# Walk the instantiated GLB scene, find the first MeshInstance3D with a
+	# mesh, and reparent it to its current top-level root. Returns null if
+	# no suitable mesh was found. Reparenting (instead of re-instantiating)
+	# preserves the MeshInstance3D's world transform when added to the ship.
+	for c in node.get_children():
+		if c is MeshInstance3D and (c as MeshInstance3D).mesh != null:
+			var found: MeshInstance3D = c
+			# Capture the local transform relative to its parent so we can
+			# apply it after reparenting to the ship node.
+			var xform: Transform3D = found.transform
+			found.transform = Transform3D.IDENTITY
+			node.remove_child(found)
+			node.add_child(found)
+			found.transform = xform
+			return found
+		var found2: MeshInstance3D = _detach_first_mesh_instance(c)
+		if found2 != null:
+			return found2
+	return null
+
+func _hide_procedural_visual() -> void:
+	# Hide every procedural VisualInstance3D so only the Meshy mesh renders.
+	# Walks both the Hull child (primitives built by _build_mesh) and any
+	# siblings added directly to the entity itself (e.g. _shield_mesh,
+	# turret meshes, engine exhaust cones). The collision shapes are not
+	# VisualInstance3D so they stay live for raycasts and hitboxes.
+	var hull: Node = get_node_or_null("Hull")
+	if hull != null:
+		for c in hull.get_children():
+			if c is VisualInstance3D:
+				(c as VisualInstance3D).visible = false
+	for c in get_children():
+		if c is VisualInstance3D:
+			(c as VisualInstance3D).visible = false
 
 func take_damage(amount: float, subsystem: String = "") -> Dictionary:
 	# Returns event info. When a subsystem is targeted, 50% of the post-shield hull

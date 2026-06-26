@@ -105,6 +105,70 @@ func _build_humanoid(col: Color) -> Node3D:
 	h.add_child(pack)
 	return h
 
+func _try_load_meshy_captain() -> void:
+	# Opt-in swap: replace the procedural captain humanoid with the rigged
+	# Meshy crew-captain GLB. Falls back silently if the GLB is missing or
+	# Godot fails to import it. The procedural captain stays in the tree
+	# (hidden) so existing references to `captain` stay valid for the deck
+	# walk / follow / interact paths.
+	if not Game.MESHY_VISUAL_UPGRADE_ENABLED:
+		return
+	var basename: String = String(Game.MESHY_CAPTAIN_GLB)
+	var path: String = "res://assets/models/meshy_visual_upgrade/%s.repacked.glb" % basename
+	var packed: PackedScene = load(path)
+	if packed == null:
+		push_warning("[meshy] %s: GLB missing or failed to import — keeping procedural captain" % path)
+		return
+	var glb_root: Node = packed.instantiate()
+	if glb_root == null:
+		push_warning("[meshy] %s: GLB instantiate() returned null — keeping procedural captain" % path)
+		return
+	var rig: Node3D = Node3D.new()
+	rig.name = "CrewCaptainMeshy"
+	# Meshy rigged humanoids come out in centimeters (1.8m soldier → 176 units),
+	# scale down by 100x so the 1.8m-tall captain fits in the room.
+	rig.scale = Vector3(0.01, 0.01, 0.01)
+	var stack: Array = [glb_root]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		if n.get_parent() != null:
+			n.get_parent().remove_child(n)
+		rig.add_child(n)
+		n.owner = rig
+		for c in n.get_children():
+			stack.push_back(c)
+	# Match the procedural captain's world transform.
+	rig.global_transform = captain.global_transform
+	# Hide the procedural captain children so only the Meshy mesh is visible.
+	for c in captain.get_children():
+		if c is VisualInstance3D:
+			(c as VisualInstance3D).visible = false
+	add_child(rig)
+	# Now that `rig` is in the scene tree, retarget the AnimationPlayer so
+	# the merged clip's bone tracks resolve. The merged clip's tracks point
+	# at "<merge_root>/Armature/Skeleton3D:bone" but the scene's root is
+	# "CrewCaptainMeshy". Setting `ap.root_node = rig.get_path_to(Armature)`
+	# makes "Armature/Skeleton3D:bone" the resolved path, which matches.
+	var ap: AnimationPlayer = rig.get_node_or_null("AnimationPlayer")
+	if ap != null:
+		var lib: PackedStringArray = ap.get_animation_list()
+		var chosen: String = ""
+		var preferred: Array[String] = ["Idle", "Walking_Woman", "clip0"]
+		for name in preferred:
+			if lib.has(name):
+				chosen = name
+				break
+		if chosen == "" and lib.size() > 0:
+			chosen = lib[0]
+		if chosen != "":
+			var anim: Animation = ap.get_animation(chosen)
+			if anim != null:
+				anim.loop_mode = Animation.LOOP_LINEAR
+			var arm_node: Node = rig.get_node_or_null("Armature")
+			if arm_node != null:
+				ap.root_node = rig.get_path_to(arm_node)
+			ap.play(chosen)
+
 func build(p_rng: RandomNumberGenerator) -> void:
 	rng = p_rng
 	_room_container = Node3D.new()
@@ -117,6 +181,7 @@ func build(p_rng: RandomNumberGenerator) -> void:
 	captain.scale = Vector3(1.35, 1.35, 1.35)
 	captain.position = Vector3(float(ROOM_CENTERS[0]), 0, 6)
 	add_child(captain)
+	_try_load_meshy_captain()
 	var beacon: MeshInstance3D = MeshInstance3D.new()
 	var bm: SphereMesh = SphereMesh.new()
 	bm.radius = 0.12
