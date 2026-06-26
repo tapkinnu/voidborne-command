@@ -10,9 +10,14 @@ extends SceneTree
 
 const ROOT := "res://assets/models/meshy_visual_upgrade/"
 
-# Required asset basenames. Crew captain is rigged; the others are static.
-const STATIC_ASSETS := ["player_corvette", "capital_ship", "friendly_station", "hostile_fighter"]
-const RIGGED_ASSETS := ["crew_captain"]
+# Required asset basenames. Crew captain, crew_humanoid, marine_humanoid are rigged;
+# the rest are static.
+const STATIC_ASSETS := [
+	"player_corvette", "capital_ship", "friendly_station", "hostile_fighter",
+	"fighter_player", "fighter_ally", "frigate_any",
+	"station_neutral", "station_hostile",
+]
+const RIGGED_ASSETS := ["crew_captain", "crew_humanoid", "marine_humanoid"]
 const ALL_ASSETS := STATIC_ASSETS + RIGGED_ASSETS
 
 # Hard ceilings — keep these loose enough to allow future regen without false fails.

@@ -33,3 +33,7 @@ Thumbs.db
 *_normal.jpg
 *_texture_0.png
 *_texture_0.jpg
+
+# Raw and intermediate Meshy GLBs. Only the .repacked.glb files are committed.
+assets/models/meshy_visual_upgrade/*.glb
+!assets/models/meshy_visual_upgrade/*.repacked.glb

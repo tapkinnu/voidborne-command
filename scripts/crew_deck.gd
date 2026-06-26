@@ -105,28 +105,24 @@ func _build_humanoid(col: Color) -> Node3D:
 	h.add_child(pack)
 	return h
 
-func _try_load_meshy_captain() -> void:
-	# Opt-in swap: replace the procedural captain humanoid with the rigged
-	# Meshy crew-captain GLB. Falls back silently if the GLB is missing or
-	# Godot fails to import it. The procedural captain stays in the tree
-	# (hidden) so existing references to `captain` stay valid for the deck
-	# walk / follow / interact paths.
+func _try_load_meshy_humanoid(procedural_node: Node3D, glb_basename: String, node_name: String) -> void:
+	# Generic helper: load a rigged Meshy humanoid GLB, reparent it under the
+	# procedural node (which stays in the tree for its Label3D and metadata),
+	# hide the procedural VisualInstance3D children, and play Idle animation.
 	if not Game.MESHY_VISUAL_UPGRADE_ENABLED:
 		return
-	var basename: String = String(Game.MESHY_CAPTAIN_GLB)
-	var path: String = "res://assets/models/meshy_visual_upgrade/%s.repacked.glb" % basename
+	var path: String = "res://assets/models/meshy_visual_upgrade/%s.repacked.glb" % glb_basename
 	var packed: PackedScene = load(path)
 	if packed == null:
-		push_warning("[meshy] %s: GLB missing or failed to import — keeping procedural captain" % path)
+		push_warning("[meshy] %s: GLB missing or failed to import — keeping procedural" % path)
 		return
 	var glb_root: Node = packed.instantiate()
 	if glb_root == null:
-		push_warning("[meshy] %s: GLB instantiate() returned null — keeping procedural captain" % path)
+		push_warning("[meshy] %s: GLB instantiate() returned null — keeping procedural" % path)
 		return
 	var rig: Node3D = Node3D.new()
-	rig.name = "CrewCaptainMeshy"
-	# Meshy rigged humanoids come out in centimeters (1.8m soldier → 176 units),
-	# scale down by 100x so the 1.8m-tall captain fits in the room.
+	rig.name = node_name
+	# Meshy rigged humanoids come out in centimeters; scale down by 100x.
 	rig.scale = Vector3(0.01, 0.01, 0.01)
 	var stack: Array = [glb_root]
 	while not stack.is_empty():
@@ -137,18 +133,14 @@ func _try_load_meshy_captain() -> void:
 		n.owner = rig
 		for c in n.get_children():
 			stack.push_back(c)
-	# Match the procedural captain's world transform.
-	rig.global_transform = captain.global_transform
-	# Hide the procedural captain children so only the Meshy mesh is visible.
-	for c in captain.get_children():
+	# Match the procedural node's world transform.
+	rig.global_transform = procedural_node.global_transform
+	# Hide the procedural visual children so only the Meshy mesh is visible.
+	for c in procedural_node.get_children():
 		if c is VisualInstance3D:
 			(c as VisualInstance3D).visible = false
-	add_child(rig)
-	# Now that `rig` is in the scene tree, retarget the AnimationPlayer so
-	# the merged clip's bone tracks resolve. The merged clip's tracks point
-	# at "<merge_root>/Armature/Skeleton3D:bone" but the scene's root is
-	# "CrewCaptainMeshy". Setting `ap.root_node = rig.get_path_to(Armature)`
-	# makes "Armature/Skeleton3D:bone" the resolved path, which matches.
+	procedural_node.add_child(rig)
+	# Retarget AnimationPlayer for the new scene root.
 	var ap: AnimationPlayer = rig.get_node_or_null("AnimationPlayer")
 	if ap != null:
 		var lib: PackedStringArray = ap.get_animation_list()
@@ -168,6 +160,9 @@ func _try_load_meshy_captain() -> void:
 			if arm_node != null:
 				ap.root_node = rig.get_path_to(arm_node)
 			ap.play(chosen)
+
+func _try_load_meshy_captain() -> void:
+	_try_load_meshy_humanoid(captain, String(Game.MESHY_CAPTAIN_GLB), "CrewCaptainMeshy")
 
 func build(p_rng: RandomNumberGenerator) -> void:
 	rng = p_rng
@@ -468,6 +463,7 @@ func _spawn_crew_detail(crew_dict: Dictionary, idx: int, total: int) -> void:
 	label.position = Vector3(0, 2.4, 0)
 	label.modulate = Color(1, 1, 1)
 	hh.add_child(label)
+	_try_load_meshy_humanoid(hh, String(Game.MESHY_CREW_GLB), "CrewMeshy")
 	crew_nodes.append({
 		"node": hh,
 		"name": String(crew_dict.get("name", "Crew")),
@@ -506,6 +502,7 @@ func _spawn_crew_marine_named(marine_dict: Dictionary, idx: int, total: int) -> 
 		3: tint = Color(1, 0.3, 0.2)
 	label.modulate = tint
 	hh.add_child(label)
+	_try_load_meshy_humanoid(hh, String(Game.MESHY_MARINE_GLB), "MarineMeshy")
 	crew_nodes.append({
 		"node": hh,
 		"name": mname,

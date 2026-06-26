@@ -43,9 +43,10 @@ ENV_FILE_CANDIDATES = [
     Path.home() / ".config" / "hermes" / ".env",
 ]
 
-# Exactly the 5 assets the task hard-scope defines. Prompt text is verbatim
-# from the task body — do NOT rewrite (the prompts are part of the spec).
+# 12 assets total: 5 original + 7 new for full procedural elimination.
+# Prompt text is verbatim from the task body — do NOT rewrite.
 ASSETS: list[dict] = [
+    # --- Original 5 hero assets (commit 7ed687f) ---
     {
         "id": "player_corvette",
         "klass": "corvette",
@@ -95,6 +96,84 @@ ASSETS: list[dict] = [
             "humanoid space captain, utility flight suit, rank insignia, "
             "standing in T-pose with arms outstretched horizontally, legs slightly "
             "apart, game character, clean topology"
+        ),
+    },
+    # --- 7 new assets for full procedural elimination ---
+    {
+        "id": "fighter_player",
+        "klass": "fighter",
+        "team": "player",
+        "rigged": False,
+        "prompt": (
+            "low-poly sci-fi single-seat space fighter, green hull with white accents, "
+            "sleek aerodynamic design, twin engine nozzles, wing-mounted cannons, "
+            "cockpit canopy, hard surface, game asset, clean topology"
+        ),
+    },
+    {
+        "id": "fighter_ally",
+        "klass": "fighter",
+        "team": "ally",
+        "rigged": False,
+        "prompt": (
+            "low-poly sci-fi single-seat space fighter, blue hull with white accents, "
+            "sleek aerodynamic design, twin engine nozzles, wing-mounted cannons, "
+            "cockpit canopy, hard surface, game asset, clean topology"
+        ),
+    },
+    {
+        "id": "frigate_any",
+        "klass": "frigate",
+        "team": "any",
+        "rigged": False,
+        "prompt": (
+            "low-poly sci-fi medium warship, grey hull with dark panel lines, "
+            "boxy design with forward-swept wings, multiple turret mounts, "
+            "large engine section, bridge tower, hard surface, game asset, clean topology"
+        ),
+    },
+    {
+        "id": "station_neutral",
+        "klass": "station",
+        "team": "neutral",
+        "rigged": False,
+        "prompt": (
+            "low-poly sci-fi space station, ring-and-spoke design with central hub, "
+            "grey metallic hull, docking ports on the ring, antenna arrays, "
+            "solar panels, hard surface, game asset, clean topology"
+        ),
+    },
+    {
+        "id": "station_hostile",
+        "klass": "station",
+        "team": "hostile",
+        "rigged": False,
+        "prompt": (
+            "low-poly sci-fi space station, ring-and-spoke design with central hub, "
+            "dark grey and red hull, menacing angular design, weapon emplacements, "
+            "docking ports, hard surface, game asset, clean topology"
+        ),
+    },
+    {
+        "id": "crew_humanoid",
+        "klass": "humanoid",
+        "team": "any",
+        "rigged": True,
+        "prompt": (
+            "humanoid sci-fi crew member, wearing a blue utility jumpsuit with tool belt, "
+            "boots, gloves, short hair, standing in T-pose with arms outstretched horizontally, "
+            "legs slightly apart, game character, clean topology"
+        ),
+    },
+    {
+        "id": "marine_humanoid",
+        "klass": "humanoid",
+        "team": "any",
+        "rigged": True,
+        "prompt": (
+            "humanoid sci-fi marine soldier, wearing orange and red combat armor with helmet, "
+            "boots, gloves, weapon holster, standing in T-pose with arms outstretched horizontally, "
+            "legs slightly apart, game character, clean topology"
         ),
     },
 ]
@@ -708,12 +787,13 @@ def process_asset(asset: dict, state: dict) -> dict:
     else:
         log(f"  remesh-glb already present, skipping download")
 
-    repacked_path = ASSETS_DIR / f"{asset_id}.repacked.glb"
-    if not repacked_path.exists():
-        log("  repack (rigged path uses base only — merge step follows):")
-        repack_glb(raw_path, repacked_path)
-    else:
-        log(f"  repacked already present, skipping")
+    if not asset["rigged"]:
+        repacked_path = ASSETS_DIR / f"{asset_id}.repacked.glb"
+        if not repacked_path.exists():
+            log("  repack:")
+            repack_glb(raw_path, repacked_path)
+        else:
+            log(f"  repacked already present, skipping")
 
     if asset["rigged"]:
         rig_id = stage_rig(state, asset, remesh_id)
@@ -813,7 +893,7 @@ def parse_only(spec: str | None) -> list[int] | None:
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--only", help="Comma-separated asset indices (1..5). E.g. '1,5' or '1-3'.")
+    p.add_argument("--only", help="Comma-separated asset indices (1..12). E.g. '1,5' or '6-12'.")
     p.add_argument("--download-only", action="store_true",
                    help="Skip Meshy API calls; only re-download / re-pack from state file.")
     args = p.parse_args()
