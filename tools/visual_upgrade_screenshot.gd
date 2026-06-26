@@ -87,11 +87,11 @@ func _initialize() -> void:
 	var player_pos: Vector3 = main.player.global_position if main.player != null else Vector3.ZERO
 	# Capital to the right and slightly behind the player, so the long hull
 	# reads in profile.
-	_add_extra_ship(main, "capital", "friendly", "HeroCapital", player_pos + Vector3(28.0, -2.0, 14.0))
+	_add_extra_ship(main, "capital", "hostile", "HeroCapital", player_pos + Vector3(28.0, -2.0, 14.0))
 	# Station behind the capital, larger and further so it doesn't dominate.
-	_add_extra_ship(main, "station", "friendly", "HeroStation", player_pos + Vector3(8.0, 0.0, 60.0))
+	_add_extra_ship(main, "station", "neutral", "HeroStation", player_pos + Vector3(8.0, 0.0, 60.0))
 	# Hostile fighter off the player's port side, smaller and angular.
-	_add_extra_ship(main, "fighter", "enemy", "HeroFighter", player_pos + Vector3(-22.0, 3.0, -10.0))
+	_add_extra_ship(main, "fighter", "hostile", "HeroFighter", player_pos + Vector3(-22.0, 3.0, -10.0))
 	# Captain standing in front of the player corvette so the rigged GLB is
 	# visible at the chase camera's eye height.
 	_add_meshy_captain_preview(main, player_pos + Vector3(0.0, 0.0, -16.0))

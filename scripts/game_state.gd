@@ -144,14 +144,14 @@ const MESHY_VISUAL_UPGRADE_ENABLED: bool = true
 # is safe because Godot class and faction identifiers never contain pipes.
 const MESHY_SHIP_GLB: Dictionary = {
 	"corvette|player": "player_corvette",
-	"capital|any": "capital_ship",
-	"station|friendly": "friendly_station",
-	"fighter|enemy": "hostile_fighter",
+	"capital|hostile": "capital_ship",
+	"fighter|hostile": "hostile_fighter",
 	"fighter|player": "fighter_player",
-	"fighter|ally": "fighter_ally",
-	"frigate|any": "frigate_any",
+	"frigate|hostile": "frigate_any",
+	"corvette|hostile": "player_corvette",   # reuse player corvette model for hostile corvettes
 	"station|neutral": "station_neutral",
 	"station|hostile": "station_hostile",
+	"station|player": "friendly_station",    # captured stations -> friendly station model
 }
 
 const MESHY_CAPTAIN_GLB: String = "crew_captain"
