@@ -513,12 +513,18 @@ func _try_load_meshy_visual() -> void:
 		push_warning("[meshy] %s: GLB has no MeshInstance3D child — keeping procedural" % path)
 		return
 	mi.name = "%sMeshy" % String(basename).capitalize()
-	mi.scale = Vector3.ONE  # Meshy ships are ~1m-class; matches procedural scale
 	# Reparent the mesh out of glb_root BEFORE freeing the root, otherwise
 	# queue_free cascades and our visual gets destroyed with it.
 	if mi.get_parent() != null:
 		mi.get_parent().remove_child(mi)
 	glb_root.queue_free()
+	# Scale + center the Meshy mesh to match the procedural model's footprint
+	# for this class. Meshy GLBs are all normalized to ~1.9 units regardless
+	# of class, but procedural models range from ~3 units (fighter) up to
+	# ~120 units (station, scale 10). Without this the Meshy station renders
+	# as a tiny speck where a huge station should be. Must run while the
+	# procedural Hull is still visible so we can measure it.
+	_fit_meshy_to_hull(mi)
 	# Hide procedural meshes BEFORE adding the Meshy mesh, or the Meshy
 	# mesh (also a VisualInstance3D) would get caught in the hide sweep
 	# over get_children() and be made invisible too. The procedural mesh
@@ -526,6 +532,70 @@ func _try_load_meshy_visual() -> void:
 	# Node3D layout) but is hidden from view.
 	_hide_procedural_visual()
 	add_child(mi)
+
+func _fit_meshy_to_hull(mi: MeshInstance3D) -> void:
+	# Resize the detached Meshy mesh so its horizontal footprint matches the
+	# procedural Hull it is replacing, then recenter it on the Hull centroid.
+	# Purely visual — gameplay radius()/collision are unaffected.
+	var hull: Node3D = get_node_or_null("Hull")
+	if hull == null or mi.mesh == null:
+		mi.scale = Vector3.ONE
+		return
+	var hull_aabb: AABB = _subtree_local_aabb(hull)
+	var mesh_aabb: AABB = mi.mesh.get_aabb()
+	var hs: float = hull.scale.x  # Hull uses uniform class scale
+	# Procedural size in ship-space = local AABB * Hull scale.
+	var target: Vector3 = hull_aabb.size * hs
+	var target_span: float = max(target.x, target.z)
+	var mesh_span: float = max(mesh_aabb.size.x, mesh_aabb.size.z)
+	if target_span <= 0.0 or mesh_span <= 0.0:
+		mi.scale = Vector3.ONE
+		return
+	var f: float = target_span / mesh_span
+	mi.scale = Vector3(f, f, f)
+	# Align the mesh centroid with the Hull centroid (both in ship space).
+	var hull_center: Vector3 = (hull_aabb.position + hull_aabb.size * 0.5) * hs
+	var mesh_center: Vector3 = (mesh_aabb.position + mesh_aabb.size * 0.5) * f
+	mi.position = hull_center - mesh_center
+
+func _subtree_local_aabb(root: Node3D) -> AABB:
+	# Union of every descendant MeshInstance3D AABB, expressed in root's local
+	# space (root's own transform excluded). Handles nested Node3D layers such
+	# as the station's spoke nodes.
+	var acc: Dictionary = {"aabb": AABB(), "has": false}
+	_accum_aabb(root, Transform3D.IDENTITY, acc)
+	return acc["aabb"] if acc["has"] else AABB()
+
+func _accum_aabb(node: Node, xform: Transform3D, acc: Dictionary) -> void:
+	for c in node.get_children():
+		var cx: Transform3D = xform
+		if c is Node3D:
+			cx = xform * (c as Node3D).transform
+		if c is MeshInstance3D and (c as MeshInstance3D).mesh != null:
+			var t: AABB = _xform_aabb(cx, (c as MeshInstance3D).mesh.get_aabb())
+			if not acc["has"]:
+				acc["aabb"] = t
+				acc["has"] = true
+			else:
+				acc["aabb"] = (acc["aabb"] as AABB).merge(t)
+		_accum_aabb(c, cx, acc)
+
+func _xform_aabb(t: Transform3D, a: AABB) -> AABB:
+	# Transform an AABB by a Transform3D and return the enclosing axis-aligned box.
+	var corners: Array = [
+		a.position,
+		a.position + Vector3(a.size.x, 0, 0),
+		a.position + Vector3(0, a.size.y, 0),
+		a.position + Vector3(0, 0, a.size.z),
+		a.position + Vector3(a.size.x, a.size.y, 0),
+		a.position + Vector3(a.size.x, 0, a.size.z),
+		a.position + Vector3(0, a.size.y, a.size.z),
+		a.position + a.size,
+	]
+	var out: AABB = AABB(t * (corners[0] as Vector3), Vector3.ZERO)
+	for i in range(1, 8):
+		out = out.expand(t * (corners[i] as Vector3))
+	return out
 
 func _detach_first_mesh_instance(node: Node) -> MeshInstance3D:
 	# Walk the instantiated GLB scene, find the first MeshInstance3D with a
