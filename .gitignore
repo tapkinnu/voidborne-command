@@ -21,3 +21,15 @@ artifacts/*.log
 # OS
 .DS_Store
 Thumbs.db
+
+# Meshy 3D pipeline scratch (contains signed S3 URLs + task IDs)
+.meshy_state.json
+
+# Raw Meshy textures (2048² PNG + 1024² JPEG). The textures are baked into
+# the repacked GLBs at 1024² JPEG, so the originals are redundant.
+*_Baked_BaseColor.png
+*_Baked_BaseColor.jpg
+*_normal.png
+*_normal.jpg
+*_texture_0.png
+*_texture_0.jpg

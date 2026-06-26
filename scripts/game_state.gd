@@ -132,6 +132,28 @@ func class_stat(ship_class: String, key: String) -> float:
 func class_info(ship_class: String) -> Dictionary:
 	return SHIP_CLASSES.get(ship_class, {})
 
+# --- Meshy visual-upgrade flag ---------------------------------------------
+# When true, the 5 hero entity classes (player corvette, capital, friendly
+# station, hostile fighter, crew captain) swap their procedural visual for a
+# Meshy-generated GLB under res://assets/models/meshy_visual_upgrade/. Other
+# entities keep their procedural visuals. Flip to false to revert without
+# touching the swap code paths.
+const MESHY_VISUAL_UPGRADE_ENABLED: bool = true
+
+# Map of "ship_class|faction" -> Meshy GLB basename under
+# res://assets/models/meshy_visual_upgrade/. Only the 4 hard-scoped hero
+# ship classes appear here; any ship not in this table keeps its
+# procedural visual regardless of the flag. The pipe delimiter is safe
+# because Godot class and faction identifiers never contain pipes.
+const MESHY_SHIP_GLB: Dictionary = {
+	"corvette|player": "player_corvette",
+	"capital|any": "capital_ship",
+	"station|friendly": "friendly_station",
+	"fighter|enemy": "hostile_fighter",
+}
+
+const MESHY_CAPTAIN_GLB: String = "crew_captain"
+
 func random_name(rng: RandomNumberGenerator) -> String:
 	var i: int = rng.randi_range(0, FIRST_NAMES.size() - 1)
 	var n: int = rng.randi_range(10, 99)
