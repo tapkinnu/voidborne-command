@@ -550,18 +550,28 @@ func _detach_first_mesh_instance(node: Node) -> MeshInstance3D:
 
 func _hide_procedural_visual() -> void:
 	# Hide every procedural VisualInstance3D so only the Meshy mesh renders.
-	# Walks both the Hull child (primitives built by _build_mesh) and any
+	# Walks the Hull subtree (primitives built by _build_mesh) and any
 	# siblings added directly to the entity itself (e.g. _shield_mesh,
 	# turret meshes, engine exhaust cones). The collision shapes are not
 	# VisualInstance3D so they stay live for raycasts and hitboxes.
+	#
+	# The walk MUST recurse: the station class nests its spoke-arm meshes
+	# under intermediate Node3D "spoke" nodes (see _build_mesh "station"),
+	# so a one-level sweep of Hull's direct children would leave those arms
+	# visible and the Meshy station would render buried inside the
+	# procedural ring. _hide_visuals_recursive descends the full subtree.
 	var hull: Node = get_node_or_null("Hull")
 	if hull != null:
-		for c in hull.get_children():
-			if c is VisualInstance3D:
-				(c as VisualInstance3D).visible = false
+		_hide_visuals_recursive(hull)
 	for c in get_children():
 		if c is VisualInstance3D:
 			(c as VisualInstance3D).visible = false
+
+func _hide_visuals_recursive(node: Node) -> void:
+	for c in node.get_children():
+		if c is VisualInstance3D:
+			(c as VisualInstance3D).visible = false
+		_hide_visuals_recursive(c)
 
 func take_damage(amount: float, subsystem: String = "") -> Dictionary:
 	# Returns event info. When a subsystem is targeted, 50% of the post-shield hull
