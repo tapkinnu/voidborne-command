@@ -124,22 +124,25 @@ func _try_load_meshy_humanoid(procedural_node: Node3D, glb_basename: String, nod
 	rig.name = node_name
 	# Meshy rigged humanoids come out in centimeters; scale down by 100x.
 	rig.scale = Vector3(0.01, 0.01, 0.01)
+	# Add the rig to the tree BEFORE setting global_transform so it resolves
+	# inside the scene tree (avoids y=-500 off-screen parenting).
+	procedural_node.add_child(rig)
 	var stack: Array = [glb_root]
 	while not stack.is_empty():
 		var n: Node = stack.pop_back()
 		if n.get_parent() != null:
 			n.get_parent().remove_child(n)
+		# Clear owner before add_child to avoid editor/scene-ownership warnings.
+		n.owner = null
 		rig.add_child(n)
-		n.owner = rig
 		for c in n.get_children():
 			stack.push_back(c)
 	# Match the procedural node's world transform.
 	rig.global_transform = procedural_node.global_transform
 	# Hide the procedural visual children so only the Meshy mesh is visible.
 	for c in procedural_node.get_children():
-		if c is VisualInstance3D:
+		if c is VisualInstance3D and c != rig:
 			(c as VisualInstance3D).visible = false
-	procedural_node.add_child(rig)
 	# Retarget AnimationPlayer for the new scene root.
 	var ap: AnimationPlayer = rig.get_node_or_null("AnimationPlayer")
 	if ap != null:
@@ -158,7 +161,12 @@ func _try_load_meshy_humanoid(procedural_node: Node3D, glb_basename: String, nod
 				anim.loop_mode = Animation.LOOP_LINEAR
 			var arm_node: Node = rig.get_node_or_null("Armature")
 			if arm_node != null:
-				ap.root_node = rig.get_path_to(arm_node)
+				var new_root: NodePath = rig.get_path_to(arm_node)
+				# Only retarget when the root_node actually changes to stop editor spam.
+				if ap.root_node != new_root:
+					ap.root_node = new_root
+			# Stop any existing playback before starting to avoid track-conflict warnings.
+			ap.stop()
 			ap.play(chosen)
 
 func _try_load_meshy_captain() -> void:
