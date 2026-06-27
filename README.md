@@ -2,8 +2,8 @@
 
 An original Godot 4.4.1 3D space-sim vertical slice: fly your ship, recruit crew and
 marines, disable / board / capture hostiles, buy ships, and command a fleet in a live
-space battle. Everything is **code-built / procedural** — no imported art assets, no
-editor authoring required.
+space battle. Ships and environments are **code-built / procedural**; audio and visual
+assets are **authored** (OGG sound effects, music, voice lines, and Meshy GLB models).
 
 > Status: first playable vertical slice. Every requested mechanic is proven in
 > simplified, readable form. See `docs/studio/definition_of_done.md` for the production

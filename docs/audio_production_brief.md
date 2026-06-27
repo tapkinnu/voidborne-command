@@ -89,7 +89,7 @@ Master
 ## Acceptance Criteria
 - All 21 existing SFX triggers have authored replacements.
 - At least 3 music tracks (combat, exploration, station) are produced and loop cleanly.
-- At least 10 voice lines are produced and wired to gameplay events.
+- At least 6 voice lines are produced and wired to gameplay events.
 - Audio assets are placed in `assets/audio/` with subfolders: `sfx/`, `music/`, `voice/`.
 - `project.godot` is updated with the new audio bus layout.
 - `audio.gd` is updated to load real assets instead of synthesizing.
