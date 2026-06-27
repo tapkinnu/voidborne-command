@@ -351,6 +351,119 @@ var system_count: int:
 # --- System map overlay (transient UI; not saved) ---------------------------
 var system_map_open: bool = false
 
+# --- Tutorial / intro overlay (transient UI; not saved) ---------------------
+# A paginated help/intro panel shown on new-game start and re-openable any time with [F3].
+# It freezes flight like `paused` while open. Pages are static reference text; navigation
+# (←/→/Enter/Space/Esc) is handled in _input. New players read this before combat begins.
+var tutorial_open: bool = false
+var tutorial_page: int = 0
+const TUTORIAL_PAGES: Array = [
+	{
+		"title": "WELCOME, COMMANDER",
+		"lines": [
+			"Voidborne Command is a 3D space sim: fly your ship, fight,",
+			"board and capture enemy ships and stations, and grow a fleet.",
+			"",
+			"Your goal in this sector: clear the hostiles and capture the",
+			"enemy stations (Kryos Relay, Ironhold). Don't rush in — the",
+			"big enemy ships and stations hit HARD. Learn the ropes first.",
+			"",
+			"Enemies are HOLDING FIRE while you read this and for a short",
+			"ceasefire afterward. Use it to get comfortable with the controls.",
+		],
+	},
+	{
+		"title": "1 / FLYING YOUR SHIP",
+		"lines": [
+			"W / S        Throttle up / down (your speed)",
+			"A / D        Yaw left / right",
+			"Up / Down    Pitch nose up / down",
+			"Q / E        Roll left / right",
+			"Shift        Boost (fast, but drains energy)",
+			"X            Brake",
+			"`  (backtick) Toggle mouse-aim flight (mouse steers)",
+			"",
+			"Tip: throttle up with W and turn with A/D + the arrow keys.",
+		],
+	},
+	{
+		"title": "2 / COMBAT & TARGETING",
+		"lines": [
+			"Tab          Cycle to the next hostile target",
+			"Space / LMB  Fire weapons (uses energy)",
+			"Z            Focus a subsystem on your target:",
+			"             engines (slow it) / weapons / shields",
+			"T            Order your fleet to focus-fire your target",
+			"",
+			"Disable an enemy by destroying its hull without killing it —",
+			"disabled ships can be BOARDED and captured (see page 5).",
+		],
+	},
+	{
+		"title": "3 / STAYING ALIVE",
+		"lines": [
+			"Your ship has SHIELDS (regenerate) over HULL (does not).",
+			"Bottom-left bars show Hull / Shield / Energy.",
+			"",
+			"When shields drop and hull gets low — DISENGAGE. Boost away,",
+			"let shields recharge, then re-engage. You do not have to win",
+			"every fight head-on.",
+			"",
+			"Capital ships and stations out-gun you. Pick off fighters",
+			"first, use asteroids for cover, and bring your fleet.",
+		],
+	},
+	{
+		"title": "4 / DOCK, REPAIR & BUY",
+		"lines": [
+			"Fly to a NEUTRAL/friendly station (green/white) and press:",
+			"J            Open the dock screen (Shipyard / Crew / Repair /",
+			"             Market / Upgrades / Bounties)",
+			"H            Quick repair & refit your fleet (costs credits)",
+			"R            Recruit crew (120 cr)    N  Recruit marine (180 cr)",
+			"G / Y        Cycle shipyard offer / buy that ship",
+			"",
+			"Crew man your ships; marines board enemies. Earn credits from",
+			"bounties and captures, then upgrade in the dock screen.",
+		],
+	},
+	{
+		"title": "5 / BOARD & CAPTURE",
+		"lines": [
+			"1. Damage an enemy ship/station until it is DISABLED (not",
+			"   destroyed) — focus its engines/weapons with Z to help.",
+			"2. Fly close and press  B  to send marines aboard.",
+			"3. Win the boarding fight — the ship/station turns to YOUR",
+			"   faction and joins your fleet.",
+			"",
+			"I            Garrison a marine on an owned ship/station to",
+			"             defend it from being boarded back.",
+		],
+	},
+	{
+		"title": "6 / COMMAND YOUR FLEET",
+		"lines": [
+			"F            Man unmanned ships, or open the FLEET ORDER menu",
+			"  In the menu:  1 Follow  2 Hold  3 Escort  4 Defend",
+			"               5 Dock  6 Attack  7 Patrol  8 Guard Station",
+			"C            Toggle the crew-deck interior view",
+			"M            System map      K  Jump to next system",
+			"P            Pause      F1  Settings      F5  Save/Load menu",
+			"",
+			"You're ready. Press Esc or Enter to launch. Reopen this any",
+			"time with  F3.  Good hunting, Commander.",
+		],
+	},
+]
+
+
+# --- Opening ceasefire / combat grace (transient; not saved) ----------------
+# After the intro tutorial closes, hostiles hold fire on the player for this many seconds so
+# a new commander can get oriented instead of being deleted at spawn. Counts down only during
+# active space play (see _process_space). Ends early the moment the player fires on a hostile.
+var combat_grace: float = 0.0
+const COMBAT_GRACE_TIME: float = 22.0
+
 # --- Station market / dock screen overlay (transient UI; not saved) ----------
 # A centered multi-tab overlay opened with [J] at a friendly station. It consolidates the
 # scattered single-key station actions (shipyard/buy, crew/marine recruit, repair/refit,
@@ -432,7 +545,13 @@ func _ready() -> void:
 	audio.play("ambient")
 	_msg("Voidborne Command online. WASD/QE fly, Space fire, Tab target.")
 	_msg("Fly to the STATION (neutral) to recruit crew/marines and buy ships.")
-	_msg("` mouse-aim   F1 settings   F2 control scheme.")
+	_msg("` mouse-aim   F1 settings   F2 control scheme   F3 tutorial.")
+	# Show the intro/tutorial on a fresh start (skipped during capture/demo runs), and arm the
+	# opening ceasefire so enemies hold fire until the new commander has had a moment to learn.
+	if not auto_demo:
+		tutorial_open = true
+		tutorial_page = 0
+		combat_grace = COMBAT_GRACE_TIME
 
 func _input(event: InputEvent) -> void:
 	# Accumulate relative mouse motion while mouse-aim is engaged; consumed (and zeroed)
@@ -446,6 +565,14 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventKey:
 		var ke: InputEventKey = event
 		if ke.pressed and not ke.echo:
+			# F3 always toggles the tutorial/help overlay (open or close).
+			if ke.keycode == KEY_F3:
+				_toggle_tutorial()
+				return
+			# While the tutorial is open it owns every key (paginate / close).
+			if tutorial_open:
+				_handle_tutorial_key(ke.keycode)
+				return
 			# F1 always toggles the settings overlay (open or close).
 			if ke.keycode == KEY_F1:
 				_toggle_settings()
@@ -1343,6 +1470,32 @@ func _toggle_pause() -> void:
 	_msg("Game %s." % ("PAUSED" if paused else "resumed"))
 	if audio: audio.play("ui_recruit")
 
+func _toggle_tutorial() -> void:
+	# Open/close the paginated intro/help overlay. _process_space() early-returns while it is
+	# open (flight frozen), and the HUD keeps drawing so the panel stays visible.
+	tutorial_open = not tutorial_open
+	if tutorial_open:
+		tutorial_page = 0
+	else:
+		_msg("Tutorial closed — press F3 to reopen.")
+	if audio: audio.play("ui_recruit")
+
+func _handle_tutorial_key(keycode: int) -> void:
+	# While the tutorial is open, keys paginate or close it.
+	match keycode:
+		KEY_LEFT, KEY_UP, KEY_A, KEY_W:
+			if tutorial_page > 0:
+				tutorial_page -= 1
+				if audio: audio.play("ui_recruit")
+		KEY_RIGHT, KEY_DOWN, KEY_D, KEY_S, KEY_SPACE, KEY_ENTER, KEY_KP_ENTER:
+			if tutorial_page < TUTORIAL_PAGES.size() - 1:
+				tutorial_page += 1
+				if audio: audio.play("ui_recruit")
+			else:
+				_toggle_tutorial()  # advance past the last page closes it
+		KEY_ESCAPE, KEY_F3:
+			_toggle_tutorial()
+
 # --- Settings menu navigation (public-callable; also driven from _input) -----
 func _settings_cursor_move(direction: int) -> void:
 	# Moves the highlighted row up (-1) or down (+1), wrapping within the row list.
@@ -1897,8 +2050,14 @@ func _process_space(delta: float) -> void:
 	# (called by _process after this returns) so the pause overlay stays on screen. We use
 	# this boolean rather than get_tree().paused so timers and the capture autoload survive.
 	# The station market / dock screen freezes the sim the same way while it is open.
-	if paused or dock_screen_open or save_menu_open or mission_giver_open:
+	if paused or dock_screen_open or save_menu_open or mission_giver_open or tutorial_open:
 		return
+	# Opening ceasefire countdown: hostiles hold fire on the player until this reaches 0
+	# (see _try_fire). Only advances during active space play.
+	if combat_grace > 0.0:
+		combat_grace = max(0.0, combat_grace - delta)
+		if combat_grace == 0.0:
+			_msg("Ceasefire over — enemies are now hostile. Good luck, Commander.")
 	# Tick audio-trigger cooldowns and raise the low-hull klaxon when the player is critical.
 	_overheat_cd = max(0.0, _overheat_cd - delta)
 	if is_instance_valid(player) and not player.destroyed:
@@ -2487,6 +2646,10 @@ func _integrate_motion(delta: float) -> void:
 # WEAPONS
 # ---------------------------------------------------------------------------
 func _try_fire(s: Node3D, delta: float, forced_target: Node3D = null) -> bool:
+	# Opening ceasefire: hostiles hold fire (on the player and everyone) until the grace
+	# timer expires, giving a new commander time to learn. The player and allies fire freely.
+	if combat_grace > 0.0 and not s.is_player and s.faction == "hostile":
+		return false
 	# Weapons subsystem OFFLINE: cannot fire, and the cooldown never advances.
 	if not s.can_fire():
 		return false
@@ -2511,8 +2674,12 @@ func _try_fire(s: Node3D, delta: float, forced_target: Node3D = null) -> bool:
 		_fire_beam(s, aim_target)
 	else:
 		_fire_projectile(s, aim_target)
-	# First shot of an engagement: commander bark.
+	# First shot of an engagement: commander bark. Firing on a hostile also ends the opening
+	# ceasefire immediately — the player has chosen to start the fight.
 	if s.is_player and is_instance_valid(aim_target) and aim_target.faction == "hostile":
+		if combat_grace > 0.0:
+			combat_grace = 0.0
+			_msg("Weapons hot — ceasefire ended. Engaging hostiles.")
 		_play_voice_bark("commander_engage")
 	return true
 
@@ -5406,6 +5573,13 @@ func _update_hud() -> void:
 	d["control_scheme"] = control_scheme
 	d["settings_open"] = settings_open
 	d["paused"] = paused
+	# Tutorial / intro overlay + opening ceasefire banner.
+	d["tutorial_open"] = tutorial_open
+	if tutorial_open:
+		d["tutorial_page"] = tutorial_page
+		d["tutorial_page_count"] = TUTORIAL_PAGES.size()
+		d["tutorial_content"] = TUTORIAL_PAGES[clampi(tutorial_page, 0, TUTORIAL_PAGES.size() - 1)]
+	d["combat_grace"] = combat_grace
 	d["master_volume"] = master_volume
 	d["graphics_quality"] = graphics_quality
 	d["resolution_label"] = String(RESOLUTIONS[clampi(resolution_index, 0, RESOLUTIONS.size() - 1)].get("label", ""))

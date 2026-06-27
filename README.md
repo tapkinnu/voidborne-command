@@ -37,6 +37,11 @@ Screenshots are written to `artifacts/screenshots/` (plus a `contact_sheet.jpg`)
 
 ## Controls
 
+> **New game?** An interactive tutorial opens automatically on your first launch (reopen any
+> time with `F3`). To give you room to learn, enemies **hold fire for a short opening ceasefire**
+> after you close it — a banner counts the seconds down. Firing on a hostile ends the ceasefire
+> immediately and starts the battle.
+
 ### Flight (space mode)
 | Key | Action |
 | --- | --- |
@@ -59,6 +64,7 @@ Screenshots are written to `artifacts/screenshots/` (plus a `contact_sheet.jpg`)
 | `F1` | Toggle the **settings overlay** — interactive menu: resolution, volume, graphics quality, pause, mouse-aim, control scheme |
 | `P` | **Pause** the game (flight/AI/combat freeze; HUD shows a "PAUSED" banner). Press `P` again to resume. *(Exception: while the fleet is on the **Patrol** order, `P` drops a patrol waypoint instead — see the command section.)* |
 | `F2` | **Cycle control scheme**: Auto → Keyboard+Mouse → Gamepad → Auto |
+| `F3` | Toggle the **tutorial / help overlay** — a paginated intro to flight, combat, survival, docking, boarding/capture, and fleet command. Shown automatically on a new game; flight freezes while it is open. |
 | `M` | Toggle the **system map** overlay — top-down view of all stations, fleet, and threats (flight stays live); also lists the jump gates |
 | `K` | **Jump to the next star system** — warps the player and the owned fleet to the next sector (three systems cycle); economy/crew/missions carry over; **captured stations persist** across jumps |
 | `U` | **Open mission-giver overlay** — full list of all missions (active, complete, failed, locked) with cursor navigation; `Enter` to track, `A` to abandon, `U`/`Esc` to close |

@@ -153,6 +153,8 @@ func _draw() -> void:
 			_draw_settings_overlay(vp)
 		elif bool(data.get("paused", false)):
 			_draw_pause_overlay(vp)
+		if bool(data.get("tutorial_open", false)):
+			_draw_tutorial_overlay(vp)
 		return
 
 	# Player status bars (bottom-left)
@@ -236,6 +238,50 @@ func _draw() -> void:
 	# Mission-giver overlay sits on top when open (U key).
 	if bool(data.get("mission_giver_open", false)):
 		_draw_mission_giver(vp)
+	# Opening-ceasefire banner (top center, just under the objective) while the grace timer runs.
+	var grace: float = float(data.get("combat_grace", 0.0))
+	if grace > 0.0 and not bool(data.get("tutorial_open", false)) and mode == "space":
+		var btxt: String = "CEASEFIRE  %ds  —  enemies holding fire  (fire weapons to engage · F3 tutorial)" % int(ceil(grace))
+		var bw: float = float(btxt.length()) * 7.2 + 24.0
+		var bx: float = vp.x * 0.5 - bw * 0.5
+		draw_rect(Rect2(Vector2(bx, 40), Vector2(bw, 24)), Color(0.10, 0.07, 0.0, 0.82), true)
+		draw_rect(Rect2(Vector2(bx, 40), Vector2(bw, 24)), Color(1.0, 0.8, 0.3, 0.9), false, 1.5)
+		_txt(Vector2(bx + 12, 57), btxt, Color(1.0, 0.9, 0.5), 13)
+	# Tutorial / intro overlay sits on top of everything when open (F3 key).
+	if bool(data.get("tutorial_open", false)):
+		_draw_tutorial_overlay(vp)
+
+func _draw_tutorial_overlay(vp: Vector2) -> void:
+	# Paginated intro/help panel. main.gd feeds the current page content via tutorial_content
+	# ({title, lines}); navigation happens in main._input. Dims the scene behind it.
+	draw_rect(Rect2(Vector2.ZERO, vp), Color(0, 0, 0, 0.55), true)
+	var w: float = 640.0
+	var h: float = 380.0
+	var x: float = vp.x * 0.5 - w * 0.5
+	var y: float = vp.y * 0.5 - h * 0.5
+	draw_rect(Rect2(Vector2(x, y), Vector2(w, h)), Color(0.0, 0.05, 0.09, 0.96), true)
+	draw_rect(Rect2(Vector2(x, y), Vector2(w, h)), C_LINE, false, 2.0)
+
+	var content: Dictionary = data.get("tutorial_content", {})
+	var title: String = String(content.get("title", "TUTORIAL"))
+	var page: int = int(data.get("tutorial_page", 0))
+	var count: int = int(data.get("tutorial_page_count", 1))
+	_txt(Vector2(x + 22, y + 32), title, Color(0.5, 1.0, 0.85), 19)
+	_txt(Vector2(x + w - 96, y + 30), "%d / %d" % [page + 1, count], Color(0.6, 0.82, 0.95), 14)
+	draw_line(Vector2(x + 20, y + 44), Vector2(x + w - 20, y + 44), C_LINE.darkened(0.2), 1.0)
+
+	var lines: Array = content.get("lines", [])
+	var ly: float = y + 74.0
+	for ln in lines:
+		_txt(Vector2(x + 28, ly), String(ln), Color(0.82, 0.92, 1.0), 14)
+		ly += 22.0
+
+	# Footer nav hints.
+	draw_line(Vector2(x + 20, y + h - 36), Vector2(x + w - 20, y + h - 36), C_LINE.darkened(0.4), 1.0)
+	var nav: String = "←/→  page      Enter/Space  next      Esc  close & launch"
+	if page >= count - 1:
+		nav = "←  back      Enter/Space/Esc  close & launch"
+	_txt(Vector2(x + 24, y + h - 16), nav, Color(0.7, 0.88, 1.0, 0.95), 13)
 
 func _draw_system_map(vp: Vector2) -> void:
 	# Centered top-down map of the system: stations as labelled squares, other ships as
