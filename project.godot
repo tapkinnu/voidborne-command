@@ -34,7 +34,7 @@ environment/glow/enabled=true
 
 [audio]
 
-bus/layout="res://default_bus_layout.tscn"
+bus/layout="res://default_bus_layout.tres"
 
 [physics]
 
