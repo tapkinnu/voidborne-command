@@ -6,6 +6,7 @@ extends Node3D
 var active: bool = false
 var camera: Camera3D
 var captain: Node3D
+var _captain_anim: Dictionary = {}   # {ap, idle, walk, state} for the captain's rigged GLB
 var crew_nodes: Array = []
 var move_speed: float = 6.0
 var rng: RandomNumberGenerator
@@ -117,21 +118,23 @@ func _build_humanoid(col: Color) -> Node3D:
 	h.add_child(pack)
 	return h
 
-func _try_load_meshy_humanoid(procedural_node: Node3D, glb_basename: String, node_name: String) -> void:
-	# Generic helper: load a rigged Meshy humanoid GLB, reparent it under the
-	# procedural node (which stays in the tree for its Label3D and metadata),
-	# hide the procedural VisualInstance3D children, and play Idle animation.
+func _try_load_meshy_humanoid(procedural_node: Node3D, glb_basename: String, node_name: String) -> Dictionary:
+	# Load a rigged Meshy humanoid GLB, reparent it INTACT (preserving the
+	# Armature -> Skeleton3D -> mesh hierarchy so skinning and animation work),
+	# hide the procedural placeholder, and return an animation handle so the
+	# caller can drive idle/walk from movement. Returns {} when unavailable.
+	var anim_info: Dictionary = {}
 	if not Game.MESHY_VISUAL_UPGRADE_ENABLED:
-		return
+		return anim_info
 	var path: String = "res://assets/models/meshy_visual_upgrade/%s.repacked.glb" % glb_basename
 	var packed: PackedScene = load(path)
 	if packed == null:
 		push_warning("[meshy] %s: GLB missing or failed to import — keeping procedural" % path)
-		return
+		return anim_info
 	var glb_root: Node = packed.instantiate()
 	if glb_root == null:
 		push_warning("[meshy] %s: GLB instantiate() returned null — keeping procedural" % path)
-		return
+		return anim_info
 	var rig: Node3D = Node3D.new()
 	rig.name = node_name
 	# Meshy rigged humanoids come out in centimeters; scale down by 100x.
@@ -139,50 +142,77 @@ func _try_load_meshy_humanoid(procedural_node: Node3D, glb_basename: String, nod
 	# Add the rig to the tree BEFORE setting global_transform so it resolves
 	# inside the scene tree (avoids y=-500 off-screen parenting).
 	procedural_node.add_child(rig)
-	var stack: Array = [glb_root]
-	while not stack.is_empty():
-		var n: Node = stack.pop_back()
-		if n.get_parent() != null:
-			n.get_parent().remove_child(n)
-		# Clear owner before add_child to avoid editor/scene-ownership warnings.
-		n.owner = null
-		rig.add_child(n)
-		for c in n.get_children():
-			stack.push_back(c)
+	# Reparent the GLB subtree INTACT. The previous implementation flattened the
+	# whole tree under `rig`, which severed the mesh from its Skeleton3D (so it
+	# rendered frozen in rest pose) and broke the AnimationPlayer's track paths
+	# ("No animation in cache"). Clear owners first so the move is warning-free.
+	_clear_owners(glb_root)
+	rig.add_child(glb_root)
 	# Match the procedural node's world transform.
 	rig.global_transform = procedural_node.global_transform
 	# Hide the procedural visual children so only the Meshy mesh is visible.
 	for c in procedural_node.get_children():
 		if c is VisualInstance3D and c != rig:
 			(c as VisualInstance3D).visible = false
-	# Retarget AnimationPlayer for the new scene root.
-	var ap: AnimationPlayer = rig.get_node_or_null("AnimationPlayer")
+	# Resolve the AnimationPlayer and its idle/walk clips. The GLB's relative
+	# root_node (".." -> the repacked root) is already correct now the hierarchy
+	# is intact, so we must NOT retarget it.
+	var ap: AnimationPlayer = _find_anim_player(rig)
 	if ap != null:
-		var lib: PackedStringArray = ap.get_animation_list()
-		var chosen: String = ""
-		var preferred: Array[String] = ["Idle", "Walking_Woman", "clip0"]
-		for name in preferred:
-			if lib.has(name):
-				chosen = name
-				break
-		if chosen == "" and lib.size() > 0:
-			chosen = lib[0]
-		if chosen != "":
-			var anim: Animation = ap.get_animation(chosen)
-			if anim != null:
-				anim.loop_mode = Animation.LOOP_LINEAR
-			var arm_node: Node = rig.get_node_or_null("Armature")
-			if arm_node != null:
-				var new_root: NodePath = rig.get_path_to(arm_node)
-				# Only retarget when the root_node actually changes to stop editor spam.
-				if ap.root_node != new_root:
-					ap.root_node = new_root
-			# Stop any existing playback before starting to avoid track-conflict warnings.
-			ap.stop()
-			ap.play(chosen)
+		var idle_name: String = ""
+		var walk_name: String = ""
+		for a in ap.get_animation_list():
+			var s: String = String(a)
+			var low: String = s.to_lower()
+			if walk_name == "" and low.contains("walk"):
+				walk_name = s
+			if idle_name == "" and low.contains("idle"):
+				idle_name = s
+		var anims: PackedStringArray = ap.get_animation_list()
+		if idle_name == "" and anims.size() > 0:
+			idle_name = String(anims[0])
+		# Loop both clips so they play continuously.
+		for nm in [idle_name, walk_name]:
+			if nm != "":
+				var an: Animation = ap.get_animation(nm)
+				if an != null:
+					an.loop_mode = Animation.LOOP_LINEAR
+		if idle_name != "":
+			ap.play(idle_name)
+		anim_info = {"ap": ap, "idle": idle_name, "walk": walk_name, "state": "idle"}
+	return anim_info
+
+func _clear_owners(n: Node) -> void:
+	n.owner = null
+	for c in n.get_children():
+		_clear_owners(c)
+
+func _find_anim_player(n: Node) -> AnimationPlayer:
+	if n is AnimationPlayer:
+		return n as AnimationPlayer
+	for c in n.get_children():
+		var r: AnimationPlayer = _find_anim_player(c)
+		if r != null:
+			return r
+	return null
+
+func _set_anim_state(info: Dictionary, moving: bool) -> void:
+	# Cross-fade a rigged humanoid between its idle and walk clips. No-op if the
+	# requested state is already playing (so we don't restart every frame).
+	if info.is_empty() or info.get("ap") == null:
+		return
+	var has_walk: bool = String(info.get("walk", "")) != ""
+	var want: String = "walk" if (moving and has_walk) else "idle"
+	if String(info.get("state", "")) == want:
+		return
+	info["state"] = want
+	var ap: AnimationPlayer = info["ap"]
+	var clip: String = String(info.get(want, ""))
+	if clip != "":
+		ap.play(clip, 0.18)
 
 func _try_load_meshy_captain() -> void:
-	_try_load_meshy_humanoid(captain, String(Game.MESHY_CAPTAIN_GLB), "CrewCaptainMeshy")
+	_captain_anim = _try_load_meshy_humanoid(captain, String(Game.MESHY_CAPTAIN_GLB), "CrewCaptainMeshy")
 
 func build(p_rng: RandomNumberGenerator) -> void:
 	rng = p_rng
@@ -472,13 +502,14 @@ func _spawn_crew_detail(crew_dict: Dictionary, idx: int, total: int, room_idx: i
 	label.position = Vector3(0, 2.4, 0)
 	label.modulate = Color(1, 1, 1)
 	hh.add_child(label)
-	_try_load_meshy_humanoid(hh, String(Game.MESHY_CREW_GLB), "CrewMeshy")
+	var anim: Dictionary = _try_load_meshy_humanoid(hh, String(Game.MESHY_CREW_GLB), "CrewMeshy")
 	crew_nodes.append({
 		"node": hh,
 		"name": String(crew_dict.get("name", "Crew")),
 		"role": role,
 		"following": false,
 		"home": home,
+		"anim": anim,
 	})
 
 func _spawn_crew_marine_named(marine_dict: Dictionary, idx: int, total: int, room_idx: int) -> void:
@@ -511,13 +542,14 @@ func _spawn_crew_marine_named(marine_dict: Dictionary, idx: int, total: int, roo
 		3: tint = Color(1, 0.3, 0.2)
 	label.modulate = tint
 	hh.add_child(label)
-	_try_load_meshy_humanoid(hh, String(Game.MESHY_MARINE_GLB), "MarineMeshy")
+	var anim: Dictionary = _try_load_meshy_humanoid(hh, String(Game.MESHY_MARINE_GLB), "MarineMeshy")
 	crew_nodes.append({
 		"node": hh,
 		"name": mname,
 		"role": "marine",
 		"following": false,
 		"home": home,
+		"anim": anim,
 	})
 
 func set_ship_list(owned_ships: Array) -> void:
@@ -609,6 +641,8 @@ func process_deck(delta: float, input_vec: Vector2, follow_pressed: bool) -> voi
 			new_pos.x = bx - BODY_R if pos.x < bx else bx + BODY_R
 	new_pos.x = clamp(new_pos.x, min_x + BODY_R, max_x - BODY_R)
 	captain.position = new_pos
+	# Idle/walk animation follows whether the captain actually moved this frame.
+	_set_anim_state(_captain_anim, (new_pos - pos).length() > 0.0008)
 	# Track which room the captain is in (HUD label only — no rebuild).
 	current_room_index = clampi(int(round((new_pos.x - float(ROOM_CENTERS[0])) / ROOM_W)), 0, ROOM_NAMES.size() - 1)
 	# In overhead the body turns to face travel; in first-person the mouse owns the heading.
@@ -633,6 +667,7 @@ func process_deck(delta: float, input_vec: Vector2, follow_pressed: bool) -> voi
 		if not is_instance_valid(c2["node"]):
 			continue
 		var node: Node3D = c2["node"]
+		var prev: Vector3 = node.position
 		if c2["following"]:
 			_follow_count += 1
 			var offset: Vector3 = Vector3(sin(float(i)) * 1.4, 0, 1.8 + float(i) * 0.5)
@@ -643,6 +678,8 @@ func process_deck(delta: float, input_vec: Vector2, follow_pressed: bool) -> voi
 				node.rotation.y = atan2(dirv.x, dirv.z)
 		else:
 			node.position = node.position.lerp(c2["home"], clamp(delta * 1.0, 0.0, 1.0))
+		# Walk while actually moving toward the captain/home, idle once settled.
+		_set_anim_state(c2.get("anim", {}), (node.position - prev).length() > 0.004)
 
 func status() -> Dictionary:
 	var nearest: String = ""
