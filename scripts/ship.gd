@@ -13,6 +13,11 @@ const FACTION_TINTS: Dictionary = {
 	"neutral": Color(0.72, 0.72, 0.74),
 }
 
+# Yaw applied to Meshy GLB visuals so their authored nose (the -X end, verified
+# across all ship GLBs) points along the game's forward (-Z). See
+# _fit_meshy_to_hull(). -90° about Y maps local -X -> world -Z.
+const MESHY_FORWARD_YAW: float = -PI / 2.0
+
 var ship_class: String = "fighter"
 var faction: String = "hostile"
 var ship_name: String = "Unknown"
@@ -552,10 +557,18 @@ func _fit_meshy_to_hull(mi: MeshInstance3D) -> void:
 		mi.scale = Vector3.ONE
 		return
 	var f: float = target_span / mesh_span
-	mi.scale = Vector3(f, f, f)
-	# Align the mesh centroid with the Hull centroid (both in ship space).
+	# Meshy GLBs are authored with the hull's long axis along X, but the game
+	# flies -Z forward (procedural ships are built pointing -Z). Yaw the mesh
+	# so its long axis aligns with the direction of travel; without this the
+	# ship visibly flies sideways. Stations are radially symmetric, so the
+	# same yaw is a harmless no-op for them.
+	var basis: Basis = Basis(Vector3.UP, MESHY_FORWARD_YAW).scaled(Vector3(f, f, f))
+	mi.basis = basis
+	# Align the mesh centroid with the Hull centroid (both in ship space),
+	# measuring the mesh AABB AFTER the yaw+scale so the offset is correct.
+	var t_aabb: AABB = _xform_aabb(Transform3D(basis, Vector3.ZERO), mesh_aabb)
 	var hull_center: Vector3 = (hull_aabb.position + hull_aabb.size * 0.5) * hs
-	var mesh_center: Vector3 = (mesh_aabb.position + mesh_aabb.size * 0.5) * f
+	var mesh_center: Vector3 = t_aabb.position + t_aabb.size * 0.5
 	mi.position = hull_center - mesh_center
 
 func _subtree_local_aabb(root: Node3D) -> AABB:
