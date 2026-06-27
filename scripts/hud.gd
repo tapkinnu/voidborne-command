@@ -923,7 +923,9 @@ func _draw_prompt(vp: Vector2) -> void:
 	_txt(Vector2(vp.x * 0.5 - w * 0.5 + 12, vp.y - 43.0), prompt, Color(0.5, 1.0, 0.7), 13)
 
 func _draw_deck_overlay(vp: Vector2) -> void:
-	draw_rect(Rect2(Vector2(vp.x - 300, vp.y - 80), Vector2(292, 72)), C_BG, true)
-	_txt(Vector2(vp.x - 290, vp.y - 58), "DECK: %s" % String(data.get("deck_ship", "Corvette [Flagship]")), C_LINE, 14)
-	_txt(Vector2(vp.x - 290, vp.y - 40), "Room: %s" % String(data.get("deck_room", "Bridge")), C_DIM, 12)
-	_txt(Vector2(vp.x - 290, vp.y - 22), "WASD move  F follow  C exit  R next ship", C_DIM, 12)
+	draw_rect(Rect2(Vector2(vp.x - 320, vp.y - 92), Vector2(312, 84)), C_BG, true)
+	_txt(Vector2(vp.x - 310, vp.y - 70), "DECK: %s" % String(data.get("deck_ship", "Corvette [Flagship]")), C_LINE, 14)
+	var view_txt: String = "first-person" if bool(data.get("deck_first_person", true)) else "overhead"
+	_txt(Vector2(vp.x - 310, vp.y - 52), "Room: %s   View: %s" % [String(data.get("deck_room", "Bridge")), view_txt], C_DIM, 12)
+	_txt(Vector2(vp.x - 310, vp.y - 34), "WASD move  mouse look  F4 view", C_DIM, 12)
+	_txt(Vector2(vp.x - 310, vp.y - 16), "F follow  C exit  R next ship", C_DIM, 12)

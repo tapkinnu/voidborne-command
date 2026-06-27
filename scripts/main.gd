@@ -53,6 +53,7 @@ var mouse_aim: bool = false
 var settings_open: bool = false
 var control_scheme: String = "auto"   # "auto" | "keyboard" | "gamepad"
 var _mouse_aim_delta: Vector2 = Vector2.ZERO   # accumulated mouse motion this frame
+var _deck_look_delta: Vector2 = Vector2.ZERO   # accumulated mouse motion for first-person crew deck
 const MOUSE_AIM_SENS: float = 0.003
 
 # --- Settings menu / pause (display preferences; not part of save state) -----
@@ -559,6 +560,10 @@ func _input(event: InputEvent) -> void:
 	if mouse_aim and control_scheme != "gamepad" and event is InputEventMouseMotion:
 		var m: InputEventMouseMotion = event
 		_mouse_aim_delta += m.relative
+	# First-person crew-deck mouse-look: accumulate motion regardless of the space-mode
+	# mouse-aim toggle (the deck captures the cursor itself while in first-person).
+	if deck_mode and deck.first_person and event is InputEventMouseMotion:
+		_deck_look_delta += (event as InputEventMouseMotion).relative
 	# Global toggles + settings-menu navigation are handled here in _input (not in
 	# _handle_station_actions) so they keep working while the game is paused — recall
 	# _process_space() early-returns when paused, so its station-action poll never runs.
@@ -572,6 +577,10 @@ func _input(event: InputEvent) -> void:
 			# While the tutorial is open it owns every key (paginate / close).
 			if tutorial_open:
 				_handle_tutorial_key(ke.keycode)
+				return
+			# On the crew deck, [F4] toggles first-person / overhead view.
+			if deck_mode and ke.keycode == KEY_F4:
+				_toggle_deck_view()
 				return
 			# F1 always toggles the settings overlay (open or close).
 			if ke.keycode == KEY_F1:
@@ -2032,6 +2041,14 @@ func _process(delta: float) -> void:
 	_update_hud()
 
 func _process_deck(delta: float) -> void:
+	# [C] exits the deck back to the bridge. (Polled here because _handle_station_actions,
+	# which owns toggle_deck in space mode, does not run while in deck mode.)
+	if Input.is_action_just_pressed("toggle_deck"):
+		_set_deck_mode(false)
+		return
+	# Feed accumulated first-person mouse-look, then zero it for next frame.
+	deck.look(_deck_look_delta)
+	_deck_look_delta = Vector2.ZERO
 	var iv: Vector2 = Vector2(
 		Input.get_action_strength("yaw_right") - Input.get_action_strength("yaw_left"),
 		Input.get_action_strength("thrust_down") - Input.get_action_strength("thrust_up")
@@ -4815,15 +4832,34 @@ func _set_deck_mode(on: bool) -> void:
 			world_env.environment.ambient_light_color = Color(0.5, 0.55, 0.65, 1.0)
 			world_env.environment.ambient_light_energy = 1.5
 			world_env.environment.background_color = Color(0.06, 0.08, 0.12, 1.0)
-		_msg("Entered CREW DECK. WASD move, F order follow, C exit, R next ship.")
+		_apply_deck_mouse_mode()
+		var view_txt: String = "first-person" if deck.first_person else "overhead"
+		_msg("Entered CREW DECK (%s). WASD move, mouse look, F4 view, F follow, C exit, R ship." % view_txt)
 		_play_voice_bark("announcer_welcome")
 	else:
 		space_camera.current = true
+		# Restore the space-mode cursor state (captured only while mouse-aim flight is on).
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if mouse_aim else Input.MOUSE_MODE_VISIBLE
 		if world_env:
 			world_env.environment.ambient_light_color = Color(0.18, 0.20, 0.28, 1.0)
 			world_env.environment.ambient_light_energy = 0.6
 			world_env.environment.background_color = Color(0.01, 0.012, 0.03, 1.0)
 		_msg("Returned to the bridge.")
+
+func _toggle_deck_view() -> void:
+	# Switch the crew deck between first-person and overhead, and match the cursor mode.
+	deck.set_first_person(not deck.first_person)
+	_deck_look_delta = Vector2.ZERO
+	_apply_deck_mouse_mode()
+	_msg("Deck view: %s." % ("FIRST-PERSON" if deck.first_person else "OVERHEAD"))
+	if audio: audio.play("ui_recruit")
+
+func _apply_deck_mouse_mode() -> void:
+	# First-person deck captures the cursor for mouse-look; overhead frees it.
+	if deck_mode and deck.first_person:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	else:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 # ---------------------------------------------------------------------------
 # PERSISTENT SAVE / LOAD
@@ -5612,6 +5648,7 @@ func _update_hud() -> void:
 			d["prompt"] = "Walk up to a crew/marine, then [F]. Following: %d" % int(st.get("follow_count", 0))
 		d["deck_room"] = deck.current_room_name()
 		d["deck_ship"] = deck.current_ship_label()
+		d["deck_first_person"] = deck.first_person
 		hud.set_data(d)
 		return
 

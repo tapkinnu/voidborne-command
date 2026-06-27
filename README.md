@@ -134,7 +134,7 @@ it is rebuilt by scanning the slot files. While the menu is open, flight/AI/comb
 | `W` | While the fleet order menu is open: enter **wing order mode** — `↑`/`↓` select a wing (Alpha/Beta/Gamma), `1`–`8` set that wing's order independently, `W`/`Esc` back to the fleet menu |
 | `P` | While on the **Patrol** order: drop a patrol waypoint at the flagship's current position (otherwise `P` pauses/resumes) |
 | `Esc` | Close the fleet order menu without changing the order |
-| `C` | Toggle the **crew deck** interior view |
+| `C` | Toggle the **crew deck** — a walkable first-person ship interior (see Crew deck section; `F4` switches first-person/overhead) |
 
 Repair/refit works at the neutral **Halcyon** hub *and* at any station you have captured. Hostile stations refuse service until taken.
 
@@ -155,19 +155,24 @@ The **Bounties** tab (`7`) is the game's repeatable content loop. Unlike the han
 Press `Enter` on an **[AVAIL]** contract to accept it — it becomes **[ACTIVE]** and starts counting hostile kills of that class *from the moment you accept* (earlier kills don't count, and the board immediately posts a fresh contract to replace it). Destroy the required ships out in the battle and the bounty flips to **[DONE]**; return to any friendly station, reopen the board, and press `Enter` on the completed row to **claim** your reward. Bounty progress, the running per-class kill tally, and the board itself all persist through save/load.
 
 ### Crew deck (interior mode)
+The crew deck is a walkable, **first-person** ship interior — get out of the pilot seat and
+move around on foot. Press `F4` to switch between first-person and the overhead chase view.
+
 | Key | Action |
 | --- | --- |
-| `A` / `D` / `W` / `S` | Walk the captain |
+| `W` / `A` / `S` / `D` | Walk (in first-person, relative to where you look) |
+| Mouse | Look around (first-person; cursor is captured) |
+| `F4` | Toggle **first-person / overhead** view |
 | `F` | Order the nearest crew/marine to follow / stop |
 | `C` | Return to the bridge |
 | `R` | Cycle to the next owned ship's deck |
 | `V` / `L` | Quick save / quick load (a load returns you to the bridge) |
 
-The crew deck has three rooms — **Bridge** (pilots/engineers at command consoles),
-**Crew Quarters** (gunners at bunks), and **Marine Barracks** (marines at weapon racks).
-Walk through the door gaps at the room boundaries to move between rooms. The HUD shows
-the current ship and room. Press `R` to step onto a different owned ship's deck (when
-you have captured or purchased additional ships).
+The deck is one seamless space of three rooms — **Bridge** (pilots/engineers at command
+consoles), **Crew Quarters** (gunners at bunks), and **Marine Barracks** (marines at weapon
+racks) — that you walk between through the doorways (no loading between rooms). The HUD shows
+the current ship, room, and view mode. Press `R` to step onto a different owned ship's deck
+(when you have captured or purchased additional ships).
 
 ### Morale
 

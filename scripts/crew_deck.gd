@@ -12,7 +12,16 @@ var rng: RandomNumberGenerator
 var _nearest_idx: int = -1
 var _follow_count: int = 0
 
-# Room system
+# View mode: first-person (walk-around FPS) vs the original overhead chase view.
+var first_person: bool = true
+var _cam_pitch: float = 0.0          # FP look pitch, radians (clamped)
+const EYE_HEIGHT: float = 2.0        # camera height above the captain's feet in FP
+const LOOK_SENS: float = 0.0032      # mouse look sensitivity (radians per pixel)
+const BODY_R: float = 0.4            # captain "radius" for wall clearance
+
+# Room system. All rooms are built at once and laid out contiguously along X so the
+# deck is a single seamless walkable space (no per-room reload). current_room_index is
+# derived from the captain's X for the HUD label only — it never triggers a rebuild.
 var current_room_index: int = 0
 var _room_container: Node3D
 var _crew_container: Node3D
@@ -20,6 +29,9 @@ const ROOM_NAMES: Array = ["Bridge", "Crew Quarters", "Marine Barracks"]
 const ROOM_W: float = 10.0
 const ROOM_D: float = 18.0
 const ROOM_CENTERS: Array = [-10.0, 0.0, 10.0]
+const DOOR_HALF: float = 0.6         # half-width of the passable doorway gap between rooms
+# Inter-room wall X positions (boundaries between adjacent room centers).
+const ROOM_BOUNDARIES: Array = [-5.0, 5.0]
 
 # Ship system
 var current_ship_index: int = 0
@@ -203,25 +215,31 @@ func build(p_rng: RandomNumberGenerator) -> void:
 	camera.rotation_degrees = Vector3(-19, 0, 0)
 	camera.fov = 58.0
 	add_child(camera)
-	_build_current_room()
+	_build_all_rooms()
+	_update_camera()
 
-func _build_current_room() -> void:
-	_clear_room()
-	_build_room_geometry(current_room_index)
+func _build_all_rooms() -> void:
+	# Build every room's geometry once, contiguously along X, then populate all rosters.
+	_clear_deck()
+	for idx in range(ROOM_NAMES.size()):
+		_build_room_geometry(idx)
 	refresh_roster()
-	_update_camera_for_room()
 
-func _update_camera_for_room() -> void:
-	# Capture and live deck play need the camera centered on the active room.
-	# A static x=0 camera looked at the doorway between rooms and could miss all
-	# crew/marines in the Bridge (x=-10) and Barracks (x=10).
-	if camera == null:
+func _update_camera() -> void:
+	# First-person: camera at the captain's eyes, oriented by yaw (body) + pitch (look).
+	# Overhead: the original chase angle, now following the captain across the seamless deck.
+	if camera == null or captain == null:
 		return
-	var cx: float = float(ROOM_CENTERS[current_room_index])
-	camera.position = Vector3(cx, 6, 13)
-	camera.rotation_degrees = Vector3(-19, 0, 0)
+	if first_person:
+		camera.position = captain.position + Vector3(0, EYE_HEIGHT, 0)
+		camera.rotation = Vector3(_cam_pitch, captain.rotation.y, 0)
+		camera.fov = 72.0
+	else:
+		camera.position = Vector3(captain.position.x, 6, captain.position.z + 13)
+		camera.rotation_degrees = Vector3(-19, 0, 0)
+		camera.fov = 58.0
 
-func _clear_room() -> void:
+func _clear_deck() -> void:
 	for c in _room_container.get_children():
 		c.queue_free()
 	for c in _crew_container.get_children():
@@ -400,56 +418,39 @@ func _build_room_geometry(idx: int) -> void:
 	# in _set_deck_mode() — no local WorldEnvironment needed.
 
 func refresh_roster() -> void:
+	# Populate every room at once (the deck is seamless), distributing crew/marines by role:
+	# Bridge -> pilots/engineers, Crew Quarters -> gunners, Marine Barracks -> marines.
 	for c in crew_nodes:
 		if is_instance_valid(c["node"]):
 			c["node"].queue_free()
 	crew_nodes.clear()
 	var avail: Array = Game.available_crew()
-	var idx: int = 0
-	var total: int = 0
-	match current_room_index:
-		0:
-			var bridge_crew: Array = []
-			for c in avail:
-				var role: String = String(c.get("role", ""))
-				if role == "pilot" or role == "engineer":
-					bridge_crew.append(c)
-			total = max(1, bridge_crew.size())
-			for c in bridge_crew:
-				_spawn_crew_detail(c, idx, total)
-				idx += 1
-			if bridge_crew.is_empty():
-				for c in avail:
-					_spawn_crew_detail(c, idx, total)
-					idx += 1
-		1:
-			var quarters_crew: Array = []
-			for c in avail:
-				var role: String = String(c.get("role", ""))
-				if role == "gunner":
-					quarters_crew.append(c)
-			if quarters_crew.is_empty():
-				quarters_crew = avail.duplicate()
-			total = max(1, quarters_crew.size())
-			for c in quarters_crew:
-				_spawn_crew_detail(c, idx, total)
-				idx += 1
-		2:
-			var marines: Array = Game.available_marines()
-			total = max(1, marines.size())
-			var mi: int = 0
-			for m in marines:
-				_spawn_crew_marine_named(m, mi, total)
-				mi += 1
-			if marines.is_empty():
-				# No available marines — show the crew instead so the room isn't empty.
-				idx = 0
-				total = max(1, avail.size())
-				for c in avail:
-					_spawn_crew_detail(c, idx, total)
-					idx += 1
+	# Bridge (room 0): pilots + engineers (fallback to all crew so it never sits empty).
+	var bridge_crew: Array = []
+	for c in avail:
+		var role: String = String(c.get("role", ""))
+		if role == "pilot" or role == "engineer":
+			bridge_crew.append(c)
+	if bridge_crew.is_empty():
+		bridge_crew = avail.duplicate()
+	var bt: int = max(1, bridge_crew.size())
+	for i in range(bridge_crew.size()):
+		_spawn_crew_detail(bridge_crew[i], i, bt, 0)
+	# Crew Quarters (room 1): gunners.
+	var quarters_crew: Array = []
+	for c in avail:
+		if String(c.get("role", "")) == "gunner":
+			quarters_crew.append(c)
+	var qt: int = max(1, quarters_crew.size())
+	for i in range(quarters_crew.size()):
+		_spawn_crew_detail(quarters_crew[i], i, qt, 1)
+	# Marine Barracks (room 2): marines.
+	var marines: Array = Game.available_marines()
+	var mt: int = max(1, marines.size())
+	for i in range(marines.size()):
+		_spawn_crew_marine_named(marines[i], i, mt, 2)
 
-func _spawn_crew_detail(crew_dict: Dictionary, idx: int, total: int) -> void:
+func _spawn_crew_detail(crew_dict: Dictionary, idx: int, total: int, room_idx: int) -> void:
 	var role: String = String(crew_dict.get("role", ""))
 	var col: Color = Color(0.42, 0.72, 1.0)
 	match role:
@@ -457,7 +458,7 @@ func _spawn_crew_detail(crew_dict: Dictionary, idx: int, total: int) -> void:
 		"gunner": col = Color(1.0, 0.55, 0.15)
 	var hh: Node3D = _build_humanoid(col)
 	hh.scale = Vector3(1.28, 1.28, 1.28)
-	var cx: float = float(ROOM_CENTERS[current_room_index])
+	var cx: float = float(ROOM_CENTERS[room_idx])
 	var ang: float = float(idx) / float(total) * TAU
 	var home: Vector3 = Vector3(cx + sin(ang) * 3.0, 0, cos(ang) * 4.0)
 	hh.position = home
@@ -480,11 +481,11 @@ func _spawn_crew_detail(crew_dict: Dictionary, idx: int, total: int) -> void:
 		"home": home,
 	})
 
-func _spawn_crew_marine_named(marine_dict: Dictionary, idx: int, total: int) -> void:
+func _spawn_crew_marine_named(marine_dict: Dictionary, idx: int, total: int, room_idx: int) -> void:
 	var col: Color = Color(1.0, 0.5, 0.35)
 	var hh: Node3D = _build_humanoid(col)
 	hh.scale = Vector3(1.28, 1.28, 1.28)
-	var cx: float = float(ROOM_CENTERS[current_room_index])
+	var cx: float = float(ROOM_CENTERS[room_idx])
 	var ang: float = float(idx) / float(total) * TAU
 	var home: Vector3 = Vector3(cx + sin(ang) * 3.0, 0, cos(ang) * 4.0)
 	hh.position = home
@@ -529,17 +530,34 @@ func cycle_ship() -> void:
 		return
 	current_ship_index = (current_ship_index + 1) % ship_list.size()
 	current_room_index = 0
-	_build_current_room()
+	refresh_roster()
 	captain.position = Vector3(float(ROOM_CENTERS[0]), 0, 6)
+	_update_camera()
 
 func goto_room(idx: int) -> void:
 	if idx < 0 or idx >= ROOM_NAMES.size():
 		return
-	if idx == current_room_index:
-		return
 	current_room_index = idx
-	_build_current_room()
 	captain.position = Vector3(float(ROOM_CENTERS[idx]), 0, 6)
+	_update_camera()
+
+func set_first_person(on: bool) -> void:
+	first_person = on
+	_cam_pitch = 0.0
+	# Hide the captain's own body in first-person so the camera isn't inside the mesh.
+	if captain != null:
+		captain.visible = not on
+	_update_camera()
+
+func look(mouse_delta: Vector2) -> void:
+	# Mouse-look (first-person only): horizontal turns the body, vertical pitches the view.
+	if not first_person or captain == null:
+		return
+	if mouse_delta == Vector2.ZERO:
+		return
+	captain.rotation.y -= mouse_delta.x * LOOK_SENS
+	_cam_pitch = clamp(_cam_pitch - mouse_delta.y * LOOK_SENS, -1.45, 1.45)
+	_update_camera()
 
 func current_room_name() -> String:
 	return String(ROOM_NAMES[current_room_index % ROOM_NAMES.size()])
@@ -555,36 +573,48 @@ func current_ship_label() -> String:
 func set_active(a: bool) -> void:
 	active = a
 	visible = a
-	if camera and a:
-		camera.current = true
+	if captain != null:
+		captain.visible = not (a and first_person)
+	if a:
+		_update_camera()
+		if camera:
+			camera.current = true
 
 func process_deck(delta: float, input_vec: Vector2, follow_pressed: bool) -> void:
 	if not active or captain == null:
 		return
-	var cx: float = float(ROOM_CENTERS[current_room_index])
-	var hw: float = ROOM_W * 0.5
-	var hd: float = ROOM_D * 0.5
-	var move: Vector3 = Vector3(input_vec.x, 0, input_vec.y) * move_speed * delta
-	var new_pos: Vector3 = captain.position + move
-	var room_changed: bool = false
-	if current_room_index > 0 and new_pos.x < cx - hw:
-		current_room_index -= 1
-		new_pos.x = float(ROOM_CENTERS[current_room_index]) + hw - 0.5
-		new_pos.z = clamp(new_pos.z, -hd, hd)
-		room_changed = true
-	elif current_room_index < ROOM_NAMES.size() - 1 and new_pos.x > cx + hw:
-		current_room_index += 1
-		new_pos.x = float(ROOM_CENTERS[current_room_index]) - hw + 0.5
-		new_pos.z = clamp(new_pos.z, -hd, hd)
-		room_changed = true
+	# Build the world-space move vector. In first-person WASD is relative to where the
+	# captain faces (forward/strafe); in overhead it stays axis-aligned to the screen.
+	var move: Vector3
+	if first_person:
+		var b: Basis = captain.global_transform.basis
+		var fwd: Vector3 = -b.z       # captain forward (-Z)
+		var right: Vector3 = b.x
+		move = (right * input_vec.x - fwd * input_vec.y) * move_speed * delta
 	else:
-		new_pos.x = clamp(new_pos.x, cx - hw, cx + hw)
-		new_pos.z = clamp(new_pos.z, -hd, hd)
-	if room_changed:
-		_build_current_room()
+		move = Vector3(input_vec.x, 0, input_vec.y) * move_speed * delta
+
+	var pos: Vector3 = captain.position
+	var new_pos: Vector3 = pos + move
+	# Seamless deck bounds: the three rooms form one hall spanning X [-15,15], Z [-9,9].
+	var hd: float = ROOM_D * 0.5
+	var min_x: float = float(ROOM_CENTERS[0]) - ROOM_W * 0.5
+	var max_x: float = float(ROOM_CENTERS[ROOM_NAMES.size() - 1]) + ROOM_W * 0.5
+	new_pos.z = clamp(new_pos.z, -hd + BODY_R, hd - BODY_R)
+	# Inter-room walls block movement except through the central doorway gap.
+	for bx_v in ROOM_BOUNDARIES:
+		var bx: float = float(bx_v)
+		var crossing: bool = (pos.x - bx) * (new_pos.x - bx) < 0.0
+		if crossing and abs(new_pos.z) > DOOR_HALF:
+			new_pos.x = bx - BODY_R if pos.x < bx else bx + BODY_R
+	new_pos.x = clamp(new_pos.x, min_x + BODY_R, max_x - BODY_R)
 	captain.position = new_pos
-	if move.length() > 0.01:
+	# Track which room the captain is in (HUD label only — no rebuild).
+	current_room_index = clampi(int(round((new_pos.x - float(ROOM_CENTERS[0])) / ROOM_W)), 0, ROOM_NAMES.size() - 1)
+	# In overhead the body turns to face travel; in first-person the mouse owns the heading.
+	if not first_person and move.length() > 0.01:
 		captain.rotation.y = atan2(move.x, move.z)
+	_update_camera()
 	_nearest_idx = -1
 	var best: float = 3.0
 	for i in range(crew_nodes.size()):
