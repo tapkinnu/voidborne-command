@@ -36,7 +36,7 @@ def declared_triggers() -> list[str]:
         print("FAIL: could not locate SOUNDS table in audio.gd")
         sys.exit(1)
     body = m.group(1)
-    keys = re.findall(r'"([a-z0-9_]+)"\s*:\s*\{', body)
+    keys = re.findall(r'"([a-z0-9_]+)"\s*:', body)
     return keys
 
 

@@ -1,45 +1,63 @@
 extends Node
-# Audio: procedural SFX synthesizer. Builds short 16-bit PCM AudioStreamWAV tones at
-# runtime (no asset files) and plays them through a small voice pool. main.gd calls
-# play("<trigger>") for gameplay events. tools/check_audio_wiring.py statically verifies
-# that every SOUNDS trigger below has a corresponding play("<trigger>") call in scripts.
+# Audio: loads real OGG/WAV asset files from assets/audio/ and plays them
+# through a small voice pool. main.gd calls play("<trigger>") for gameplay
+# events. tools/check_audio_wiring.py statically verifies that every trigger
+# below has a corresponding play("<trigger>") call in scripts.
 # No class_name (instantiated by main.gd; avoids circular imports).
 
-const MIX_RATE: int = 22050
+const ASSET_PREFIX: String = "res://assets/audio/"
 
-# Trigger table. Each entry fully describes a procedural waveform.
-#   freq0/freq1  : start/end frequency sweep (Hz)
-#   dur          : seconds
-#   wave         : "sine" | "square" | "saw" | "noise"
-#   vol          : 0..1 amplitude
+# Trigger table. Each entry maps a trigger name to an asset file path.
+# All 21 triggers match the original procedural SOUNDS table — same names,
+# same play(trigger, pitch) call sites in main.gd.
 const SOUNDS: Dictionary = {
-	"laser":     {"freq0": 880.0, "freq1": 220.0, "dur": 0.14, "wave": "saw",    "vol": 0.35},
-	"beam":      {"freq0": 140.0, "freq1": 180.0, "dur": 0.40, "wave": "square", "vol": 0.30},
-	"hit":       {"freq0": 320.0, "freq1": 90.0,  "dur": 0.12, "wave": "square", "vol": 0.40},
-	"shield":    {"freq0": 600.0, "freq1": 900.0, "dur": 0.16, "wave": "sine",   "vol": 0.30},
-	"explosion": {"freq0": 200.0, "freq1": 40.0,  "dur": 0.55, "wave": "noise",  "vol": 0.55},
-	"disabled":  {"freq0": 440.0, "freq1": 110.0, "dur": 0.30, "wave": "saw",    "vol": 0.40},
-	"subsystem_hit": {"freq0": 520.0, "freq1": 140.0, "dur": 0.18, "wave": "square", "vol": 0.42},
-	"board":     {"freq0": 330.0, "freq1": 660.0, "dur": 0.25, "wave": "square", "vol": 0.35},
-	"boarding_round": {"freq0": 420.0, "freq1": 260.0, "dur": 0.10, "wave": "square", "vol": 0.30},
-	"boarding_fail":  {"freq0": 360.0, "freq1": 70.0,  "dur": 0.50, "wave": "saw",    "vol": 0.42},
-	"capture":   {"freq0": 440.0, "freq1": 880.0, "dur": 0.45, "wave": "sine",   "vol": 0.45},
-	"ui_recruit":{"freq0": 520.0, "freq1": 780.0, "dur": 0.12, "wave": "sine",   "vol": 0.30},
-	"ui_buy":    {"freq0": 660.0, "freq1": 990.0, "dur": 0.18, "wave": "sine",   "vol": 0.35},
-	"ui_deny":   {"freq0": 220.0, "freq1": 160.0, "dur": 0.16, "wave": "square", "vol": 0.30},
-	"thruster":  {"freq0": 70.0,  "freq1": 70.0,  "dur": 0.30, "wave": "noise",  "vol": 0.18},
-	"ambient":   {"freq0": 55.0,  "freq1": 55.0,  "dur": 4.00, "wave": "sine",   "vol": 0.08},
-	"weapon_overheat": {"freq0": 300.0, "freq1": 150.0, "dur": 0.30, "wave": "saw",    "vol": 0.25},
-	"hull_alarm":      {"freq0": 880.0, "freq1": 440.0, "dur": 0.40, "wave": "square", "vol": 0.30},
-	"engine_hit":      {"freq0": 200.0, "freq1": 80.0,  "dur": 0.15, "wave": "noise",  "vol": 0.35},
-	"mining_hit":      {"freq0": 180.0, "freq1": 120.0, "dur": 0.10, "wave": "noise",  "vol": 0.30},
-	"asteroid_break":  {"freq0": 140.0, "freq1": 50.0,  "dur": 0.40, "wave": "noise",  "vol": 0.45},
+	"laser":            ASSET_PREFIX + "sfx/laser.ogg",
+	"beam":             ASSET_PREFIX + "sfx/beam.ogg",
+	"hit":              ASSET_PREFIX + "sfx/hit.ogg",
+	"shield":           ASSET_PREFIX + "sfx/shield.ogg",
+	"explosion":        ASSET_PREFIX + "sfx/explosion.ogg",
+	"disabled":         ASSET_PREFIX + "sfx/disabled.ogg",
+	"subsystem_hit":    ASSET_PREFIX + "sfx/subsystem_hit.ogg",
+	"board":            ASSET_PREFIX + "sfx/board.ogg",
+	"boarding_round":   ASSET_PREFIX + "sfx/boarding_round.ogg",
+	"boarding_fail":    ASSET_PREFIX + "sfx/boarding_fail.ogg",
+	"capture":          ASSET_PREFIX + "sfx/capture.ogg",
+	"ui_recruit":       ASSET_PREFIX + "sfx/ui_recruit.ogg",
+	"ui_buy":           ASSET_PREFIX + "sfx/ui_buy.ogg",
+	"ui_deny":          ASSET_PREFIX + "sfx/ui_deny.ogg",
+	"thruster":         ASSET_PREFIX + "sfx/thruster.ogg",
+	"ambient":          ASSET_PREFIX + "sfx/ambient.ogg",
+	"weapon_overheat":  ASSET_PREFIX + "sfx/weapon_overheat.ogg",
+	"hull_alarm":       ASSET_PREFIX + "sfx/hull_alarm.ogg",
+	"engine_hit":       ASSET_PREFIX + "sfx/engine_hit.ogg",
+	"mining_hit":       ASSET_PREFIX + "sfx/mining_hit.ogg",
+	"asteroid_break":   ASSET_PREFIX + "sfx/asteroid_break.ogg",
 }
 
-var _streams: Dictionary = {}      # trigger -> AudioStreamWAV
+# Music tracks (looped on a dedicated player).
+const MUSIC: Dictionary = {
+	"combat":      ASSET_PREFIX + "music/combat.ogg",
+	"exploration": ASSET_PREFIX + "music/exploration.ogg",
+	"station":     ASSET_PREFIX + "music/station.ogg",
+}
+
+# Voice barks (one-shot, played on the SFX voice pool).
+const VOICE: Dictionary = {
+	"commander_battle_stations": ASSET_PREFIX + "voice/commander_battle_stations.ogg",
+	"commander_engage":          ASSET_PREFIX + "voice/commander_engage.ogg",
+	"marine_contact":            ASSET_PREFIX + "voice/marine_contact.ogg",
+	"marine_affirmative":        ASSET_PREFIX + "voice/marine_affirmative.ogg",
+	"announcer_docking":         ASSET_PREFIX + "voice/announcer_docking.ogg",
+	"announcer_welcome":         ASSET_PREFIX + "voice/announcer_welcome.ogg",
+}
+
+var _streams: Dictionary = {}      # trigger -> AudioStream (OGG/WAV file)
+var _voice_streams: Dictionary = {} # voice trigger -> AudioStream
+var _music_streams: Dictionary = {} # music name -> AudioStream
 var _voices: Array = []            # pool of AudioStreamPlayer (one-shot SFX)
 var _voice_idx: int = 0
-var _ambient_player: AudioStreamPlayer = null   # dedicated looping drone (never in the voice pool)
+var _ambient_player: AudioStreamPlayer = null   # dedicated looping ambient
+var _music_player: AudioStreamPlayer = null      # dedicated music player
 var enabled: bool = true
 
 # True when there is no real audio output device: either the headless display driver
@@ -62,67 +80,60 @@ func _audio_unavailable() -> bool:
 func _ready() -> void:
 	if _audio_unavailable():
 		enabled = false
+	# Pre-load all SFX streams so first-play does not stutter.
 	for key in SOUNDS.keys():
-		_streams[key] = _build_stream(SOUNDS[key])
+		var path: String = SOUNDS[key]
+		var stream: AudioStream = load(path)
+		if stream == null:
+			push_warning("audio.gd: failed to load SFX asset: %s" % path)
+			continue
+		_streams[key] = stream
+	# Pre-load voice streams.
+	for key in VOICE.keys():
+		var path: String = VOICE[key]
+		var stream: AudioStream = load(path)
+		if stream == null:
+			push_warning("audio.gd: failed to load voice asset: %s" % path)
+			continue
+		_voice_streams[key] = stream
+	# Pre-load music streams.
+	for key in MUSIC.keys():
+		var path: String = MUSIC[key]
+		var stream: AudioStream = load(path)
+		if stream == null:
+			push_warning("audio.gd: failed to load music asset: %s" % path)
+			continue
+		_loop_stream(stream)
+		_music_streams[key] = stream
+	# Voice pool for one-shot SFX.
 	for i in range(10):
 		var p: AudioStreamPlayer = AudioStreamPlayer.new()
-		p.bus = "Master"
+		p.bus = "SFX"
 		add_child(p)
 		_voices.append(p)
-	# Dedicated ambient drone player, looping its stream so it never re-triggers the voice pool.
-	var amb: AudioStreamWAV = _streams["ambient"]
-	amb.loop_mode = AudioStreamWAV.LOOP_FORWARD
-	amb.loop_begin = 0
-	amb.loop_end = amb.data.size() / 2   # loop_end is in sample frames (16-bit mono => 2 bytes/frame)
-	_ambient_player = AudioStreamPlayer.new()
-	_ambient_player.bus = "Master"
-	_ambient_player.stream = amb
-	add_child(_ambient_player)
+	# Dedicated ambient drone player (looping).
+	var amb_stream: AudioStream = _streams.get("ambient")
+	if amb_stream != null:
+		_loop_stream(amb_stream)
+		_ambient_player = AudioStreamPlayer.new()
+		_ambient_player.bus = "Ambient"
+		_ambient_player.stream = amb_stream
+		add_child(_ambient_player)
+	# Dedicated music player.
+	_music_player = AudioStreamPlayer.new()
+	_music_player.bus = "Music"
+	add_child(_music_player)
 
-func _build_stream(spec: Dictionary) -> AudioStreamWAV:
-	var dur: float = float(spec.get("dur", 0.2))
-	var wave: String = String(spec.get("wave", "sine"))
-	var f0: float = float(spec.get("freq0", 440.0))
-	var f1: float = float(spec.get("freq1", 440.0))
-	var vol: float = float(spec.get("vol", 0.3))
-	var n: int = int(MIX_RATE * dur)
-	var data: PackedByteArray = PackedByteArray()
-	data.resize(n * 2)
-	var phase: float = 0.0
-	var rng: RandomNumberGenerator = RandomNumberGenerator.new()
-	rng.seed = int(f0 * 1000.0) + int(dur * 100.0)
-	for i in range(n):
-		var t: float = float(i) / float(n)
-		var freq: float = lerp(f0, f1, t)
-		phase += freq / float(MIX_RATE)
-		var ph: float = fmod(phase, 1.0)
-		var s: float = 0.0
-		match wave:
-			"sine":
-				s = sin(ph * TAU)
-			"square":
-				s = 1.0 if ph < 0.5 else -1.0
-			"saw":
-				s = ph * 2.0 - 1.0
-			"noise":
-				s = rng.randf_range(-1.0, 1.0)
-			_:
-				s = sin(ph * TAU)
-		# Attack/decay envelope so tones do not click.
-		var env: float = 1.0
-		if t < 0.05:
-			env = t / 0.05
-		elif t > 0.7:
-			env = (1.0 - t) / 0.3
-		var sample: int = int(clamp(s * env * vol, -1.0, 1.0) * 32767.0)
-		data[i * 2] = sample & 0xFF
-		data[i * 2 + 1] = (sample >> 8) & 0xFF
-	var wav: AudioStreamWAV = AudioStreamWAV.new()
-	wav.format = AudioStreamWAV.FORMAT_16_BITS
-	wav.mix_rate = MIX_RATE
-	wav.stereo = false
-	wav.data = data
-	return wav
+func _loop_stream(stream: AudioStream) -> void:
+	# Set looping on AudioStreamWAV or AudioStreamOggVorbis as appropriate.
+	if stream is AudioStreamWAV:
+		stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
+		stream.loop_begin = 0
+		if stream.data != null:
+			stream.loop_end = stream.data.size() / 2
+	elif stream is AudioStreamOggVorbis:
+		stream.loop = true
+		stream.loop_offset = 0.0
 
 # Public trigger: play a named SFX. main.gd routes every gameplay event through here.
 # The "ambient" trigger is special-cased onto the dedicated looping player rather than the
@@ -133,13 +144,20 @@ func play(trigger: String, pitch: float = 1.0) -> void:
 	if trigger == "ambient":
 		start_ambient()
 		return
-	if not _streams.has(trigger):
-		return
-	var p: AudioStreamPlayer = _voices[_voice_idx]
-	_voice_idx = (_voice_idx + 1) % _voices.size()
-	p.stream = _streams[trigger]
-	p.pitch_scale = clamp(pitch, 0.5, 2.0)
-	p.play()
+	if _streams.has(trigger):
+		var p: AudioStreamPlayer = _voices[_voice_idx]
+		_voice_idx = (_voice_idx + 1) % _voices.size()
+		p.stream = _streams[trigger]
+		p.pitch_scale = clamp(pitch, 0.5, 2.0)
+		p.play()
+	elif _voice_streams.has(trigger):
+		var p: AudioStreamPlayer = _voices[_voice_idx]
+		_voice_idx = (_voice_idx + 1) % _voices.size()
+		p.stream = _voice_streams[trigger]
+		p.bus = "Voice"
+		p.pitch_scale = clamp(pitch, 0.5, 2.0)
+		p.play()
+		p.bus = "SFX"
 
 # Start (or resume) the looping ambient drone on its dedicated player.
 func start_ambient() -> void:
@@ -154,18 +172,39 @@ func set_ambient_volume(vol: float) -> void:
 		return
 	_ambient_player.volume_db = linear_to_db(clamp(vol, 0.0001, 1.0))
 
+# Play a music track by name. Stops any currently playing music first.
+func play_music(name: String) -> void:
+	if not enabled or _music_player == null:
+		return
+	if not _music_streams.has(name):
+		return
+	_music_player.stop()
+	_music_player.stream = _music_streams[name]
+	_music_player.play()
+
+# Stop the current music track.
+func stop_music() -> void:
+	if _music_player != null:
+		_music_player.stop()
+
+# Set the music volume (0..1 linear).
+func set_music_volume(vol: float) -> void:
+	if _music_player == null:
+		return
+	_music_player.volume_db = linear_to_db(clamp(vol, 0.0001, 1.0))
+
 # Stop the ambient drone and every voice player (cleanup / quit).
 func stop_all() -> void:
 	if _ambient_player != null:
 		_ambient_player.stop()
+	if _music_player != null:
+		_music_player.stop()
 	for p in _voices:
 		if p != null:
 			p.stop()
 
-# Full teardown on tree exit: stop every voice, detach the procedural streams so the
-# AudioServer releases its playbacks, and drop our stream references. Without this the
-# looping ambient playback (and its AudioStreamWAV) survives engine shutdown and shows
-# up as an "ObjectDB instances leaked at exit" warning during headless test runs.
+# Full teardown on tree exit: stop every voice, detach streams so the
+# AudioServer releases its playbacks, and drop our stream references.
 func _exit_tree() -> void:
 	stop_all()
 	for p in _voices:
@@ -173,4 +212,8 @@ func _exit_tree() -> void:
 			p.stream = null
 	if is_instance_valid(_ambient_player):
 		_ambient_player.stream = null
+	if is_instance_valid(_music_player):
+		_music_player.stream = null
 	_streams.clear()
+	_voice_streams.clear()
+	_music_streams.clear()
