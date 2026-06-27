@@ -187,6 +187,10 @@ func stop_music() -> void:
 	if _music_player != null:
 		_music_player.stop()
 
+# Check if a voice trigger exists in the voice table.
+func has_voice(trigger: String) -> bool:
+	return _voice_streams.has(trigger)
+
 # Set the music volume (0..1 linear).
 func set_music_volume(vol: float) -> void:
 	if _music_player == null:

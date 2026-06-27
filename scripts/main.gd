@@ -217,6 +217,16 @@ var _nebula_nodes: Array = []           # large nebula cloud MeshInstance3Ds, sl
 var _hull_alarm_cd: float = 0.0         # cooldown so the low-hull klaxon does not spam each frame
 var _overheat_cd: float = 0.0           # cooldown so the empty-energy weapon click does not spam
 
+# --- Music state machine ------------------------------------------------------
+# Tracks which music track is currently requested so we only call play_music/stop
+# when the state actually changes (avoids restart stutter).
+var _music_state: String = ""           # "" | "combat" | "exploration" | "station"
+var _music_combat_cooldown: float = 0.0 # seconds before combat music can flip back to exploration
+const MUSIC_COMBAT_COOLDOWN: float = 3.0
+# Voice-bark cooldowns so barks don't stack on the same frame.
+var _voice_bark_cd: float = 0.0
+const VOICE_BARK_INTERVAL: float = 4.0
+
 # --- Mission / objective system ---------------------------------------------
 # missions is a list of mission Dictionaries (see _init_missions). current_mission_index
 # points at the mission whose first incomplete objective feeds the top-center objective
@@ -883,6 +893,8 @@ func _toggle_dock_screen() -> void:
 		dock_screen_open = false
 		_msg("Station market closed.")
 	if audio: audio.play("ui_recruit")
+	if dock_screen_open:
+		_play_voice_bark("announcer_docking")
 
 func _dock_screen_row_count(tab: int) -> int:
 	# Rows the cursor may visit on each tab: shipyard offers, crew/marine, repair, info.
@@ -1920,6 +1932,10 @@ func _process_space(delta: float) -> void:
 	_update_debris(delta)
 	_update_boarding(delta)
 	_update_respawns(delta)
+	# Music state machine: combat -> station -> exploration with cooldown.
+	_update_music(delta)
+	# Voice bark cooldown tick.
+	_voice_bark_cd = max(0.0, _voice_bark_cd - delta)
 	# Mission completion is evaluated on a throttle (cheap, but no need to run every frame).
 	_mission_check_accum += delta
 	if _mission_check_accum >= MISSION_CHECK_INTERVAL:
@@ -2495,6 +2511,9 @@ func _try_fire(s: Node3D, delta: float, forced_target: Node3D = null) -> bool:
 		_fire_beam(s, aim_target)
 	else:
 		_fire_projectile(s, aim_target)
+	# First shot of an engagement: commander bark.
+	if s.is_player and is_instance_valid(aim_target) and aim_target.faction == "hostile":
+		_play_voice_bark("commander_engage")
 	return true
 
 func _try_fire_turrets(s: Node3D, delta: float, aim_target: Node3D) -> bool:
@@ -2759,6 +2778,7 @@ func _handle_damage_events(victim: Node3D, ev: Dictionary, impact_pos: Vector3 =
 		_msg("%s DISABLED — board it with marines [B]." % victim.ship_name)
 		if audio:
 			audio.play("disabled")
+		_play_voice_bark("commander_battle_stations")
 	if bool(ev.get("destroyed", false)):
 		_destroy_ship(victim)
 
@@ -3166,6 +3186,60 @@ func _nearest(from: Node3D, faction: String) -> Node3D:
 			best = s
 	return best
 
+# --- Music / voice helpers ----------------------------------------------------
+func _set_music(state: String) -> void:
+	# Only transition when the state changes to avoid restart stutter.
+	if _music_state == state:
+		return
+	_music_state = state
+	if audio == null:
+		return
+	match state:
+		"combat":
+			audio.play_music("combat")
+		"exploration":
+			audio.play_music("exploration")
+		"station":
+			audio.play_music("station")
+		_:
+			audio.stop_music()
+
+# Returns true if any live hostile ship (mobile or station) is within weapon range
+# of the player or any player-faction ship.
+func _combat_active() -> bool:
+	for s in ships:
+		if not is_instance_valid(s) or s.destroyed or s.faction != "hostile":
+			continue
+		# Check if any player ship is in range of this hostile.
+		for p in ships:
+			if not is_instance_valid(p) or p.destroyed or p.faction != "player":
+				continue
+			if p.global_position.distance_to(s.global_position) < max(p.weapon_range, s.weapon_range) * 1.2:
+				return true
+	return false
+
+# Evaluate and transition music once per frame inside _process_space.
+func _update_music(delta: float) -> void:
+	if _music_combat_cooldown > 0.0:
+		_music_combat_cooldown -= delta
+	var in_combat: bool = _combat_active()
+	if in_combat:
+		_set_music("combat")
+		_music_combat_cooldown = MUSIC_COMBAT_COOLDOWN
+	elif dock_screen_open or deck_mode:
+		_set_music("station")
+	elif _music_combat_cooldown <= 0.0:
+		_set_music("exploration")
+
+func _play_voice_bark(trigger: String) -> void:
+	if audio == null:
+		return
+	if _voice_bark_cd > 0.0:
+		return
+	if audio.has_voice(trigger):
+		audio.play(trigger)
+		_voice_bark_cd = VOICE_BARK_INTERVAL
+
 # ---------------------------------------------------------------------------
 # BOARDING & CAPTURE
 # ---------------------------------------------------------------------------
@@ -3269,6 +3343,7 @@ func _try_start_boarding() -> void:
 	boarding_initial_defender = boarding_defender_strength
 	_msg("Boarding %s — %d marines vs %d defenders!" % [target.ship_name, boarding_attacker_strength, boarding_defender_strength])
 	if audio: audio.play("board")
+	_play_voice_bark("marine_contact")
 	# An undefended target is captured the instant the boarders cross over.
 	if boarding_defender_strength <= 0:
 		_complete_capture(boarding_target)
@@ -3451,6 +3526,7 @@ func _complete_capture(s: Node3D) -> void:
 		s.crew_assigned = 0
 		_msg("%s CAPTURED but UNMANNED — recruit crew to fly it." % s.ship_name)
 	if audio: audio.play("capture")
+	_play_voice_bark("marine_affirmative")
 	_cancel_boarding()
 	# Preserve the capture milestone immediately.
 	_do_autosave()
@@ -4573,6 +4649,7 @@ func _set_deck_mode(on: bool) -> void:
 			world_env.environment.ambient_light_energy = 1.5
 			world_env.environment.background_color = Color(0.06, 0.08, 0.12, 1.0)
 		_msg("Entered CREW DECK. WASD move, F order follow, C exit, R next ship.")
+		_play_voice_bark("announcer_welcome")
 	else:
 		space_camera.current = true
 		if world_env:
