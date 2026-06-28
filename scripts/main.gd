@@ -856,7 +856,11 @@ func save_to_slot(slot_index: int, slot_name: String) -> bool:
 		_msg("Invalid save slot %d." % slot_index)
 		if audio: audio.play("ui_deny")
 		return false
-	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(save_slot_dir))
+	var dir_err: int = DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(save_slot_dir))
+	if dir_err != OK:
+		_msg("Save failed: cannot create directory %s (err %d)" % [save_slot_dir, dir_err])
+		if audio: audio.play("ui_deny")
+		return false
 	var data: Dictionary = _build_save_dict()
 	var f: FileAccess = FileAccess.open(slot_path(slot_index), FileAccess.WRITE)
 	if f == null:
@@ -864,7 +868,12 @@ func save_to_slot(slot_index: int, slot_name: String) -> bool:
 		if audio: audio.play("ui_deny")
 		return false
 	f.store_string(JSON.stringify(data, "\t"))
+	var write_err: int = f.get_error()
 	f.close()
+	if write_err != OK:
+		_msg("Save failed: write error on %s (err %d)" % [slot_path(slot_index), write_err])
+		if audio: audio.play("ui_deny")
+		return false
 	var nm: String = slot_name if slot_name != "" else "Slot %d" % slot_index
 	# Update the meta sidecar for this slot only, preserving the others.
 	var metas: Array = _read_slot_meta()
@@ -914,7 +923,9 @@ func delete_slot(slot_index: int) -> bool:
 		return false
 	if not FileAccess.file_exists(slot_path(slot_index)):
 		return false
-	DirAccess.remove_absolute(ProjectSettings.globalize_path(slot_path(slot_index)))
+	var rm_err: int = DirAccess.remove_absolute(ProjectSettings.globalize_path(slot_path(slot_index)))
+	if rm_err != OK:
+		push_warning("delete_slot: failed to remove %s (err %d)" % [slot_path(slot_index), rm_err])
 	var metas: Array = _read_slot_meta()
 	metas[slot_index - 1] = _empty_slot_meta(slot_index)
 	_write_slot_meta(metas)
@@ -961,12 +972,19 @@ func _read_slot_meta() -> Array:
 	return arr
 
 func _write_slot_meta(metas: Array) -> void:
-	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(save_slot_dir))
+	var dir_err: int = DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(save_slot_dir))
+	if dir_err != OK:
+		push_warning("_write_slot_meta: cannot create directory %s (err %d)" % [save_slot_dir, dir_err])
+		return
 	var f: FileAccess = FileAccess.open(_slot_meta_path(), FileAccess.WRITE)
 	if f == null:
+		push_warning("_write_slot_meta: cannot open %s for writing" % _slot_meta_path())
 		return
 	f.store_string(JSON.stringify(metas, "\t"))
+	var write_err: int = f.get_error()
 	f.close()
+	if write_err != OK:
+		push_warning("_write_slot_meta: write error on %s (err %d)" % [_slot_meta_path(), write_err])
 
 func _rebuild_slot_meta() -> Array:
 	# Scans slot_1.json..slot_N.json, extracting credits/fleet/system from each present
@@ -4884,7 +4902,12 @@ func _quick_save() -> bool:
 		if audio: audio.play("ui_deny")
 		return false
 	f.store_string(JSON.stringify(data, "\t"))
+	var write_err: int = f.get_error()
 	f.close()
+	if write_err != OK:
+		_msg("Save failed: write error on %s (err %d)" % [save_path, write_err])
+		if audio: audio.play("ui_deny")
+		return false
 	_msg("Game SAVED (v%d) — %d cr, fleet %d." % [SAVE_VERSION, Game.credits, _count_fleet()])
 	if audio: audio.play("ui_buy")
 	return true
@@ -4898,10 +4921,14 @@ func _do_autosave() -> bool:
 	var data: Dictionary = _build_save_dict()
 	var f: FileAccess = FileAccess.open(autosave_path, FileAccess.WRITE)
 	if f == null:
-		_msg("Autosave failed.")
+		_msg("Autosave failed: cannot open %s" % autosave_path)
 		return false
 	f.store_string(JSON.stringify(data, "\t"))
+	var write_err: int = f.get_error()
 	f.close()
+	if write_err != OK:
+		_msg("Autosave failed: write error (err %d)" % write_err)
+		return false
 	_msg("Autosaved (v%d) — %d cr, fleet %d." % [SAVE_VERSION, Game.credits, _count_fleet()])
 	if audio: audio.play("ui_buy")
 	return true
