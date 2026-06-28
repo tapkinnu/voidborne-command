@@ -1,6 +1,6 @@
 extends SceneTree
 
-func _init() -> void:
+func _initialize() -> void:
     var n_pass := 0
     var n_fail := 0
     var total := 0

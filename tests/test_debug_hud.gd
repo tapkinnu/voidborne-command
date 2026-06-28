@@ -2,7 +2,12 @@ extends SceneTree
 # Test for DebugHud autoload: loads main scene, waits for frame, 
 # sends KEY_F11 event, asserts visibility toggles, prints PASS and exits 0.
 
-func _init() -> void:
+func _initialize() -> void:
+	# Use SceneTree's _initialize() (not the _init() constructor): the constructor runs
+	# during object construction, before the engine registers autoloads (Game, GameConstants,
+	# Capture, DebugHud) as compile-time globals — so loading main.tscn there fails main.gd's
+	# ~120 `Game.*` references with "Identifier not found: Game". _initialize() runs after the
+	# autoloads are registered, so main.gd compiles cleanly.
 	# Load the main scene
 	var main_scene: PackedScene = load("res://scenes/main.tscn")
 	if main_scene == null:
