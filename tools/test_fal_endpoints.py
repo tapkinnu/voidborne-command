@@ -2,7 +2,7 @@
 """
 Debug test for music and voice endpoints.
 """
-import os, json, requests, time
+import os, json, requests, tempfile, time
 
 # Get FAL key from environment or read it
 FAL_KEY = os.environ.get("FAL_KEY", "")
@@ -13,7 +13,7 @@ if not FAL_KEY:
                 FAL_KEY = line.strip().split("=", 1)[1]
                 break
 
-print(f"FAL_KEY: {FAL_KEY[:6]}...")
+print("FAL_KEY: loaded (%d chars)" % len(FAL_KEY))
 base_url = "https://queue.fal.run"
 
 def submit_and_wait(endpoint, input_data, max_wait=300):
@@ -58,9 +58,10 @@ if result:
     # Download
     dl = requests.get(audio["url"], timeout=120)
     print(f"  Downloaded: {len(dl.content)} bytes")
-    with open("/tmp/test_music.wav", "wb") as f:
+    music_fd, music_path = tempfile.mkstemp(suffix=".wav", prefix="test_music_")
+    with os.fdopen(music_fd, "wb") as f:
         f.write(dl.content)
-    print("  Saved to /tmp/test_music.wav")
+    print(f"  Saved to {music_path}")
 
 # Test voice
 print("\n--- Voice Test ---")
@@ -73,8 +74,9 @@ if result:
     print(f"  Audio URL: {audio.get('url', 'none')}")
     dl = requests.get(audio["url"], timeout=60)
     print(f"  Downloaded: {len(dl.content)} bytes")
-    with open("/tmp/test_voice.wav", "wb") as f:
+    voice_fd, voice_path = tempfile.mkstemp(suffix=".wav", prefix="test_voice_")
+    with os.fdopen(voice_fd, "wb") as f:
         f.write(dl.content)
-    print("  Saved to /tmp/test_voice.wav")
+    print(f"  Saved to {voice_path}")
 
 print("\nDone!")

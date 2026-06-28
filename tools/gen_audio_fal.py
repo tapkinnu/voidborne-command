@@ -81,8 +81,10 @@ def download_audio(url: str) -> tuple[np.ndarray, int]:
         tmp.write(resp.content)
         tmp_path = tmp.name
     
-    data, rate = sf.read(tmp_path)
-    os.unlink(tmp_path)
+    try:
+        data, rate = sf.read(tmp_path)
+    finally:
+        os.unlink(tmp_path)
     return data, rate
 
 

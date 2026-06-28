@@ -151,41 +151,50 @@ def gen_sfx(idx, rel_path, prompt, secs):
     """Generate one SFX asset. Returns (rel_path, endpoint, prompt) on success, None on failure."""
     out_ogg = AUDIO_DIR / rel_path
     print(f"[{idx+1}/21 SFX] {rel_path}: \"{prompt[:60]}...\"", flush=True)
+    wav_tmp = None
     try:
         url = call_stable_audio(prompt, secs)
         wav_tmp = download(url)
         postprocess_sfx(wav_tmp, out_ogg)
-        os.unlink(wav_tmp)
         return (rel_path, "fal-ai/stable-audio", prompt)
     except Exception as e:
         print(f"  FAIL: {e}", flush=True)
         return None
+    finally:
+        if wav_tmp and os.path.exists(wav_tmp):
+            os.unlink(wav_tmp)
 
 def gen_music(idx, rel_path, prompt, secs):
     out_ogg = AUDIO_DIR / rel_path
     print(f"[{idx+1}/3 MUSIC] {rel_path}: \"{prompt[:60]}...\"", flush=True)
+    wav_tmp = None
     try:
         url = call_stable_audio_25(prompt, secs)
         wav_tmp = download(url)
         postprocess_music(wav_tmp, out_ogg)
-        os.unlink(wav_tmp)
         return (rel_path, "fal-ai/stable-audio-25/text-to-audio", prompt)
     except Exception as e:
         print(f"  FAIL: {e}", flush=True)
         return None
+    finally:
+        if wav_tmp and os.path.exists(wav_tmp):
+            os.unlink(wav_tmp)
 
 def gen_voice(idx, rel_path, text, voice_id, voice_desc):
     out_ogg = AUDIO_DIR / rel_path
     print(f"[{idx+1}/6 VOICE] {rel_path}: \"{text[:40]}...\"", flush=True)
+    wav_tmp = None
     try:
         url = call_elevenlabs_tts(text, voice_id)
         wav_tmp = download(url)
         postprocess_voice(wav_tmp, out_ogg)
-        os.unlink(wav_tmp)
         return (rel_path, "fal-ai/elevenlabs/tts/turbo-v2.5", f'text="{text}", voice={voice_desc}')
     except Exception as e:
         print(f"  FAIL: {e}", flush=True)
         return None
+    finally:
+        if wav_tmp and os.path.exists(wav_tmp):
+            os.unlink(wav_tmp)
 
 # ── Main ────────────────────────────────────────────────────────────────
 
