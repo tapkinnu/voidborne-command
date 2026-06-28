@@ -5,6 +5,7 @@ extends Node3D
 # Centralised balance knobs (also the "GameConstants" autoload). Preloaded for const-context
 # access so the disable threshold stays in lockstep with main.gd / GameConstants.
 const GC: GDScript = preload("res://scripts/game_constants.gd")
+const VfxMaterial: GDScript = preload("res://scripts/vfx_material.gd")
 
 const FACTION_TINTS: Dictionary = {
 	"player": Color(0.40, 1.00, 0.62),
@@ -300,23 +301,11 @@ func _build_mesh() -> void:
 	_engine_mat = _make_mat(Color(1.0, 0.65, 0.25), 4.0)
 
 	# Shared running-light material (faction-tinted, unshaded emissive). Pulsed in tick_visuals.
-	var rl_col: Color = _running_light_color()
-	_running_light_mat = StandardMaterial3D.new()
-	_running_light_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	_running_light_mat.albedo_color = rl_col
-	_running_light_mat.emission_enabled = true
-	_running_light_mat.emission = rl_col
-	_running_light_mat.emission_energy_multiplier = 1.4
+	_running_light_mat = VfxMaterial.make_emissive(_running_light_color(), 1.4)
 
 	# Engine exhaust plume material (transparent blue-white, double-sided).
-	_exhaust_mat = StandardMaterial3D.new()
-	_exhaust_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_exhaust_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	_exhaust_mat.albedo_color = Color(0.5, 0.7, 1.0, 0.35)
-	_exhaust_mat.emission_enabled = true
+	_exhaust_mat = VfxMaterial.make_emissive(Color(0.5, 0.7, 1.0, 0.35), 3.0, true, true)
 	_exhaust_mat.emission = Color(0.6, 0.8, 1.0)
-	_exhaust_mat.emission_energy_multiplier = 3.0
-	_exhaust_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 
 	var root: Node3D = Node3D.new()
 	root.name = "Hull"

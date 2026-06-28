@@ -18,6 +18,7 @@ const GC: GDScript = preload("res://scripts/game_constants.gd")
 const SaveSchema: GDScript = preload("res://scripts/save_schema.gd")
 const EconomyPricing: GDScript = preload("res://scripts/economy_pricing.gd")
 const SpaceBackdrop: GDScript = preload("res://scripts/space_backdrop.gd")
+const VfxMaterial: GDScript = preload("res://scripts/vfx_material.gd")
 
 # --- World object registries ------------------------------------------------
 var ships: Array = []              # all live Ship nodes (player, allies, hostiles, station)
@@ -2741,74 +2742,17 @@ func _fire_projectile(s: Node3D, aim_target: Node3D) -> void:
 	var aim_dir: Vector3 = fwd
 	if aim_target != null and is_instance_valid(aim_target):
 		aim_dir = (aim_target.global_position - s.global_position).normalized()
-		# Blend toward muzzle-forward so shots still look like they come from the ship.
 		aim_dir = (aim_dir * 0.7 + fwd * 0.3).normalized()
 	for m in muzzles:
 		var origin: Vector3 = _muzzle_world(s, m)
-		_spawn_muzzle_flash(origin, s.faction)
-		var node: MeshInstance3D = MeshInstance3D.new()
-		var cm: CapsuleMesh = CapsuleMesh.new()
-		cm.radius = 0.26
-		cm.height = 3.2
-		node.mesh = cm
-		var col: Color = Color(0.5, 1.0, 0.6) if s.faction == "player" else Color(1.0, 0.5, 0.35)
-		var mat: StandardMaterial3D = StandardMaterial3D.new()
-		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		mat.albedo_color = col
-		mat.emission_enabled = true
-		mat.emission = col
-		mat.emission_energy_multiplier = 8.0
-		node.material_override = mat
-		add_child(node)
-		node.global_position = origin
-		node.look_at(origin + aim_dir, Vector3.UP)
-		node.rotate_object_local(Vector3.RIGHT, PI / 2.0)
-		var speed: float = 90.0
-		# Only player shots carry a subsystem focus; AI fire is always generic hull damage.
-		var shot_sub: String = subsystem_focus if s.is_player else ""
-		projectiles.append({
-			"node": node,
-			"vel": aim_dir * speed + s.velocity,
-			"dmg": s.weapon_dmg,
-			"ttl": s.weapon_range / speed + 0.4,
-			"faction": s.faction,
-			"subsystem": shot_sub,
-		})
-	if audio:
-		audio.play("laser", rng.randf_range(0.9, 1.1))
+		_fire_projectile_from(s, aim_target, origin, aim_dir)
 
 func _fire_beam(s: Node3D, aim_target: Node3D) -> void:
 	if aim_target == null or not is_instance_valid(aim_target):
 		return
 	var origin: Vector3 = _muzzle_world(s, s.muzzles[0] if s.muzzles.size() > 0 else Vector3(0, 0, -3))
-	var dest: Vector3 = aim_target.global_position
-	var mid: Vector3 = (origin + dest) * 0.5
-	var length: float = origin.distance_to(dest)
-	var node: MeshInstance3D = MeshInstance3D.new()
-	var cm: CylinderMesh = CylinderMesh.new()
-	cm.top_radius = 0.4
-	cm.bottom_radius = 0.4
-	cm.height = length
-	node.mesh = cm
-	var col: Color = Color(0.6, 1.0, 0.8) if s.faction == "player" else Color(1.0, 0.4, 0.5)
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.albedo_color = col
-	mat.emission_enabled = true
-	mat.emission = col
-	mat.emission_energy_multiplier = 5.0
-	node.material_override = mat
-	add_child(node)
-	node.global_position = mid
-	node.look_at(dest, Vector3.UP)
-	node.rotate_object_local(Vector3.RIGHT, PI / 2.0)
-	_spawn_muzzle_flash(origin, s.faction)
-	beams.append({"node": node, "ttl": 0.3})
-	# Hitscan damage.
-	_apply_damage(s, aim_target, s.weapon_dmg)
-	_beam_hit_asteroids(origin, dest, s.weapon_dmg)
-	if audio:
-		audio.play("beam")
+	var fire_dir: Vector3 = (aim_target.global_position - origin).normalized()
+	_fire_beam_from(s, aim_target, origin, fire_dir)
 
 func _fire_projectile_from(s: Node3D, aim_target: Node3D, origin: Vector3, fire_dir: Vector3) -> void:
 	var node: MeshInstance3D = MeshInstance3D.new()
@@ -2816,14 +2760,7 @@ func _fire_projectile_from(s: Node3D, aim_target: Node3D, origin: Vector3, fire_
 	cm.radius = 0.26
 	cm.height = 3.2
 	node.mesh = cm
-	var col: Color = Color(0.5, 1.0, 0.6, 1.0) if s.faction == "player" else Color(1.0, 0.5, 0.35, 1.0)
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.albedo_color = col
-	mat.emission_enabled = true
-	mat.emission = col
-	mat.emission_energy_multiplier = 8.0
-	node.material_override = mat
+	node.material_override = VfxMaterial.make_emissive(VfxMaterial.projectile_color(s.faction), 8.0)
 	add_child(node)
 	node.global_position = origin
 	_spawn_muzzle_flash(origin, s.faction)
@@ -2856,14 +2793,7 @@ func _fire_beam_from(s: Node3D, aim_target: Node3D, origin: Vector3, fire_dir: V
 	cm.bottom_radius = 0.4
 	cm.height = length
 	node.mesh = cm
-	var col: Color = Color(0.6, 1.0, 0.8, 1.0) if s.faction == "player" else Color(1.0, 0.4, 0.5, 1.0)
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.albedo_color = col
-	mat.emission_enabled = true
-	mat.emission = col
-	mat.emission_energy_multiplier = 5.0
-	node.material_override = mat
+	node.material_override = VfxMaterial.make_emissive(VfxMaterial.beam_color(s.faction), 5.0)
 	add_child(node)
 	node.global_position = mid
 	node.look_at(dest, Vector3.UP)
@@ -3037,13 +2967,8 @@ func _spawn_explosion(pos: Vector3, base_radius: float) -> void:
 	sm.radius = 1.0
 	sm.height = 2.0
 	node.mesh = sm
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.albedo_color = Color(1.0, 0.7, 0.3, 1.0)
-	mat.emission_enabled = true
+	var mat: StandardMaterial3D = VfxMaterial.make_emissive(Color(1.0, 0.7, 0.3, 1.0), 6.0, true)
 	mat.emission = Color(1.0, 0.6, 0.2)
-	mat.emission_energy_multiplier = 6.0
 	node.material_override = mat
 	add_child(node)
 	node.global_position = pos
@@ -3077,22 +3002,18 @@ func _spawn_muzzle_flash(pos: Vector3, faction: String) -> void:
 	sm.radius = 0.8
 	sm.height = 1.6
 	node.mesh = sm
-	var col: Color = Color(0.5, 1.0, 0.6, 1.0) if faction == "player" else Color(1.0, 0.5, 0.35, 1.0)
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.albedo_color = col
-	mat.emission_enabled = true
-	mat.emission = col
-	mat.emission_energy_multiplier = 10.0
+	var col: Color = VfxMaterial.projectile_color(faction)
+	var mat: StandardMaterial3D = VfxMaterial.make_emissive(col, 10.0, true)
 	node.material_override = mat
 	add_child(node)
 	node.global_position = pos
 	_muzzle_flashes.append({"node": node, "mat": mat, "ttl": 0.12, "life": 0.12, "start_scale": 1.0, "end_scale": 2.5})
 
-func _update_muzzle_flashes(delta: float) -> void:
+func _tick_scale_fade_vfx(list: Array, delta: float, initial_alpha: float = 1.0) -> Array:
+	# Shared update loop for transient VFX dicts (muzzle flashes, shield impacts).
+	# Each dict must have: node, mat, ttl, life, start_scale, end_scale.
 	var keep: Array = []
-	for e in _muzzle_flashes:
+	for e in list:
 		var ed: Dictionary = e
 		ed["ttl"] = float(ed["ttl"]) - delta
 		var node: Node3D = ed["node"]
@@ -3102,12 +3023,15 @@ func _update_muzzle_flashes(delta: float) -> void:
 		var sc: float = lerp(float(ed["start_scale"]), float(ed["end_scale"]), t)
 		node.scale = Vector3(sc, sc, sc)
 		var mat: StandardMaterial3D = ed["mat"]
-		mat.albedo_color = Color(mat.albedo_color.r, mat.albedo_color.g, mat.albedo_color.b, 1.0 - t)
+		mat.albedo_color = Color(mat.albedo_color.r, mat.albedo_color.g, mat.albedo_color.b, initial_alpha * (1.0 - t))
 		if float(ed["ttl"]) <= 0.0:
 			node.queue_free()
 		else:
 			keep.append(ed)
-	_muzzle_flashes = keep
+	return keep
+
+func _update_muzzle_flashes(delta: float) -> void:
+	_muzzle_flashes = _tick_scale_fade_vfx(_muzzle_flashes, delta, 1.0)
 
 func _spawn_shield_impact(pos: Vector3, victim: Node3D) -> void:
 	var node: MeshInstance3D = MeshInstance3D.new()
@@ -3115,37 +3039,15 @@ func _spawn_shield_impact(pos: Vector3, victim: Node3D) -> void:
 	sm.radius = 1.5
 	sm.height = 3.0
 	node.mesh = sm
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	mat.albedo_color = Color(0.5, 0.8, 1.0, 0.8)
-	mat.emission_enabled = true
+	var mat: StandardMaterial3D = VfxMaterial.make_emissive(Color(0.5, 0.8, 1.0, 0.8), 4.0, true, true)
 	mat.emission = Color(0.4, 0.7, 1.0)
-	mat.emission_energy_multiplier = 4.0
 	node.material_override = mat
 	add_child(node)
 	node.global_position = pos
 	_shield_impacts.append({"node": node, "mat": mat, "ttl": 0.3, "life": 0.3, "start_scale": 0.5, "end_scale": 2.0})
 
 func _update_shield_impacts(delta: float) -> void:
-	var keep: Array = []
-	for e in _shield_impacts:
-		var ed: Dictionary = e
-		ed["ttl"] = float(ed["ttl"]) - delta
-		var node: Node3D = ed["node"]
-		if not is_instance_valid(node):
-			continue
-		var t: float = 1.0 - clamp(float(ed["ttl"]) / float(ed["life"]), 0.0, 1.0)
-		var sc: float = lerp(float(ed["start_scale"]), float(ed["end_scale"]), t)
-		node.scale = Vector3(sc, sc, sc)
-		var mat: StandardMaterial3D = ed["mat"]
-		mat.albedo_color = Color(mat.albedo_color.r, mat.albedo_color.g, mat.albedo_color.b, 0.8 * (1.0 - t))
-		if float(ed["ttl"]) <= 0.0:
-			node.queue_free()
-		else:
-			keep.append(ed)
-	_shield_impacts = keep
+	_shield_impacts = _tick_scale_fade_vfx(_shield_impacts, delta, 0.8)
 
 func _spawn_hit_decal(victim: Node3D, impact_pos: Vector3) -> void:
 	# Cap per ship so long fights don't grow unbounded decal counts.
@@ -3158,14 +3060,8 @@ func _spawn_hit_decal(victim: Node3D, impact_pos: Vector3) -> void:
 	var qm: QuadMesh = QuadMesh.new()
 	qm.size = Vector2(0.8, 0.8)
 	node.mesh = qm
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.albedo_color = Color(0.05, 0.03, 0.02, 0.85)
-	mat.emission_enabled = true
+	var mat: StandardMaterial3D = VfxMaterial.make_emissive(Color(0.05, 0.03, 0.02, 0.85), 0.3, true, true, true)
 	mat.emission = Color(0.3, 0.1, 0.05)
-	mat.emission_energy_multiplier = 0.3
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	mat.no_depth_test = true
 	node.material_override = mat
 	parent.add_child(node)
 	# Sit just outside the hull at the impact point, facing outward from the ship centre.
@@ -3187,11 +3083,8 @@ func _spawn_debris(pos: Vector3, base_radius: float, faction: String) -> void:
 		var fs: float = rng.randf_range(0.5, 1.5)
 		bm.size = Vector3(0.4, 0.4, 0.4) * fs
 		node.mesh = bm
-		var mat: StandardMaterial3D = StandardMaterial3D.new()
-		mat.albedo_color = hull_col
-		mat.emission_enabled = true
+		var mat: StandardMaterial3D = VfxMaterial.make_emissive(hull_col, 2.0)
 		mat.emission = Color(0.8, 0.4, 0.15)
-		mat.emission_energy_multiplier = 2.0
 		node.material_override = mat
 		add_child(node)
 		node.global_position = pos + Vector3(
@@ -3325,13 +3218,7 @@ func _add_demo_beam(from_pos: Vector3, to_pos: Vector3, col: Color) -> void:
 	cm.bottom_radius = 0.7
 	cm.height = length
 	node.mesh = cm
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.albedo_color = col
-	mat.emission_enabled = true
-	mat.emission = col
-	mat.emission_energy_multiplier = 12.0
-	node.material_override = mat
+	node.material_override = VfxMaterial.make_emissive(col, 12.0)
 	add_child(node)
 	node.global_position = (from_pos + to_pos) * 0.5
 	node.look_at(to_pos, Vector3.UP)
@@ -3343,13 +3230,8 @@ func _add_demo_burst(pos: Vector3, radius: float) -> void:
 	sm.radius = radius
 	sm.height = radius * 2.0
 	node.mesh = sm
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.albedo_color = Color(1.0, 0.55, 0.18, 0.78)
-	mat.emission_enabled = true
+	var mat: StandardMaterial3D = VfxMaterial.make_emissive(Color(1.0, 0.55, 0.18, 0.78), 9.0, true)
 	mat.emission = Color(1.0, 0.38, 0.08)
-	mat.emission_energy_multiplier = 9.0
 	node.material_override = mat
 	add_child(node)
 	node.global_position = pos
@@ -3670,6 +3552,21 @@ func _cancel_boarding() -> void:
 	boarding_attacker_strength = 0
 	boarding_defender_strength = 0
 
+func _try_man_ship(s: Node3D, ai_state_override: String = "follow") -> bool:
+	# Assign crew from the available pool to man an unmanned player ship. Returns true
+	# if the ship was successfully manned. Callers handle their own messaging.
+	if Game.crew_pool < s.crew_needed:
+		s.manned = false
+		s.crew_assigned = 0
+		return false
+	var assigned_crew: Array = Game.assign_best_crew(s.crew_needed)
+	s.set_meta("assigned_crew", assigned_crew)
+	s.apply_crew_bonuses(assigned_crew)
+	s.crew_assigned = assigned_crew.size()
+	s.manned = true
+	s.ai_state = ai_state_override
+	return true
+
 func _complete_capture(s: Node3D) -> void:
 	var was_hostile: bool = s.faction == "hostile"
 	var reward: int = _capture_credit_reward(s) if was_hostile else 0
@@ -3702,17 +3599,9 @@ func _complete_capture(s: Node3D) -> void:
 		Game.credits += reward
 		_msg("Boarding prize secured: +%d cr capture bounty." % reward)
 	# Try to man it from the crew pool; otherwise it is captured-but-unmanned.
-	if Game.crew_pool >= s.crew_needed:
-		var assigned_crew: Array = Game.assign_best_crew(s.crew_needed)
-		s.set_meta("assigned_crew", assigned_crew)
-		s.apply_crew_bonuses(assigned_crew)
-		s.crew_assigned = assigned_crew.size()
-		s.manned = true
-		s.ai_state = "follow"
+	if _try_man_ship(s):
 		_msg("%s CAPTURED and manned — joins your fleet!" % s.ship_name)
 	else:
-		s.manned = false
-		s.crew_assigned = 0
 		_msg("%s CAPTURED but UNMANNED — recruit crew to fly it." % s.ship_name)
 	if audio: audio.play("capture")
 	_play_voice_bark("marine_affirmative")
@@ -4407,19 +4296,10 @@ func _buy_ship(near_station: bool) -> void:
 		_purchased_frigate = true   # mission tracking: buy_frigate objective
 	var pos: Vector3 = station.global_position + Vector3(rng.randf_range(-14, 14), 6, 18)
 	var s: Node3D = _spawn_ship(buy_class, "player", "%s-%d" % [buy_class.capitalize(), Game.purchased_count], pos)
-	var need: int = s.crew_needed
-	if Game.crew_pool >= need:
-		var assigned_crew: Array = Game.assign_best_crew(need)
-		s.set_meta("assigned_crew", assigned_crew)
-		s.apply_crew_bonuses(assigned_crew)
-		s.crew_assigned = assigned_crew.size()
-		s.manned = true
-		s.ai_state = "follow"
-		_msg("Bought %s and assigned %d crew — manned, joins fleet." % [buy_class, assigned_crew.size()])
+	if _try_man_ship(s):
+		_msg("Bought %s and assigned %d crew — manned, joins fleet." % [buy_class, s.crew_assigned])
 	else:
-		s.manned = false
-		s.crew_assigned = 0
-		_msg("Bought %s but UNMANNED (needs %d crew)." % [buy_class, need])
+		_msg("Bought %s but UNMANNED (needs %d crew)." % [buy_class, s.crew_needed])
 	if audio: audio.play("ui_buy")
 
 # ---------------------------------------------------------------------------
@@ -4608,16 +4488,11 @@ func _toggle_fleet_menu() -> void:
 	# First use available crew to man any owned ships; if none need crew, [F] opens/closes
 	# the fleet order menu (the player then picks an order with the number keys).
 	var changed: int = 0
+	var man_order: String = fleet_order if fleet_order != "attack" else "follow"
 	for s in ships:
 		if not is_instance_valid(s) or s.faction != "player" or s.is_player:
 			continue
-		if not s.manned and Game.crew_pool >= s.crew_needed:
-			var assigned_crew: Array = Game.assign_best_crew(s.crew_needed)
-			s.set_meta("assigned_crew", assigned_crew)
-			s.apply_crew_bonuses(assigned_crew)
-			s.crew_assigned = assigned_crew.size()
-			s.manned = true
-			s.ai_state = fleet_order if fleet_order != "attack" else "follow"
+		if not s.manned and _try_man_ship(s, man_order):
 			changed += 1
 	if changed > 0:
 		_msg("Assigned crew to %d ship(s) — now manned and ordered." % changed)
@@ -4877,32 +4752,23 @@ func _handle_save_load() -> void:
 		_quick_load()
 
 func _quick_save() -> bool:
+	return _write_save_to(save_path, "Game SAVED", "Save failed: cannot open %s" % save_path)
+
+func _do_autosave() -> bool:
+	if auto_demo:
+		return false
+	return _write_save_to(autosave_path, "Autosaved", "Autosave failed.")
+
+func _write_save_to(path: String, ok_label: String, fail_msg: String) -> bool:
 	var data: Dictionary = _build_save_dict()
-	var f: FileAccess = FileAccess.open(save_path, FileAccess.WRITE)
+	var f: FileAccess = FileAccess.open(path, FileAccess.WRITE)
 	if f == null:
-		_msg("Save failed: cannot open %s" % save_path)
+		_msg(fail_msg)
 		if audio: audio.play("ui_deny")
 		return false
 	f.store_string(JSON.stringify(data, "\t"))
 	f.close()
-	_msg("Game SAVED (v%d) — %d cr, fleet %d." % [SAVE_VERSION, Game.credits, _count_fleet()])
-	if audio: audio.play("ui_buy")
-	return true
-
-func _do_autosave() -> bool:
-	# Non-destructive periodic/event autosave to autosave_path. Reuses _build_save_dict()
-	# and the manual write pattern; it never touches save_path. Skipped entirely in
-	# capture/demo mode so headless screenshot/smoke runs stay clean.
-	if auto_demo:
-		return false
-	var data: Dictionary = _build_save_dict()
-	var f: FileAccess = FileAccess.open(autosave_path, FileAccess.WRITE)
-	if f == null:
-		_msg("Autosave failed.")
-		return false
-	f.store_string(JSON.stringify(data, "\t"))
-	f.close()
-	_msg("Autosaved (v%d) — %d cr, fleet %d." % [SAVE_VERSION, Game.credits, _count_fleet()])
+	_msg("%s (v%d) — %d cr, fleet %d." % [ok_label, SAVE_VERSION, Game.credits, _count_fleet()])
 	if audio: audio.play("ui_buy")
 	return true
 
@@ -5052,39 +4918,19 @@ func _ship_to_dict(s: Node3D) -> Dictionary:
 	return d
 
 func _quick_load() -> bool:
-	if not FileAccess.file_exists(save_path):
-		_msg("No save found — press [V] to save first.")
-		if audio: audio.play("ui_deny")
-		return false
-	var f: FileAccess = FileAccess.open(save_path, FileAccess.READ)
-	if f == null:
-		_msg("Load failed: cannot open save file.")
-		if audio: audio.play("ui_deny")
-		return false
-	var text: String = f.get_as_text()
-	f.close()
-	var parsed: Variant = _parse_json_silent(text)
-	var reason: String = _validate_save(parsed)
-	if reason != "":
-		# Rejected saves never clobber the live battle state.
-		_msg("Save rejected: %s" % reason)
-		if audio: audio.play("ui_deny")
-		return false
-	_apply_save(parsed)
-	_msg("Game LOADED (v%d) — %d cr, fleet %d." % [int((parsed as Dictionary)["version"]), Game.credits, _count_fleet()])
-	if audio: audio.play("ui_buy")
-	return true
+	return _load_from_path(save_path, "Game LOADED", "No save found — press [V] to save first.", "Load failed: cannot open save file.", "Save rejected")
 
 func _load_autosave() -> bool:
-	# Loads from the autosave slot (not save_path). Same validate/apply path as _quick_load.
-	# Intended for programmatic/test use; quick-load [L] still loads the manual slot.
-	if not FileAccess.file_exists(autosave_path):
-		_msg("No autosave found.")
+	return _load_from_path(autosave_path, "Autosave LOADED", "No autosave found.", "Load failed: cannot open autosave file.", "Autosave rejected")
+
+func _load_from_path(path: String, ok_label: String, missing_msg: String, open_fail_msg: String, reject_prefix: String) -> bool:
+	if not FileAccess.file_exists(path):
+		_msg(missing_msg)
 		if audio: audio.play("ui_deny")
 		return false
-	var f: FileAccess = FileAccess.open(autosave_path, FileAccess.READ)
+	var f: FileAccess = FileAccess.open(path, FileAccess.READ)
 	if f == null:
-		_msg("Load failed: cannot open autosave file.")
+		_msg(open_fail_msg)
 		if audio: audio.play("ui_deny")
 		return false
 	var text: String = f.get_as_text()
@@ -5092,11 +4938,11 @@ func _load_autosave() -> bool:
 	var parsed: Variant = _parse_json_silent(text)
 	var reason: String = _validate_save(parsed)
 	if reason != "":
-		_msg("Autosave rejected: %s" % reason)
+		_msg("%s: %s" % [reject_prefix, reason])
 		if audio: audio.play("ui_deny")
 		return false
 	_apply_save(parsed)
-	_msg("Autosave LOADED (v%d) — %d cr, fleet %d." % [int((parsed as Dictionary)["version"]), Game.credits, _count_fleet()])
+	_msg("%s (v%d) — %d cr, fleet %d." % [ok_label, int((parsed as Dictionary)["version"]), Game.credits, _count_fleet()])
 	if audio: audio.play("ui_buy")
 	return true
 
