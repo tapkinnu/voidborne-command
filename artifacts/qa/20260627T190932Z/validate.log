@@ -1,0 +1,60 @@
+== Voidborne Command :: validate_build ==
+godot=/home/ganomix/tools/godot/Godot_v4.4.1-stable_linux.x86_64 driver=vulkan
+-- Step 1: import --------------------------------------------
+-- Step 1b: save/load schema verifier ------------------------
+VOIDBORNE_SAVE_LOAD_VERIFY: PASS (35 cases)
+-- Step 2: GDScript tests -------------------------------------
+test=tests/test_asteroid_mining.gd
+test=tests/test_autosave.gd
+test=tests/test_boarding_squad.gd
+test=tests/test_bounty_board.gd
+test=tests/test_captured_station_persistence.gd
+test=tests/test_combat_vfx.gd
+test=tests/test_commodity_trading.gd
+test=tests/test_crew_deck_camera.gd
+test=tests/test_crew_humanoid_detail.gd
+test=tests/test_deck_navigation.gd
+test=tests/test_dock_screen.gd
+test=tests/test_fleet_attack.gd
+test=tests/test_fleet_order_menu.gd
+test=tests/test_fleet_orders.gd
+test=tests/test_guard_station_order.gd
+test=tests/test_jump_system.gd
+test=tests/test_marine_garrison_assignment.gd
+test=tests/test_marine_wounds.gd
+test=tests/test_mining_mission.gd
+test=tests/test_mission_giver.gd
+test=tests/test_mission_system.gd
+test=tests/test_morale_system.gd
+test=tests/test_mouse_aim_gamepad.gd
+test=tests/test_named_crew.gd
+test=tests/test_named_marines.gd
+test=tests/test_patrol_order.gd
+test=tests/test_perf_budget.gd
+test=tests/test_salvage_rewards.gd
+test=tests/test_save_load.gd
+test=tests/test_save_slots.gd
+test=tests/test_settings_menu.gd
+test=tests/test_ship_upgrades.gd
+test=tests/test_shipyard_market.gd
+test=tests/test_state_transitions.gd
+test=tests/test_station_capture_targeting.gd
+test=tests/test_station_services.gd
+test=tests/test_subsystem_targeting.gd
+test=tests/test_system_map.gd
+test=tests/test_turret_tracking.gd
+test=tests/test_visual_fidelity.gd
+test=tests/test_wing_groups.gd
+-- Step 3: smoke run (10s) -----------------------------------
+-- Step 4: scan for fatal errors -----------------------------
+PASS: no SCRIPT ERROR / Parse Error / Invalid call. Log: /home/ganomix/projects/voidborne-command/artifacts/validate.log
+-- Step 5: screenshot diff (optional) -------------------------
+comparing 5 image(s) (threshold=30, max_diff_pct=5.00)
+filename                      diff_pct mean_diff  result
+01_space_battle.png            49.096%    48.644  FAIL
+02_dogfight.png                61.555%    69.088  FAIL
+03_target_lock.png             73.457%    84.482  FAIL
+04_crew_deck.png                2.786%     3.514  PASS
+05_fleet.png                   71.458%   103.234  FAIL
+SCREENSHOT_DIFF: FAIL
+WARN: screenshot diff detected regression (non-fatal)

@@ -1,0 +1,25 @@
+Declared triggers (21): laser, beam, hit, shield, explosion, disabled, subsystem_hit, board, boarding_round, boarding_fail, capture, ui_recruit, ui_buy, ui_deny, thruster, ambient, weapon_overheat, hull_alarm, engine_hit, mining_hit, asteroid_break
+
+  OK   laser        <- play() in main.gd
+  OK   beam         <- play() in main.gd
+  OK   hit          <- play() in main.gd
+  OK   shield       <- play() in main.gd
+  OK   explosion    <- play() in main.gd
+  OK   disabled     <- play() in main.gd
+  OK   subsystem_hit <- play() in main.gd
+  OK   board        <- play() in main.gd
+  OK   boarding_round <- play() in main.gd
+  OK   boarding_fail <- play() in main.gd
+  OK   capture      <- play() in main.gd
+  OK   ui_recruit   <- play() in main.gd
+  OK   ui_buy       <- play() in main.gd
+  OK   ui_deny      <- play() in main.gd
+  OK   thruster     <- play() in main.gd
+  OK   ambient      <- play() in main.gd
+  OK   weapon_overheat <- play() in main.gd
+  OK   hull_alarm   <- play() in main.gd
+  OK   engine_hit   <- play() in main.gd
+  OK   mining_hit   <- play() in main.gd
+  OK   asteroid_break <- play() in main.gd
+
+PASS: all 21 SFX triggers are wired to gameplay call sites.
