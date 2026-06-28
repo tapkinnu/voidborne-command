@@ -17,6 +17,7 @@ boot_splash/show_image=false
 GameConstants="*res://scripts/game_constants.gd"
 Game="*res://scripts/game_state.gd"
 Capture="*res://scripts/capture.gd"
+DebugHud="*res://scripts/debug_hud.gd"
 
 [display]
 

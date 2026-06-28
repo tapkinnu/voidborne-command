@@ -132,6 +132,10 @@ func class_stat(ship_class: String, key: String) -> float:
 func class_info(ship_class: String) -> Dictionary:
 	return SHIP_CLASSES.get(ship_class, {})
 
+func get_ship_display_name(ship_class: String) -> String:
+	var info: Dictionary = class_info(ship_class)
+	return String(info.get("display", ship_class))
+
 # --- Meshy visual-upgrade flag ---------------------------------------------
 # When true, ALL entity classes swap their procedural visual for a
 # Meshy-generated GLB under res://assets/models/meshy_visual_upgrade/.
