@@ -150,15 +150,18 @@ def main():
     for i, (rel_path, prompt, secs) in enumerate(MUSIC_ASSETS):
         out_ogg = AUDIO_DIR / rel_path
         print(f"[{i+1}/3] {rel_path}: \"{prompt[:60]}...\" ({secs}s)", flush=True)
+        wav_tmp = None
         try:
             url = call_stable_audio_25(prompt, secs)
             wav_tmp = download(url, suffix=".wav")
             postprocess_music(wav_tmp, out_ogg)
-            os.unlink(wav_tmp)
             sources.append(("Music", rel_path, "fal-ai/stable-audio-25/text-to-audio", prompt))
         except Exception as e:
             print(f"  FAIL: {e}", flush=True)
             import traceback; traceback.print_exc()
+        finally:
+            if wav_tmp and os.path.exists(wav_tmp):
+                os.unlink(wav_tmp)
         time.sleep(1)
 
     # ── Voice ───────────────────────────────────────────────────────
@@ -166,16 +169,19 @@ def main():
     for i, (rel_path, text, voice_id, voice_desc) in enumerate(VOICE_ASSETS):
         out_ogg = AUDIO_DIR / rel_path
         print(f"[{i+1}/6] {rel_path}: \"{text}\"", flush=True)
+        mp3_tmp = None
         try:
             url = call_elevenlabs_tts(text, voice_id)
             # ElevenLabs returns MP3
             mp3_tmp = download(url, suffix=".mp3")
             postprocess_voice(mp3_tmp, out_ogg, is_mp3=True)
-            os.unlink(mp3_tmp)
             sources.append(("Voice", rel_path, "fal-ai/elevenlabs/tts/turbo-v2.5", f'text="{text}", voice={voice_desc}'))
         except Exception as e:
             print(f"  FAIL: {e}", flush=True)
             import traceback; traceback.print_exc()
+        finally:
+            if mp3_tmp and os.path.exists(mp3_tmp):
+                os.unlink(mp3_tmp)
         time.sleep(0.5)
 
     # ── Add existing SFX to sources (already FAL-generated) ─────────

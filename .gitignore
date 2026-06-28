@@ -18,6 +18,13 @@ artifacts/baseline/
 artifacts/*.log
 .studio/*.log
 
+# Secrets / credentials — never commit API keys or env files
+.env
+.env.*
+*.env
+*.pem
+*.key
+
 # OS
 .DS_Store
 Thumbs.db
