@@ -2067,6 +2067,14 @@ func _process_space(delta: float) -> void:
 	# (called by _process after this returns) so the pause overlay stays on screen. We use
 	# this boolean rather than get_tree().paused so timers and the capture autoload survive.
 	# The station market / dock screen freezes the sim the same way while it is open.
+	# Fleet-order invariants must hold even while the sim is soft-paused by an overlay: a
+	# commanded target can be captured/destroyed (faction flip) by the capture autoload or
+	# a direct call while the tutorial/dock/save overlay is up, and the fleet must drop a
+	# now-invalid attack/defend/guard order regardless. These validators are cheap and only
+	# clear stale orders, so they run before the pause gate.
+	_validate_fleet_attack()
+	_validate_fleet_defend()
+	_validate_fleet_guard_station()
 	if paused or dock_screen_open or save_menu_open or mission_giver_open or tutorial_open:
 		return
 	# Opening ceasefire countdown: hostiles hold fire on the player until this reaches 0
@@ -2087,9 +2095,6 @@ func _process_space(delta: float) -> void:
 			_hull_alarm_cd = 0.0
 	if is_instance_valid(player) and not player.destroyed:
 		_player_control(delta)
-	_validate_fleet_attack()
-	_validate_fleet_defend()
-	_validate_fleet_guard_station()
 	_run_ai(delta)
 	_process_docking(delta)
 	_integrate_motion(delta)
