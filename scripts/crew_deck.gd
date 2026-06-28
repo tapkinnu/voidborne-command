@@ -26,13 +26,41 @@ const BODY_R: float = 0.4            # captain "radius" for wall clearance
 var current_room_index: int = 0
 var _room_container: Node3D
 var _crew_container: Node3D
-const ROOM_NAMES: Array = ["Bridge", "Crew Quarters", "Marine Barracks"]
-const ROOM_W: float = 10.0
-const ROOM_D: float = 18.0
-const ROOM_CENTERS: Array = [-10.0, 0.0, 10.0]
+# Room layout is now per-ship-class (see _reconfigure_for_class). These start at
+# the corvette defaults so the deck is valid before set_ship_list() arrives, and
+# are recomputed whenever the active ship class changes.
+var current_class: String = "corvette"
+var ROOM_NAMES: Array = ["Bridge", "Crew Quarters", "Marine Barracks"]
+var ROOM_W: float = 10.0
+var ROOM_D: float = 15.0
+var ROOM_CENTERS: Array = [-10.0, 0.0, 10.0]
 const DOOR_HALF: float = 0.6         # half-width of the passable doorway gap between rooms
 # Inter-room wall X positions (boundaries between adjacent room centers).
-const ROOM_BOUNDARIES: Array = [-5.0, 5.0]
+var ROOM_BOUNDARIES: Array = [-5.0, 5.0]
+
+# Ship-class -> ordered list of Meshy interior GLB basenames (one per room).
+# Basenames match assets/models/meshy_visual_upgrade/<basename>.repacked.glb.
+const MESHY_INTERIOR_GLB: Dictionary = {
+	"fighter":  ["fighter_cockpit"],
+	"corvette": ["corvette_bridge", "corvette_crew_quarters", "corvette_marine_barracks"],
+	"frigate":  ["frigate_bridge", "frigate_engineering", "frigate_crew_quarters",
+				 "frigate_marine_barracks", "frigate_armory"],
+	"capital":  ["capital_bridge", "capital_cic", "capital_engineering",
+				 "capital_officer_quarters", "capital_crew_quarters",
+				 "capital_marine_barracks", "capital_sick_bay"],
+	"station":  ["station_command_center", "station_reactor", "station_trade_hub",
+				 "station_crew_quarters", "station_marine_barracks", "station_brig",
+				 "station_sick_bay", "station_cargo_bay", "station_docking_control"],
+}
+
+# Per-class room footprint (walkable bounds scale with ship size).
+const CLASS_ROOM_DIMS: Dictionary = {
+	"fighter":  {"w": 6.0,  "d": 9.0},
+	"corvette": {"w": 10.0, "d": 15.0},
+	"frigate":  {"w": 14.0, "d": 21.0},
+	"capital":  {"w": 18.0, "d": 27.0},
+	"station":  {"w": 22.0, "d": 33.0},
+}
 
 # Ship system
 var current_ship_index: int = 0
@@ -214,8 +242,136 @@ func _set_anim_state(info: Dictionary, moving: bool) -> void:
 func _try_load_meshy_captain() -> void:
 	_captain_anim = _try_load_meshy_humanoid(captain, String(Game.MESHY_CAPTAIN_GLB), "CrewCaptainMeshy")
 
+func _reconfigure_for_class(cls: String) -> void:
+	# Recompute ROOM_NAMES / dims / centers / boundaries for the given ship class.
+	# Unknown classes fall back to corvette so the deck is always valid.
+	var key: String = cls.to_lower()
+	if not MESHY_INTERIOR_GLB.has(key):
+		key = "corvette"
+	current_class = key
+	var basenames: Array = MESHY_INTERIOR_GLB[key]
+	var dims: Dictionary = CLASS_ROOM_DIMS[key]
+	ROOM_W = float(dims["w"])
+	ROOM_D = float(dims["d"])
+	# Display names derive from the GLB basenames (strip the class prefix).
+	# Godot's String.capitalize() turns "crew_quarters" into "Crew Quarters".
+	ROOM_NAMES = []
+	for b in basenames:
+		var bn: String = String(b)
+		var disp: String = bn.substr(key.length() + 1)
+		ROOM_NAMES.append(disp.capitalize())
+	# Rooms are laid out contiguously along X, spaced by ROOM_W and centered on 0.
+	var n: int = ROOM_NAMES.size()
+	ROOM_CENTERS = []
+	var start: float = -ROOM_W * float(n - 1) * 0.5
+	for i in range(n):
+		ROOM_CENTERS.append(start + ROOM_W * float(i))
+	# Boundaries are the midpoints between adjacent room centers.
+	ROOM_BOUNDARIES = []
+	for i in range(n - 1):
+		ROOM_BOUNDARIES.append((float(ROOM_CENTERS[i]) + float(ROOM_CENTERS[i + 1])) * 0.5)
+	# Keep current_room_index in range for the new layout.
+	current_room_index = clampi(current_room_index, 0, max(0, n - 1))
+
+func _class_for_current_ship() -> String:
+	# Read the active owned ship's class (lowercase). Defaults to corvette when
+	# no ship list has been supplied yet (e.g. during initial build()).
+	if ship_list.is_empty():
+		return "corvette"
+	var sd: Dictionary = ship_list[current_ship_index % ship_list.size()]
+	return String(sd.get("class", "corvette")).to_lower()
+
+func _glb_name_for_room(room_name: String) -> String:
+	# Reconstruct the Meshy GLB basename for a room from the active class.
+	# "Crew Quarters" on a corvette -> "corvette_crew_quarters".
+	return "%s_%s" % [current_class, room_name.to_lower().replace(" ", "_")]
+
+func _try_load_meshy_room(glb_basename: String, idx: int, cx: float) -> bool:
+	# Mirror of _try_load_meshy_humanoid for static interior props: load the
+	# repacked GLB, fit it to the room footprint, and parent it at the room's X
+	# center. Returns false (so the caller builds procedural geometry instead)
+	# when the visual upgrade is disabled or the GLB is missing/unloadable.
+	if not Game.MESHY_VISUAL_UPGRADE_ENABLED:
+		return false
+	var path: String = "res://assets/models/meshy_visual_upgrade/%s.repacked.glb" % glb_basename
+	if not ResourceLoader.exists(path):
+		return false
+	var packed: PackedScene = load(path)
+	if packed == null:
+		push_warning("[meshy] %s: interior GLB missing or failed to import — keeping procedural" % path)
+		return false
+	var glb_root: Node = packed.instantiate()
+	if glb_root == null:
+		push_warning("[meshy] %s: interior GLB instantiate() returned null — keeping procedural" % path)
+		return false
+	var holder: Node3D = Node3D.new()
+	holder.name = "RoomMeshy_%d" % idx
+	_room_container.add_child(holder)
+	_clear_owners(glb_root)
+	holder.add_child(glb_root)
+	# Scale + center the interior to the room footprint. Meshy interiors are
+	# normalized to ~1-2 units regardless of room; without this a station hub
+	# renders the same size as a fighter cockpit.
+	_fit_interior_to_room(holder)
+	holder.position = Vector3(cx, 0.0, 0.0)
+	return true
+
+func _fit_interior_to_room(holder: Node3D) -> void:
+	# Uniformly scale the holder so the GLB's horizontal footprint fills ROOM_W x
+	# ROOM_D, then rest its floor on y=0. Purely visual.
+	var aabb: AABB = _subtree_aabb(holder)
+	if aabb.size.x <= 0.0001 or aabb.size.z <= 0.0001:
+		return
+	# Leave a small margin so geometry sits inside the walkable bounds.
+	var fx: float = (ROOM_W * 0.92) / aabb.size.x
+	var fz: float = (ROOM_D * 0.92) / aabb.size.z
+	var f: float = min(fx, fz)
+	holder.scale = Vector3(f, f, f)
+	# Recompute AABB after scaling to drop the floor onto y=0 and center on X/Z.
+	var scaled: AABB = _subtree_aabb(holder)
+	holder.position = Vector3(-(scaled.position.x + scaled.size.x * 0.5),
+							  -scaled.position.y,
+							  -(scaled.position.z + scaled.size.z * 0.5))
+
+func _subtree_aabb(root: Node3D) -> AABB:
+	# Union of every descendant MeshInstance3D AABB in root's local space.
+	var acc: Dictionary = {"aabb": AABB(), "has": false}
+	_accum_aabb(root, Transform3D.IDENTITY, acc)
+	return acc["aabb"] if acc["has"] else AABB()
+
+func _accum_aabb(node: Node, xform: Transform3D, acc: Dictionary) -> void:
+	for c in node.get_children():
+		var cx: Transform3D = xform
+		if c is Node3D:
+			cx = xform * (c as Node3D).transform
+		if c is MeshInstance3D and (c as MeshInstance3D).mesh != null:
+			var t: AABB = _xform_aabb(cx, (c as MeshInstance3D).mesh.get_aabb())
+			if not acc["has"]:
+				acc["aabb"] = t
+				acc["has"] = true
+			else:
+				acc["aabb"] = (acc["aabb"] as AABB).merge(t)
+		_accum_aabb(c, cx, acc)
+
+func _xform_aabb(t: Transform3D, a: AABB) -> AABB:
+	var corners: Array = [
+		a.position,
+		a.position + Vector3(a.size.x, 0, 0),
+		a.position + Vector3(0, a.size.y, 0),
+		a.position + Vector3(0, 0, a.size.z),
+		a.position + Vector3(a.size.x, a.size.y, 0),
+		a.position + Vector3(a.size.x, 0, a.size.z),
+		a.position + Vector3(0, a.size.y, a.size.z),
+		a.position + a.size,
+	]
+	var out: AABB = AABB(t * (corners[0] as Vector3), Vector3.ZERO)
+	for i in range(1, 8):
+		out = out.expand(t * (corners[i] as Vector3))
+	return out
+
 func build(p_rng: RandomNumberGenerator) -> void:
 	rng = p_rng
+	_reconfigure_for_class(_class_for_current_ship())
 	_room_container = Node3D.new()
 	_room_container.name = "RoomGeometry"
 	add_child(_room_container)
@@ -279,6 +435,39 @@ func _clear_deck() -> void:
 	_follow_count = 0
 
 func _build_room_geometry(idx: int) -> void:
+	# Try the Meshy interior GLB for this room first; fall back to procedural
+	# box geometry when the GLB is missing or the visual upgrade is disabled.
+	var cx: float = float(ROOM_CENTERS[idx])
+	var room_name: String = String(ROOM_NAMES[idx])
+	var glb_basename: String = _glb_name_for_room(room_name)
+	if _try_load_meshy_room(glb_basename, idx, cx):
+		_build_room_lighting(idx, cx)
+		return
+	_build_procedural_room(idx)
+
+func _build_room_lighting(idx: int, cx: float) -> void:
+	# Per-room lighting rig. Shared by both the Meshy and procedural paths so a
+	# loaded GLB (Meshy outputs are unlit) is still visible.
+	var sun: DirectionalLight3D = DirectionalLight3D.new()
+	sun.rotation_degrees = Vector3(-70, -30, 0)
+	sun.light_energy = 2.5
+	sun.light_color = Color(1.0, 0.95, 0.85, 1.0)
+	_room_container.add_child(sun)
+	var lamp: OmniLight3D = OmniLight3D.new()
+	lamp.position = Vector3(cx, 3.5, 0)
+	lamp.omni_range = max(22.0, ROOM_D)
+	lamp.light_energy = 3.0
+	lamp.light_color = Color(0.9, 0.92, 1.0, 1.0)
+	_room_container.add_child(lamp)
+	# Fill light from the opposite side to avoid harsh shadows on humanoids.
+	var fill: OmniLight3D = OmniLight3D.new()
+	fill.position = Vector3(cx, 2.5, -6)
+	fill.omni_range = max(20.0, ROOM_D * 0.8)
+	fill.light_energy = 1.5
+	fill.light_color = Color(0.85, 0.9, 1.0, 1.0)
+	_room_container.add_child(fill)
+
+func _build_procedural_room(idx: int) -> void:
 	var cx: float = float(ROOM_CENTERS[idx])
 	var hw: float = ROOM_W * 0.5
 	var hd: float = ROOM_D * 0.5
@@ -292,7 +481,7 @@ func _build_room_geometry(idx: int) -> void:
 		Color(0.28, 0.22, 0.16),
 		Color(0.26, 0.16, 0.16),
 	]
-	fmat.albedo_color = Color(floor_colors[idx])
+	fmat.albedo_color = Color(floor_colors[idx % floor_colors.size()])
 	fmat.metallic = 0.3
 	fmat.roughness = 0.6
 	floor_mi.material_override = fmat
@@ -304,7 +493,7 @@ func _build_room_geometry(idx: int) -> void:
 		Color(0.38, 0.28, 0.18),
 		Color(0.38, 0.18, 0.18),
 	]
-	var wcol: Color = Color(wall_colors[idx])
+	var wcol: Color = Color(wall_colors[idx % wall_colors.size()])
 	var wmat: StandardMaterial3D = StandardMaterial3D.new()
 	wmat.albedo_color = wcol
 	wmat.metallic = 0.4
@@ -376,7 +565,9 @@ func _build_room_geometry(idx: int) -> void:
 	var gmat: StandardMaterial3D = StandardMaterial3D.new()
 	gmat.emission_enabled = true
 	gmat.emission_energy_multiplier = 1.2
-	match idx:
+	# Decoration cycles every 3 rooms so larger decks (frigate..station) still
+	# get varied props in the procedural fallback.
+	match idx % 3:
 		0:
 			gmat.albedo_color = Color(0.1, 0.3, 0.4)
 			gmat.emission = Color(0.2, 0.8, 1.0)
@@ -426,26 +617,9 @@ func _build_room_geometry(idx: int) -> void:
 					rack.position = Vector3(cx + xoff, 1.2, zoff)
 					_room_container.add_child(rack)
 
-	var sun: DirectionalLight3D = DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-70, -30, 0)
-	sun.light_energy = 2.5
-	sun.light_color = Color(1.0, 0.95, 0.85, 1.0)
-	_room_container.add_child(sun)
-	var lamp: OmniLight3D = OmniLight3D.new()
-	lamp.position = Vector3(cx, 3.5, 0)
-	lamp.omni_range = 22
-	lamp.light_energy = 3.0
-	lamp.light_color = Color(0.9, 0.92, 1.0, 1.0)
-	_room_container.add_child(lamp)
-	# Fill light from the opposite side to avoid harsh shadows on humanoids.
-	var fill: OmniLight3D = OmniLight3D.new()
-	fill.position = Vector3(cx, 2.5, -6)
-	fill.omni_range = 20
-	fill.light_energy = 1.5
-	fill.light_color = Color(0.85, 0.9, 1.0, 1.0)
-	_room_container.add_child(fill)
 	# Ambient environment is handled by the main scene's WorldEnvironment swap
 	# in _set_deck_mode() — no local WorldEnvironment needed.
+	_build_room_lighting(idx, cx)
 
 func refresh_roster() -> void:
 	# Populate every room at once (the deck is seamless), distributing crew/marines by role:
@@ -488,7 +662,9 @@ func _spawn_crew_detail(crew_dict: Dictionary, idx: int, total: int, room_idx: i
 		"gunner": col = Color(1.0, 0.55, 0.15)
 	var hh: Node3D = _build_humanoid(col)
 	hh.scale = Vector3(1.28, 1.28, 1.28)
-	var cx: float = float(ROOM_CENTERS[room_idx])
+	# Clamp to the current layout — smaller ships (e.g. a 1-room fighter) lack the
+	# higher room indices the role->room mapping assumes.
+	var cx: float = float(ROOM_CENTERS[clampi(room_idx, 0, ROOM_CENTERS.size() - 1)])
 	var ang: float = float(idx) / float(total) * TAU
 	var home: Vector3 = Vector3(cx + sin(ang) * 3.0, 0, cos(ang) * 4.0)
 	hh.position = home
@@ -516,7 +692,7 @@ func _spawn_crew_marine_named(marine_dict: Dictionary, idx: int, total: int, roo
 	var col: Color = Color(1.0, 0.5, 0.35)
 	var hh: Node3D = _build_humanoid(col)
 	hh.scale = Vector3(1.28, 1.28, 1.28)
-	var cx: float = float(ROOM_CENTERS[room_idx])
+	var cx: float = float(ROOM_CENTERS[clampi(room_idx, 0, ROOM_CENTERS.size() - 1)])
 	var ang: float = float(idx) / float(total) * TAU
 	var home: Vector3 = Vector3(cx + sin(ang) * 3.0, 0, cos(ang) * 4.0)
 	hh.position = home
@@ -556,13 +732,29 @@ func set_ship_list(owned_ships: Array) -> void:
 	ship_list = owned_ships.duplicate()
 	if current_ship_index >= ship_list.size():
 		current_ship_index = 0
+	# Reconfigure the deck if the active ship's class differs from what is built.
+	var new_class: String = _class_for_current_ship()
+	if new_class != current_class:
+		_reconfigure_for_class(new_class)
+		current_room_index = 0
+		if _room_container != null:
+			_build_all_rooms()
+		if captain != null:
+			captain.position = Vector3(float(ROOM_CENTERS[0]), 0, 6)
+		_update_camera()
 
 func cycle_ship() -> void:
 	if ship_list.size() <= 1:
 		return
 	current_ship_index = (current_ship_index + 1) % ship_list.size()
 	current_room_index = 0
-	refresh_roster()
+	# A class change rebuilds room geometry; same-class just refreshes the roster.
+	var new_class: String = _class_for_current_ship()
+	if new_class != current_class:
+		_reconfigure_for_class(new_class)
+		_build_all_rooms()
+	else:
+		refresh_roster()
 	captain.position = Vector3(float(ROOM_CENTERS[0]), 0, 6)
 	_update_camera()
 

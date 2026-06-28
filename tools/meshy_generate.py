@@ -43,8 +43,8 @@ ENV_FILE_CANDIDATES = [
     Path.home() / ".config" / "hermes" / ".env",
 ]
 
-# 12 assets total: 5 original + 7 new for full procedural elimination.
-# Prompt text is verbatim from the task body — do NOT rewrite.
+# 37 assets total: 5 original + 7 procedural-elimination + 25 ship interiors.
+# Prompt text is verbatim from the task body / creative brief — do NOT rewrite.
 ASSETS: list[dict] = [
     # --- Original 5 hero assets (commit 7ed687f) ---
     {
@@ -174,6 +174,339 @@ ASSETS: list[dict] = [
             "humanoid sci-fi marine soldier, wearing orange and red combat armor with helmet, "
             "boots, gloves, weapon holster, standing in T-pose with arms outstretched horizontally, "
             "legs slightly apart, game character, clean topology"
+        ),
+    },
+    # --- 25 ship-type-specific interior rooms (card t_32c3321c) -----------
+    # Static walkable interiors swapped into crew_deck.gd per ship class.
+    # All non-rigged props: interior=True skips the rig/animation stages.
+    # Prompts are verbatim from docs/studio/creative_deltas/ship_interiors.md §3.
+    {
+        "id": "fighter_cockpit",
+        "klass": "fighter",
+        "team": "any",
+        "rigged": False,
+        "interior": True,
+        "prompt": (
+            "low-poly sci-fi fighter cockpit interior, single pilot seat, wraparound "
+            "transparent canopy dome with structural ribbing, holographic HUD projections "
+            "floating in air, control panels with glowing blue displays, cramped intimate "
+            "space, dark grey panels with cool blue console glow, hard surface, game asset, "
+            "clean topology, walkable interior, no exterior hull"
+        ),
+    },
+    {
+        "id": "corvette_bridge",
+        "klass": "corvette",
+        "team": "any",
+        "rigged": False,
+        "interior": True,
+        "prompt": (
+            "low-poly sci-fi corvette bridge interior, central captain chair, curved console "
+            "panels with glowing blue displays, forward viewport showing stars, cramped "
+            "submarine-like space, exposed cable runs, desaturated steel-blue walls, hard "
+            "surface, game asset, clean topology, walkable interior, no exterior hull"
+        ),
+    },
+    {
+        "id": "corvette_crew_quarters",
+        "klass": "corvette",
+        "team": "any",
+        "rigged": False,
+        "interior": True,
+        "prompt": (
+            "low-poly sci-fi corvette crew quarters interior, two-tier bunk beds against wall, "
+            "personal lockers, warm amber bunk lighting, cramped narrow space, desaturated "
+            "blue-grey walls, hard surface, game asset, clean topology, walkable interior, "
+            "no exterior hull"
+        ),
+    },
+    {
+        "id": "corvette_marine_barracks",
+        "klass": "corvette",
+        "team": "any",
+        "rigged": False,
+        "interior": True,
+        "prompt": (
+            "low-poly sci-fi corvette marine barracks interior, fold-down bunks, weapon rack "
+            "with rifles, equipment lockers, red instrument glow accent lighting, cramped "
+            "military sleeping quarters, hard surface, game asset, clean topology, walkable "
+            "interior, no exterior hull"
+        ),
+    },
+    {
+        "id": "frigate_bridge",
+        "klass": "frigate",
+        "team": "any",
+        "rigged": False,
+        "interior": True,
+        "prompt": (
+            "low-poly sci-fi frigate bridge interior, elevated captain chair, wide panoramic "
+            "console desk with multiple crew stations, holographic tactical display table, cool "
+            "white overhead lighting with teal accents, central spine corridor visible through "
+            "doorway, hard surface, game asset, clean topology, walkable interior, no exterior hull"
+        ),
+    },
+    {
+        "id": "frigate_engineering",
+        "klass": "frigate",
+        "team": "any",
+        "rigged": False,
+        "interior": True,
+        "prompt": (
+            "low-poly sci-fi frigate engineering room interior, wall-mounted reactor coolant "
+            "pipes, power junction boxes with amber hazard striping, tool racks, warning lights, "
+            "industrial machinery, exposed conduits on ceiling, hard surface, game asset, clean "
+            "topology, walkable interior, no exterior hull"
+        ),
+    },
+    {
+        "id": "frigate_crew_quarters",
+        "klass": "frigate",
+        "team": "any",
+        "rigged": False,
+        "interior": True,
+        "prompt": (
+            "low-poly sci-fi frigate crew quarters interior, four bunk beds in two rows, personal "
+            "reading lights, fold-down desks, warm neutral lighting, spacious military dormitory, "
+            "teal floor lighting strips, hard surface, game asset, clean topology, walkable "
+            "interior, no exterior hull"
+        ),
+    },
+    {
+        "id": "frigate_marine_barracks",
+        "klass": "frigate",
+        "team": "any",
+        "rigged": False,
+        "interior": True,
+        "prompt": (
+            "low-poly sci-fi frigate marine barracks interior, reinforced bunk frames, equipment "
+            "staging area, weapon cleaning station, red overhead accent lighting, military "
+            "readiness room, hard surface, game asset, clean topology, walkable interior, "
+            "no exterior hull"
+        ),
+    },
+    {
+        "id": "frigate_armory",
+        "klass": "frigate",
+        "team": "any",
+        "rigged": False,
+        "interior": True,
+        "prompt": (
+            "low-poly sci-fi frigate armory interior, floor-to-ceiling weapon racks with rifles "
+            "and sidearms, armour locker cabinets, ammunition crates, red weapon-rack backlight "
+            "glow, reinforced door frame, hard surface, game asset, clean topology, walkable "
+            "interior, no exterior hull"
+        ),
+    },
+    {
+        "id": "capital_bridge",
+        "klass": "capital",
+        "team": "any",
+        "rigged": False,
+        "interior": True,
+        "prompt": (
+            "low-poly sci-fi capital ship bridge interior, grand elevated command platform, "
+            "multiple officer stations with holographic displays, panoramic forward windows "
+            "showing space, gold trim accents on white panels, catwalk overlooking lower level, "
+            "prestigious flagship command center, hard surface, game asset, clean topology, "
+            "walkable interior, no exterior hull"
+        ),
+    },
+    {
+        "id": "capital_cic",
+        "klass": "capital",
+        "team": "any",
+        "rigged": False,
+        "interior": True,
+        "prompt": (
+            "low-poly sci-fi capital ship CIC interior, Combat Information Center with large "
+            "central holographic tactical table, surrounding operator stations, multi-tier layout "
+            "with catwalk above, blue holographic glow illuminating operators from below, white "
+            "and blue paneling, hard surface, game asset, clean topology, walkable interior, "
+            "no exterior hull"
+        ),
+    },
+    {
+        "id": "capital_engineering",
+        "klass": "capital",
+        "team": "any",
+        "rigged": False,
+        "interior": True,
+        "prompt": (
+            "low-poly sci-fi capital ship engineering interior, massive reactor housing with "
+            "glowing coolant pipes, control consoles in a gallery arrangement, amber and blue "
+            "status lights, catwalk grating floor, industrial cathedral scale, hard surface, "
+            "game asset, clean topology, walkable interior, no exterior hull"
+        ),
+    },
+    {
+        "id": "capital_officer_quarters",
+        "klass": "capital",
+        "team": "any",
+        "rigged": False,
+        "interior": True,
+        "prompt": (
+            "low-poly sci-fi capital ship officer quarters interior, private single cabin, "
+            "wood-grain composite desk, personal holographic display, warm ambient lighting, "
+            "porthole window showing stars, comfortable military accommodation, hard surface, "
+            "game asset, clean topology, walkable interior, no exterior hull"
+        ),
+    },
+    {
+        "id": "capital_crew_quarters",
+        "klass": "capital",
+        "team": "any",
+        "rigged": False,
+        "interior": True,
+        "prompt": (
+            "low-tier sci-fi capital ship crew quarters interior, eight bunk beds in open bay, "
+            "personal storage lockers, soft blue-white overhead lighting, spacious military "
+            "dormitory, clean white panels with teal accents, hard surface, game asset, clean "
+            "topology, walkable interior, no exterior hull"
+        ),
+    },
+    {
+        "id": "capital_marine_barracks",
+        "klass": "capital",
+        "team": "any",
+        "rigged": False,
+        "interior": True,
+        "prompt": (
+            "low-poly sci-fi capital ship marine barracks interior, reinforced bunk frames in "
+            "rows, equipment armoury along walls, red accent strip lighting, military staging "
+            "area with weapon racks, hard surface, game asset, clean topology, walkable interior, "
+            "no exterior hull"
+        ),
+    },
+    {
+        "id": "capital_sick_bay",
+        "klass": "capital",
+        "team": "any",
+        "rigged": False,
+        "interior": True,
+        "prompt": (
+            "low-poly sci-fi capital ship sick bay interior, two medical beds with overhead "
+            "surgical lights, diagnostic equipment on walls, medicine cabinets with blue "
+            "underglow, sterile white panels with soft blue ambient lighting, clean medical bay, "
+            "hard surface, game asset, clean topology, walkable interior, no exterior hull"
+        ),
+    },
+    {
+        "id": "station_command_center",
+        "klass": "station",
+        "team": "any",
+        "rigged": False,
+        "interior": True,
+        "prompt": (
+            "low-poly sci-fi space station command center interior, circular room with central "
+            "command holographic globe, surrounding operator stations, panoramic windows showing "
+            "docking ships, neutral grey walls with white structural beams, cool white overhead "
+            "lighting, hard surface, game asset, clean topology, walkable interior, no exterior hull"
+        ),
+    },
+    {
+        "id": "station_reactor",
+        "klass": "station",
+        "team": "any",
+        "rigged": False,
+        "interior": True,
+        "prompt": (
+            "low-poly sci-fi space station reactor room interior, central reactor core visible "
+            "through reinforced glass housing, pulsing blue Cherenkov-style glow, coolant pipe "
+            "arrays on walls, radiation warning markings, catwalk around the core, industrial "
+            "hazard lighting, hard surface, game asset, clean topology, walkable interior, "
+            "no exterior hull"
+        ),
+    },
+    {
+        "id": "station_trade_hub",
+        "klass": "station",
+        "team": "any",
+        "rigged": False,
+        "interior": True,
+        "prompt": (
+            "low-poly sci-fi space station trade hub interior, open market stalls with holographic "
+            "advertisement displays, colourful neon signs, civilian foot traffic area, neutral "
+            "grey floor with coloured lighting from vendor booths, bustling commercial atmosphere, "
+            "hard surface, game asset, clean topology, walkable interior, no exterior hull"
+        ),
+    },
+    {
+        "id": "station_crew_quarters",
+        "klass": "station",
+        "team": "any",
+        "rigged": False,
+        "interior": True,
+        "prompt": (
+            "low-poly sci-fi space station crew quarters interior, modular bunk pods in rows, "
+            "personal storage, soft warm lighting, civilian-military hybrid accommodation, grey "
+            "panels with cyan accent strips, hard surface, game asset, clean topology, walkable "
+            "interior, no exterior hull"
+        ),
+    },
+    {
+        "id": "station_marine_barracks",
+        "klass": "station",
+        "team": "any",
+        "rigged": False,
+        "interior": True,
+        "prompt": (
+            "low-poly sci-fi space station marine barracks interior, military bunk area within "
+            "station, weapon lockers, equipment staging, red overhead accent lighting, security "
+            "force quarters, hard surface, game asset, clean topology, walkable interior, "
+            "no exterior hull"
+        ),
+    },
+    {
+        "id": "station_brig",
+        "klass": "station",
+        "team": "any",
+        "rigged": False,
+        "interior": True,
+        "prompt": (
+            "low-poly sci-fi space station brig interior, reinforced cell with energy barrier "
+            "across doorway, harsh red overhead lighting, single cot, grey walls with warning "
+            "markings, detention cell, hard surface, game asset, clean topology, walkable "
+            "interior, no exterior hull"
+        ),
+    },
+    {
+        "id": "station_sick_bay",
+        "klass": "station",
+        "team": "any",
+        "rigged": False,
+        "interior": True,
+        "prompt": (
+            "low-poly sci-fi space station sick bay interior, three medical beds with diagnostic "
+            "scanners, medicine storage with blue glow, surgical robot arm mounted on ceiling, "
+            "sterile white panels with soft blue lighting, station medical facility, hard surface, "
+            "game asset, clean topology, walkable interior, no exterior hull"
+        ),
+    },
+    {
+        "id": "station_cargo_bay",
+        "klass": "station",
+        "team": "any",
+        "rigged": False,
+        "interior": True,
+        "prompt": (
+            "low-poly sci-fi space station cargo bay interior, large open space with stacked "
+            "shipping containers, cargo crane rail on ceiling, yellow hazard floor markings, "
+            "industrial lighting, forklift parking area, hard surface, game asset, clean topology, "
+            "walkable interior, no exterior hull"
+        ),
+    },
+    {
+        "id": "station_docking_control",
+        "klass": "station",
+        "team": "any",
+        "rigged": False,
+        "interior": True,
+        "prompt": (
+            "low-poly sci-fi space station docking control interior, window overlooking docking "
+            "bay with small ship attached, control console with status displays, communication "
+            "equipment, white and grey paneling with blue status lights, airlock control station, "
+            "hard surface, game asset, clean topology, walkable interior, no exterior hull"
         ),
     },
 ]
@@ -795,7 +1128,9 @@ def process_asset(asset: dict, state: dict) -> dict:
         else:
             log(f"  repacked already present, skipping")
 
-    if asset["rigged"]:
+    # Interior props are static — never rig/animate them even if a future
+    # entry sets rigged by mistake.
+    if asset["rigged"] and not asset.get("interior"):
         rig_id = stage_rig(state, asset, remesh_id)
         rig_result = poll(f"{API_ROOT}/openapi/v1/rigging/{rig_id}", label=f"{asset_id}/rig")
         # poll() returns the full task JSON; the URL lives under "result".
@@ -877,23 +1212,39 @@ def process_asset(asset: dict, state: dict) -> dict:
     }
 
 
-def parse_only(spec: str | None) -> list[int] | None:
+def parse_only(spec: str | None) -> list | None:
+    """Parse --only into a selector list. Each token is either a 1-based integer
+    index (or 'a-b' range) into ASSETS, or an asset id string. Returns a mixed
+    list of 0-based ints and id strings, or None for "all"."""
     if not spec:
         return None
-    out: list[int] = []
+    out: list = []
     for tok in spec.split(","):
         tok = tok.strip()
-        if "-" in tok:
-            a, b = tok.split("-", 1)
-            out.extend(range(int(a), int(b) + 1))
+        if not tok:
+            continue
+        # Numeric index or range -> 0-based ints.
+        if re.fullmatch(r"\d+(-\d+)?", tok):
+            if "-" in tok:
+                a, b = tok.split("-", 1)
+                out.extend(range(int(a) - 1, int(b)))
+            else:
+                out.append(int(tok) - 1)
         else:
-            out.append(int(tok))
-    return [i - 1 for i in out]  # 0-indexed
+            out.append(tok)  # asset id string
+    return out
+
+
+def _asset_selected(idx: int, asset: dict, selected: list | None) -> bool:
+    if selected is None:
+        return True
+    return idx in selected or asset["id"] in selected
 
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--only", help="Comma-separated asset indices (1..12). E.g. '1,5' or '6-12'.")
+    p.add_argument("--only", help="Comma-separated asset indices (1-based) or asset ids. "
+                                  "E.g. '1,5', '13-37', or 'fighter_cockpit,corvette_bridge'.")
     p.add_argument("--download-only", action="store_true",
                    help="Skip Meshy API calls; only re-download / re-pack from state file.")
     args = p.parse_args()
@@ -904,7 +1255,7 @@ def main() -> int:
     ASSETS_DIR.mkdir(parents=True, exist_ok=True)
 
     selected = parse_only(args.only)
-    selected_assets = [a for i, a in enumerate(ASSETS) if selected is None or i in selected]
+    selected_assets = [a for i, a in enumerate(ASSETS) if _asset_selected(i, a, selected)]
 
     summary = []
     for asset in selected_assets:

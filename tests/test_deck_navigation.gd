@@ -69,6 +69,15 @@ func _initialize() -> void:
 	deck.cycle_ship()
 	print("Cycle ship OK, index: %d -> %d" % [idx_before, deck.current_ship_index])
 
+	# Interiors are now class-specific (card t_32c3321c): a fighter wing has a
+	# single-room cockpit, so goto_room(1)/(2) below would be out of range on it.
+	# Return to the flagship (index 0, a 3-room corvette) for the room-nav checks.
+	var guard: int = 0
+	while deck.current_ship_index != 0 and guard < 16:
+		deck.cycle_ship()
+		guard += 1
+	print("Back on flagship: %s (%d rooms)" % [deck.current_ship_label(), deck.ROOM_NAMES.size()])
+
 	# 4. Call goto_room(1) and verify current_room_index changes
 	deck.goto_room(1)
 	if deck.current_room_index != 1:
