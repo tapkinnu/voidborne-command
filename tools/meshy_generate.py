@@ -305,11 +305,10 @@ ASSETS: list[dict] = [
         "rigged": False,
         "interior": True,
         "prompt": (
-            "low-poly sci-fi capital ship bridge interior, grand elevated command platform, "
-            "multiple officer stations with holographic displays, panoramic forward windows "
-            "showing space, gold trim accents on white panels, catwalk overlooking lower level, "
-            "prestigious flagship command center, hard surface, game asset, clean topology, "
-            "walkable interior, no exterior hull"
+            "low-poly sci-fi capital ship bridge interior, central command chair, "
+            "curved console panels with glowing displays, simple room with four walls "
+            "and a floor, hard surface, game asset, clean topology, walkable interior, "
+            "no exterior hull"
         ),
     },
     {
@@ -438,10 +437,10 @@ ASSETS: list[dict] = [
         "rigged": False,
         "interior": True,
         "prompt": (
-            "low-poly sci-fi space station crew quarters interior, modular bunk pods in rows, "
-            "personal storage, soft warm lighting, civilian-military hybrid accommodation, grey "
-            "panels with cyan accent strips, hard surface, game asset, clean topology, walkable "
-            "interior, no exterior hull"
+            "low-poly sci-fi space station crew quarters interior, simple row of "
+            "four bunk beds along one wall, small storage lockers, rectangular "
+            "room with grey walls, hard surface, game asset, clean topology, "
+            "walkable interior, no exterior hull"
         ),
     },
     {
@@ -672,6 +671,53 @@ def poll(get_url: str, *, label: str, max_seconds: float = 7200.0,
         time.sleep(15 if status == "IN_PROGRESS" else 30)
 
 
+def _task_status(task_id: str) -> str | None:
+    """Return Meshy's current status for a task id (SUCCEEDED / FAILED / CANCELED /
+    IN_PROGRESS / PENDING / UNKNOWN) or None if the GET itself failed.
+
+    Used by stage_* functions to detect a cached task that's already terminally
+    FAILED/CANCELED — in which case we must start a fresh task instead of
+    reusing the dead one.
+    """
+    if not task_id:
+        return None
+    try:
+        # Different endpoints use different paths; the canonical task GET is
+        # `/openapi/v2/text-to-3d/<id>` for text-to-3d tasks and
+        # `/openapi/v1/<endpoint>/<id>` for remesh/rig/anim. We probe the v2
+        # path first (covers preview/refine/remesh in current Meshy API), and
+        # fall back to None on error so the caller treats it as "unknown".
+        data = _http_json("GET", f"{API_ROOT}/openapi/v2/text-to-3d/{task_id}", timeout=30)
+        return str(data.get("status", "UNKNOWN"))
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError, KeyError):
+        return None
+
+
+# --------------------------------------------------------------------------
+# Stage wrappers — resumable.
+# --------------------------------------------------------------------------
+
+# Statuses that mean the cached task is dead and must be replaced.
+_DEAD_STATUSES = {"FAILED", "CANCELED"}
+
+
+def _cached_task_id_or_none(state: dict, asset_id: str, key: str) -> str | None:
+    """Return the cached task id for (asset_id, key), or None if the cached
+    task is terminally FAILED / CANCELED (in which case the cached id is also
+    removed from state so a fresh task can be started)."""
+    cached = state_get(state, asset_id, key)
+    if not cached:
+        return None
+    status = _task_status(cached)
+    if status in _DEAD_STATUSES:
+        log(f"  cached {key}={cached} is {status} on Meshy — discarding, will retry fresh")
+        # Remove from state so the stage_* function starts a new task.
+        state.setdefault(asset_id, {}).pop(key, None)
+        save_state(state)
+        return None
+    return cached
+
+
 # ---------------------------------------------------------------------------
 # Stage wrappers — resumable.
 # ---------------------------------------------------------------------------
@@ -679,7 +725,7 @@ def poll(get_url: str, *, label: str, max_seconds: float = 7200.0,
 
 def stage_preview(state: dict, asset: dict) -> str:
     asset_id = asset["id"]
-    cached = state_get(state, asset_id, "preview_id")
+    cached = _cached_task_id_or_none(state, asset_id, "preview_id")
     if cached:
         log(f"preview reuse {cached}")
         return cached
@@ -699,7 +745,7 @@ def stage_preview(state: dict, asset: dict) -> str:
 
 def stage_refine(state: dict, asset: dict, preview_id: str) -> str:
     asset_id = asset["id"]
-    cached = state_get(state, asset_id, "refine_id")
+    cached = _cached_task_id_or_none(state, asset_id, "refine_id")
     if cached:
         log(f"refine reuse {cached}")
         return cached
@@ -712,7 +758,7 @@ def stage_refine(state: dict, asset: dict, preview_id: str) -> str:
 
 def stage_remesh(state: dict, asset: dict, refine_id: str) -> str:
     asset_id = asset["id"]
-    cached = state_get(state, asset_id, "remesh_id")
+    cached = _cached_task_id_or_none(state, asset_id, "remesh_id")
     if cached:
         log(f"remesh reuse {cached}")
         return cached
@@ -731,7 +777,7 @@ def stage_remesh(state: dict, asset: dict, refine_id: str) -> str:
 
 def stage_rig(state: dict, asset: dict, remesh_id: str) -> str:
     asset_id = asset["id"]
-    cached = state_get(state, asset_id, "rig_id")
+    cached = _cached_task_id_or_none(state, asset_id, "rig_id")
     if cached:
         log(f"rig reuse {cached}")
         return cached
@@ -745,7 +791,7 @@ def stage_rig(state: dict, asset: dict, remesh_id: str) -> str:
 def stage_animation(state: dict, asset: dict, rig_id: str, action_id: int, label: str) -> str:
     asset_id = asset["id"]
     cache_key = f"anim_{label}_id"
-    cached = state_get(state, asset_id, cache_key)
+    cached = _cached_task_id_or_none(state, asset_id, cache_key)
     if cached:
         log(f"anim[{label}] reuse {cached}")
         return cached
