@@ -312,8 +312,10 @@ func _try_load_meshy_room(glb_basename: String, idx: int, cx: float) -> bool:
 	# Scale + center the interior to the room footprint. Meshy interiors are
 	# normalized to ~1-2 units regardless of room; without this a station hub
 	# renders the same size as a fighter cockpit.
+	# _fit_interior_to_room centres the GLB on the origin and rests its floor on
+	# y=0; shift it to the room's X centre without discarding that placement.
 	_fit_interior_to_room(holder)
-	holder.position = Vector3(cx, 0.0, 0.0)
+	holder.position.x += cx
 	return true
 
 func _fit_interior_to_room(holder: Node3D) -> void:
@@ -322,16 +324,18 @@ func _fit_interior_to_room(holder: Node3D) -> void:
 	var aabb: AABB = _subtree_aabb(holder)
 	if aabb.size.x <= 0.0001 or aabb.size.z <= 0.0001:
 		return
-	# Leave a small margin so geometry sits inside the walkable bounds.
+	# Leave a small margin so geometry sits inside the walkable bounds, and cap the
+	# height so the interior never pokes through the ceiling (wall_h = 5.0).
 	var fx: float = (ROOM_W * 0.92) / aabb.size.x
 	var fz: float = (ROOM_D * 0.92) / aabb.size.z
-	var f: float = min(fx, fz)
+	var fy: float = 4.3 / max(aabb.size.y, 0.001)
+	var f: float = min(fx, min(fz, fy))
 	holder.scale = Vector3(f, f, f)
-	# Recompute AABB after scaling to drop the floor onto y=0 and center on X/Z.
-	var scaled: AABB = _subtree_aabb(holder)
-	holder.position = Vector3(-(scaled.position.x + scaled.size.x * 0.5),
-							  -scaled.position.y,
-							  -(scaled.position.z + scaled.size.z * 0.5))
+	# Centre on X/Z and rest the floor on y=0. _subtree_aabb excludes the holder's
+	# own scale, so the offsets must be multiplied by f to land in world space.
+	holder.position = Vector3(-(aabb.position.x + aabb.size.x * 0.5) * f,
+							  -aabb.position.y * f,
+							  -(aabb.position.z + aabb.size.z * 0.5) * f)
 
 func _subtree_aabb(root: Node3D) -> AABB:
 	# Union of every descendant MeshInstance3D AABB in root's local space.
@@ -435,15 +439,19 @@ func _clear_deck() -> void:
 	_follow_count = 0
 
 func _build_room_geometry(idx: int) -> void:
-	# Try the Meshy interior GLB for this room first; fall back to procedural
-	# box geometry when the GLB is missing or the visual upgrade is disabled.
+	# Always build the procedural SHELL (floor + perimeter walls with doorways +
+	# ceiling) so the deck is fully enclosed and the rooms connect — then place
+	# the Meshy interior GLB inside it as set dressing. Previously a loaded GLB
+	# replaced the shell entirely, leaving each room an open, disconnected diorama
+	# floating in the space backdrop (you could see space out the back). The GLB
+	# interiors are room props, not sealed hulls, so they need the shell around them.
 	var cx: float = float(ROOM_CENTERS[idx])
 	var room_name: String = String(ROOM_NAMES[idx])
 	var glb_basename: String = _glb_name_for_room(room_name)
-	if _try_load_meshy_room(glb_basename, idx, cx):
-		_build_room_lighting(idx, cx)
-		return
-	_build_procedural_room(idx)
+	var has_meshy: bool = _try_load_meshy_room(glb_basename, idx, cx)
+	# Build the enclosing shell; skip the procedural prop clutter when the Meshy
+	# interior already fills the room.
+	_build_procedural_room(idx, has_meshy)
 
 func _build_room_lighting(idx: int, cx: float) -> void:
 	# Per-room lighting rig. Shared by both the Meshy and procedural paths so a
@@ -467,10 +475,34 @@ func _build_room_lighting(idx: int, cx: float) -> void:
 	fill.light_color = Color(0.85, 0.9, 1.0, 1.0)
 	_room_container.add_child(fill)
 
-func _build_procedural_room(idx: int) -> void:
+func _build_doorway_wall(x: float, hd: float, door_gap: float, wall_h: float, wmat: StandardMaterial3D) -> void:
+	# A wall running along Z (depth ROOM_D) with a centered door-shaped opening:
+	# two side panels plus a lintel over the gap so it doesn't open to the ceiling.
+	var panel_d: float = (ROOM_D - door_gap) * 0.5
+	for s in [-1.0, 1.0]:
+		var p: MeshInstance3D = MeshInstance3D.new()
+		var bm: BoxMesh = BoxMesh.new()
+		bm.size = Vector3(0.4, wall_h, panel_d)
+		p.mesh = bm
+		p.material_override = wmat
+		p.position = Vector3(x, wall_h * 0.5, s * (door_gap * 0.5 + panel_d * 0.5))
+		_room_container.add_child(p)
+	var opening_h: float = 2.6                  # walkable doorway height
+	var lintel_h: float = max(0.2, wall_h - opening_h)
+	var lintel: MeshInstance3D = MeshInstance3D.new()
+	var lbm: BoxMesh = BoxMesh.new()
+	lbm.size = Vector3(0.4, lintel_h, door_gap)
+	lintel.mesh = lbm
+	lintel.material_override = wmat
+	lintel.position = Vector3(x, wall_h - lintel_h * 0.5, 0)
+	_room_container.add_child(lintel)
+
+func _build_procedural_room(idx: int, skip_props: bool = false) -> void:
 	var cx: float = float(ROOM_CENTERS[idx])
 	var hw: float = ROOM_W * 0.5
 	var hd: float = ROOM_D * 0.5
+	var wall_h: float = 5.0                 # wall/ceiling height (taller for first-person)
+	var door_gap: float = 2.2               # visual doorway width (>= the walkable gap)
 	var floor_mi: MeshInstance3D = MeshInstance3D.new()
 	var fm: BoxMesh = BoxMesh.new()
 	fm.size = Vector3(ROOM_W, 0.4, ROOM_D)
@@ -488,6 +520,19 @@ func _build_procedural_room(idx: int) -> void:
 	floor_mi.position = Vector3(cx, -0.2, 0)
 	_room_container.add_child(floor_mi)
 
+	# Ceiling so first-person players don't see the space backdrop overhead.
+	var ceil_mi: MeshInstance3D = MeshInstance3D.new()
+	var cm: BoxMesh = BoxMesh.new()
+	cm.size = Vector3(ROOM_W, 0.4, ROOM_D)
+	ceil_mi.mesh = cm
+	var cmat: StandardMaterial3D = StandardMaterial3D.new()
+	cmat.albedo_color = Color(0.10, 0.12, 0.16)
+	cmat.metallic = 0.2
+	cmat.roughness = 0.7
+	ceil_mi.material_override = cmat
+	ceil_mi.position = Vector3(cx, wall_h, 0)
+	_room_container.add_child(ceil_mi)
+
 	var wall_colors: Array = [
 		Color(0.22, 0.32, 0.42),
 		Color(0.38, 0.28, 0.18),
@@ -502,10 +547,10 @@ func _build_procedural_room(idx: int) -> void:
 	for zpos in [-hd, hd]:
 		var wmi: MeshInstance3D = MeshInstance3D.new()
 		var wbm: BoxMesh = BoxMesh.new()
-		wbm.size = Vector3(ROOM_W, 4, 0.4)
+		wbm.size = Vector3(ROOM_W, wall_h, 0.4)
 		wmi.mesh = wbm
 		wmi.material_override = wmat
-		wmi.position = Vector3(cx, 1.8, zpos)
+		wmi.position = Vector3(cx, wall_h * 0.5, zpos)
 		_room_container.add_child(wmi)
 
 	var is_leftmost: bool = idx == 0
@@ -513,54 +558,29 @@ func _build_procedural_room(idx: int) -> void:
 	if is_leftmost:
 		var wmi: MeshInstance3D = MeshInstance3D.new()
 		var wbm: BoxMesh = BoxMesh.new()
-		wbm.size = Vector3(0.4, 4, ROOM_D)
+		wbm.size = Vector3(0.4, wall_h, ROOM_D)
 		wmi.mesh = wbm
 		wmi.material_override = wmat
-		wmi.position = Vector3(cx - hw, 1.8, 0)
+		wmi.position = Vector3(cx - hw, wall_h * 0.5, 0)
 		_room_container.add_child(wmi)
 	else:
-		var door_gap: float = 1.6
-		var side_h: float = (ROOM_D - door_gap) * 0.5
-		var df1: MeshInstance3D = MeshInstance3D.new()
-		var dfm1: BoxMesh = BoxMesh.new()
-		dfm1.size = Vector3(0.4, 4, side_h)
-		df1.mesh = dfm1
-		df1.material_override = wmat
-		df1.position = Vector3(cx - hw, 1.8, -(hd + side_h) * 0.5)
-		_room_container.add_child(df1)
-		var df2: MeshInstance3D = MeshInstance3D.new()
-		var dfm2: BoxMesh = BoxMesh.new()
-		dfm2.size = Vector3(0.4, 4, side_h)
-		df2.mesh = dfm2
-		df2.material_override = wmat
-		df2.position = Vector3(cx - hw, 1.8, (hd + side_h) * 0.5)
-		_room_container.add_child(df2)
+		_build_doorway_wall(cx - hw, hd, door_gap, wall_h, wmat)
 
 	if is_rightmost:
 		var wmi: MeshInstance3D = MeshInstance3D.new()
 		var wbm: BoxMesh = BoxMesh.new()
-		wbm.size = Vector3(0.4, 4, ROOM_D)
+		wbm.size = Vector3(0.4, wall_h, ROOM_D)
 		wmi.mesh = wbm
 		wmi.material_override = wmat
-		wmi.position = Vector3(cx + hw, 1.8, 0)
+		wmi.position = Vector3(cx + hw, wall_h * 0.5, 0)
 		_room_container.add_child(wmi)
 	else:
-		var door_gap: float = 1.6
-		var side_h: float = (ROOM_D - door_gap) * 0.5
-		var df1: MeshInstance3D = MeshInstance3D.new()
-		var dfm1: BoxMesh = BoxMesh.new()
-		dfm1.size = Vector3(0.4, 4, side_h)
-		df1.mesh = dfm1
-		df1.material_override = wmat
-		df1.position = Vector3(cx + hw, 1.8, -(hd + side_h) * 0.5)
-		_room_container.add_child(df1)
-		var df2: MeshInstance3D = MeshInstance3D.new()
-		var dfm2: BoxMesh = BoxMesh.new()
-		dfm2.size = Vector3(0.4, 4, side_h)
-		df2.mesh = dfm2
-		df2.material_override = wmat
-		df2.position = Vector3(cx + hw, 1.8, (hd + side_h) * 0.5)
-		_room_container.add_child(df2)
+		_build_doorway_wall(cx + hw, hd, door_gap, wall_h, wmat)
+
+	# When a Meshy interior fills the room, skip the procedural prop clutter.
+	if skip_props:
+		_build_room_lighting(idx, cx)
+		return
 
 	var gmat: StandardMaterial3D = StandardMaterial3D.new()
 	gmat.emission_enabled = true
